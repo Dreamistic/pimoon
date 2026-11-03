@@ -12,6 +12,50 @@ const {Runtime,Decoder}=await import('../../src/pimoon/runtime.mjs');
 async function runTest(fn,tools=[],observe=true,options={}){const cwd=await fs.mkdtemp(path.join(base,'case-'));const runtime=new Runtime({cwd,tools,observe,...options});try{await runtime.ready;await fn(runtime,cwd);}finally{const exit=once(runtime.child,'exit');runtime.close();await exit;}}
 const context={tools:[],executeTool:async()=>{throw Error('unexpected tool');}};
 
+for(const transport of ['rust','direct'])test(`${transport}: Python 直接分析外部文件，宿主读取共用凭据保护且不启动 shell`,async()=>{
+ const outside=await fs.mkdtemp(path.join(base,'external-'));
+ const protectedDir=path.join(outside,'credentials');await fs.mkdir(protectedDir);
+ await fs.writeFile(path.join(protectedDir,'secret.txt'),'SYNTHETIC_SECRET');
+ await fs.writeFile(path.join(outside,'events.jsonl'),' {"value":20}\n{"value":22}\n');
+ await fs.writeFile(path.join(outside,'helper.py'),'def total(rows):\n    return sum(row["value"] for row in rows)\n');
+ await fs.writeFile(path.join(outside,'large.txt'),'x'.repeat(4*1024*1024+1));
+ await fs.writeFile(path.join(outside,'binary.txt'),Buffer.from([255]));
+ await runTest(async(runtime,cwd)=>{
+  await fs.symlink(protectedDir,path.join(cwd,'credential-link'),'junction');
+  await fs.symlink(outside,path.join(cwd,'external-link'),'junction');
+  const setup=`from pathlib import Path
+import sys, json, os
+external=Path(${JSON.stringify(outside)})
+sys.path.insert(0,str(external))
+from helper import total
+rows=[json.loads(line) for line in (external / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+assert total(rows)==42
+assert (external / "events.jsonl").name in os.listdir(external)
+assert native_read(str(external / "events.jsonl")).strip().startswith('{')
+assert Path("external-link/events.jsonl").read_text().strip().startswith('{')
+print(total(rows))`;
+  const result=await runtime.run(setup,context);assert.equal(result.isError,false,result.content[0].text);
+  const next=await runtime.run('assert total(rows)==42\nassert os.environ["PIMOON_HOME"]\nassert isinstance(os.listdir(),list)\nassert isinstance(list(os.scandir()),list)\nprint("persistent")',context);assert.equal(next.isError,false,next.content[0].text);
+  for(const code of [
+   '(external / "new.txt").write_text("blocked")',
+   '(external / "events.jsonl").unlink()',
+   '(external / "events.jsonl").rename("moved.txt")',
+   'Path("external-link/new.txt").write_text("blocked")',
+   '(external / "credentials/secret.txt").read_text()',
+   'Path("credential-link/secret.txt").read_text()',
+   'native_read(str(external / "credentials/secret.txt"))',
+   'native_read("credential-link/secret.txt")',
+   'native_read(str(external / "large.txt"))',
+   'native_read(str(external / "binary.txt"))',
+   'import subprocess; subprocess.run(["python", "-V"])',
+   'import socket; socket.socket()',
+  ]){const denied=await runtime.run(code,context);assert.equal(denied.isError,true,code);assert.doesNotMatch(denied.content[0].text,/SYNTHETIC_SECRET/);}
+  assert.equal(await fs.readFile(path.join(outside,'events.jsonl'),'utf8'),' {"value":20}\n{"value":22}\n');
+  const write=await runtime.run('Path("summary.json").write_text(json.dumps({"total":total(rows)}))',context);assert.equal(write.isError,false,write.content[0].text);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(cwd,'summary.json'),'utf8')),{total:42});
+ },[],false,{transport,protectedPaths:[protectedDir]});
+});
+
 test('真实 Python 持久性与 live-object 预览/回读',()=>runTest(async runtime=>{
  const first=await runtime.run('counter=41\nrows=list(range(1000))\nprint(rows)',context);
  assert.match(first.content[0].text,/@o1/);assert.equal(first.details.metrics.auto_observations,1);

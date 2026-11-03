@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { checkReadablePath } from './paths.ts';
 
 export const OP = { INIT:1, EXEC:2, REPLY:3, CANCEL:4, CLOSE:5, PING:6, NATIVE:7,
   READY:101, DONE:102, CALL:103, NATIVE_RESULT:107, PONG:108, ERROR:109, METRICS:110 };
@@ -34,11 +35,11 @@ export class Decoder {
 }
 
 export class Runtime {
-  constructor({transport='rust',observe=false,cwd,tools,timeoutMs=45000}){
+  constructor({transport='rust',observe=false,cwd,tools,timeoutMs=45000,protectedPaths=[]}){
     this.transport=transport;this.observe=observe;this.cwd=cwd;this.tools=tools;this.timeoutMs=timeoutMs;
-    this.rootPromise=fs.realpath(cwd);
+    this.rootPromise=fs.realpath(cwd);this.protectedPaths=protectedPaths;
     this.queue=[];this.waiters=[];this.request=0;this.sessions=new Set();this.statefulSessions=new Set();this.dead=false;this.closed=false;
-    const env=Object.fromEntries(Object.entries(process.env).filter(([k])=>/^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|PATHEXT)$/i.test(k)));
+    const env=Object.fromEntries(Object.entries(process.env).filter(([k])=>/^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|PATHEXT|PIMOON_HOME|HOME|USERPROFILE|APPDATA|LOCALAPPDATA)$/i.test(k)));
     const worker=path.join(ROOT,'pimoon','worker.py');
     const binary=path.join(ROOT,'pimoon/pimoon-runtime'+(process.platform==='win32'?'.exe':''));
     this.child=transport==='rust'?spawn(binary,[cwd,worker,'python'],{cwd,env,stdio:['pipe','pipe','pipe'],windowsHide:true}):
@@ -75,7 +76,7 @@ export class Runtime {
   refs(enabled){for(const item of [this.child,this.child.stdin,this.child.stdout,this.child.stderr])enabled?item.ref?.():item.unref?.();}
   async createSession(session){
     const request=++this.request;
-    this.send(OP.INIT,session,request,JSON.stringify({observe:this.observe,tools:this.tools.map(t=>({name:t.name,parameters:t.parameters}))}));
+    this.send(OP.INIT,session,request,JSON.stringify({observe:this.observe,protected_paths:this.protectedPaths,tools:this.tools.map(t=>({name:t.name,parameters:t.parameters}))}));
     const frame=await this.next();
     if(this.dead||frame.op!==OP.READY)throw Error(frame.data.toString()||'Runtime unavailable');
     this.sessions.add(session);this.workerInfo=JSON.parse(frame.data);
@@ -95,8 +96,7 @@ export class Runtime {
   }
   async nativeRead(data){
     const root=await this.rootPromise;
-    const target=await fs.realpath(path.resolve(root,new TextDecoder('utf8',{fatal:true}).decode(data)));
-    if(!(target===root||target.startsWith(root+path.sep)))throw Error('path outside task workspace');
+    const target=await checkReadablePath(root,new TextDecoder('utf8',{fatal:true}).decode(data),this.protectedPaths);
     const file=await fs.open(target,'r');
     try{
       const meta=await file.stat();if(!meta.isFile()||meta.size>4*1024*1024)throw Error('requires regular file <=4 MiB');

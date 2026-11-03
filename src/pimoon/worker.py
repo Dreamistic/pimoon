@@ -1,4 +1,4 @@
-"""Real persistent CPython behind CA02 framing. Trusted synthetic code only, not a hardened sandbox."""
+"""CA02 持久 Python；文件检查用于纵深防御，不是强安全沙箱。"""
 import builtins
 from collections import OrderedDict
 import contextlib
@@ -17,7 +17,7 @@ import worker_hooks as hooks
 HEADER = struct.Struct('<4sBIII')
 MAX_FRAME = 8 * 1024 * 1024
 INPUT, OUTPUT = sys.stdin.buffer, sys.stdout.buffer
-ROOT, LIBROOT = Path.cwd().resolve(), Path(sys.base_prefix).resolve()
+ROOT = Path.cwd().resolve()
 INIT, EXEC, REPLY, CANCEL, CLOSE, PING, NATIVE = range(1, 8)
 READY, DONE, CALL, NATIVE_RESULT, PONG, ERROR = 101, 102, 103, 107, 108, 109
 SESSION = REQUEST = 0
@@ -54,22 +54,33 @@ def inside(path, root):
         return False
 
 
+def readable(target):
+    if isinstance(target, int):
+        raise PermissionError('raw file descriptors are disabled')
+    absolute = Path(os.fsdecode(target)).absolute()
+    canonical = absolute.resolve()
+    if any(candidate.is_relative_to(blocked) for candidate in (absolute, canonical) for blocked in protected_paths):
+        raise PermissionError('protected credential path')
+
+
 def audit(event, args):
     if event.startswith(('socket.', 'subprocess.', 'ctypes.', 'os.exec', 'os.spawn', 'winreg.')) or event in {
             'os.system', 'os.fork', 'os.forkpty', 'os.symlink', 'os.link'}:
         raise PermissionError('network, subprocess, registry and FFI are disabled')
     if event == 'open':
         target, mode, flags = args
-        if isinstance(target, int):
-            return
+        readable(target)
         writing = (isinstance(mode, str) and any(c in mode for c in 'wax+')) or bool(flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC))
-        if not inside(target, ROOT) and not (not writing and inside(target, LIBROOT)):
-            raise PermissionError('outside task workspace or read-only Python libraries')
-    if event in {'os.remove', 'os.rmdir', 'os.mkdir', 'os.chdir', 'os.chmod', 'os.utime', 'os.listdir', 'os.scandir'}:
-        if not inside(args[0], ROOT) and not (event in {'os.listdir', 'os.scandir'} and inside(args[0], LIBROOT)):
-            raise PermissionError('directory operation outside workspace')
-    if event in {'os.rename', 'os.replace'} and not all(inside(p, ROOT) for p in args[:2]):
-        raise PermissionError('rename outside workspace')
+        if writing and not inside(target, ROOT):
+            raise PermissionError('writes require the task workspace')
+    if event in {'os.listdir', 'os.scandir'}:
+        readable(args[0] if args[0] is not None else '.')
+    if event in {'os.remove', 'os.rmdir', 'os.mkdir', 'os.chdir', 'os.chmod', 'os.utime', 'os.rename', 'os.replace'}:
+        targets = args[:2] if event in {'os.rename', 'os.replace'} else args[:1]
+        for target in targets:
+            readable(target)
+            if not inside(target, ROOT):
+                raise PermissionError('writes require the task workspace')
 
 
 failures = []
@@ -142,6 +153,8 @@ if first is None or first[0] != INIT:
     raise RuntimeError('expected INIT')
 SESSION, REQUEST = first[1:3]
 config = json.loads(first[3])
+protected_paths = tuple(candidate for p in config.get('protected_paths', [])
+                        for candidate in (Path(p).absolute(), Path(p).resolve()))
 observer = Observations()
 agent_print = config.get('observe', False)
 namespace = {'__builtins__': builtins, 'json': json, 'native_read': native_read,
@@ -176,7 +189,7 @@ while True:
             cache_hit = compiled is not None
             if compiled is None:
                 compiled = compile(code, '<agent>', 'exec')
-                # Only cache bytecode, never results or side effects.
+                # 只缓存字节码，不缓存结果或副作用。
                 if len(code) <= 65536:
                     cache[code] = compiled
                     while len(cache) > 64:

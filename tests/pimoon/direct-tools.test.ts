@@ -4,6 +4,7 @@ import path from "node:path";
 import { SessionManager, createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices } from "@earendil-works/pi-coding-agent";
 import fileTools from "../../src/harness/extensions/file-tools.ts";
 import { codemodeHiddenDeclarations } from "../../src/harness/codemode/loadout.ts";
+import { agentHome } from "../../src/pimoon/profile.ts";
 import { flushTelemetry, telemetryDirectory } from "../../src/pimoon/telemetry.ts";
 import { createRuntimeResources } from "./runtime-resources.ts";
 import { startModelServer, type ModelResponse } from "../cli/model-server.ts";
@@ -69,6 +70,28 @@ it("CodeAct 是唯一执行入口，拒绝直调，保留正文、变量和宿�
 			replies.push({ tool: "codemode", args: { code: 'assert answer==42; assert "原始正文" in source; print(answer)' } }, { text: "done" });
 			await runtime.session.prompt("Continue using the Python variables.");
 			expect(runtime.session.messages.filter(message => message.role === "toolResult").at(-1)).toMatchObject({ toolName: "codemode", isError: false });
+			const external = path.join(folder, "external.txt");
+			await fs.writeFile(external, "external fixture");
+			replies.push({ tool: "codemode", args: { code: `from pathlib import Path
+external=Path(${JSON.stringify(external)})
+assert external.read_text()=="external fixture"
+assert native_read(str(external))=="external fixture"
+assert "external fixture" in read(path=str(external))
+print("external checked")` } }, { text: "done" });
+			await runtime.session.prompt("Analyze an external fixture in persistent Python and use the integrated read function.");
+			expect(runtime.session.messages.filter(message => message.role === "toolResult").at(-1)?.isError).toBe(false);
+			const credential = path.join(agentHome, "auth.json");
+			await fs.writeFile(credential, JSON.stringify({ fixture: { type: "api_key", key: "SYNTHETIC_PRIVATE_CREDENTIAL" } }));
+			replies.push({ tool: "codemode", args: { code: `print(read(path=${JSON.stringify(credential)}))` } }, { text: "done" });
+			await runtime.session.prompt("Try the protected synthetic credential.");
+			const denied = runtime.session.messages.filter(message => message.role === "toolResult").at(-1);
+			expect(denied?.isError).toBe(true);
+			expect(JSON.stringify(denied?.content)).not.toContain("SYNTHETIC_PRIVATE_CREDENTIAL");
+			replies.push({ tool: "codemode", args: { code: `result=grep(query="SYNTHETIC_PRIVATE_CREDENTIAL", path=[${JSON.stringify(agentHome)}])
+assert "auth.json" not in str(result)
+print("protected search checked")` } }, { text: "done" });
+			await runtime.session.prompt("Search the parent directory without exposing a protected credential.");
+			expect(runtime.session.messages.filter(message => message.role === "toolResult").at(-1)?.isError).toBe(false);
 			runtime.session.setActiveToolsByName(names.filter(name => name !== "read"));
 			replies.push({ tool: "codemode", args: { code: 'print(read(path="App.css"))' } }, { text: "done" });
 			await runtime.session.prompt("Try the disabled host function.");

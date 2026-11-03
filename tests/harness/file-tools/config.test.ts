@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { protectedCredentialPaths } from "../../../src/pimoon/profile.ts";
 import { FileToolsConfigProvider } from "../../../src/harness/file-tools/config.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
@@ -53,11 +54,16 @@ describe("文件工具配置", () => {
 		expect(values.map((value) => value.limits.ls_entries)).toEqual([1, 2]);
 		for (const value of values) expect(value).toMatchObject({
 			filesystem: {
-				blockedPaths: ["user-block/", "project-block/"],
+				blockedPaths: ["user-block/", "project-block/", ...protectedCredentialPaths.map(target => `${target}/`)],
 				visibility: { ignoredPaths: ["user-ignore/", "project-ignore/"], ignore: { builtinProfile: "performance" } },
 			},
 			limits: { write_max_file_bytes: 2048 },
 		});
+	});
+
+	it("用户清空普通屏蔽规则后仍保留应用凭据保护", async () => {
+		await save({ blocked_path: [] });
+		expect((await load()).filesystem.blockedPaths).toEqual(protectedCredentialPaths.map(target => `${target}/`));
 	});
 
 	it.each(["piignore", "gitignore", "git_tracked_files_bypass"])("项目不能改写用户开关 %s", async (field) => {

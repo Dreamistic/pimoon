@@ -9,7 +9,6 @@ use std::thread;
 use std::time::Instant;
 
 const MAX_FRAME: usize = 8 * 1024 * 1024;
-const MAX_FILE: u64 = 4 * 1024 * 1024;
 const INIT: u8 = 1;
 const EXEC: u8 = 2;
 const REPLY: u8 = 3;
@@ -53,7 +52,7 @@ impl Frame {
 enum Event { Parent(Frame), Worker(u32, u64, Frame), WorkerExit(u32, u64), ParentExit }
 struct Session {
     child: Child, input: BufWriter<ChildStdin>, generation: u64,
-    active: Option<u32>, frames: u64, service_us: u128, native_us: u128,
+    active: Option<u32>, frames: u64, service_us: u128,
 }
 impl Drop for Session { fn drop(&mut self) { let _ = self.child.kill(); let _ = self.child.wait(); } }
 
@@ -70,25 +69,9 @@ fn spawn_session(frame: &Frame, root: &Path, worker: &Path, python: &str, genera
         }
         let _ = tx.send(Event::WorkerExit(session, generation));
     });
-    let mut entry = Session { child, input, generation, active: None, frames: 0, service_us: 0, native_us: 0 };
+    let mut entry = Session { child, input, generation, active: None, frames: 0, service_us: 0 };
     frame.write(&mut entry.input)?;
     Ok(entry)
-}
-
-fn read_native(root: &Path, name: &[u8]) -> io::Result<Vec<u8>> {
-    let name = std::str::from_utf8(name).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path must be UTF-8"))?;
-    let target = root.join(name).canonicalize()?;
-    if !target.starts_with(root) { return Err(io::Error::new(io::ErrorKind::PermissionDenied, "path outside task workspace")); }
-    let file = std::fs::File::open(target)?;
-    let metadata = file.metadata()?;
-    if !metadata.is_file() || metadata.len() > MAX_FILE {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "requires regular file <=4 MiB"));
-    }
-    let mut data = Vec::with_capacity(metadata.len() as usize + 1); data.push(1);
-    file.take(MAX_FILE + 1).read_to_end(&mut data)?;
-    if data.len() > MAX_FILE as usize + 1 { return Err(io::Error::new(io::ErrorKind::InvalidData, "file grew beyond limit")); }
-    std::str::from_utf8(&data[1..]).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "file must be UTF-8"))?;
-    Ok(data)
 }
 
 fn main() -> io::Result<()> {
@@ -134,13 +117,13 @@ fn main() -> io::Result<()> {
                         sessions.remove(&frame.session);
                         frame.response(READY, b"{}".to_vec()).write(&mut output)?;
                     }
-                    EXEC | REPLY => {
+                    EXEC | REPLY | NATIVE_RESULT => {
                         if let Some(session) = sessions.get_mut(&frame.session) {
                             if frame.op == EXEC && session.active.is_some() {
                                 frame.response(ERROR, b"session busy".to_vec()).write(&mut output)?; continue;
                             }
                             if frame.op == EXEC {
-                                session.active = Some(frame.request); session.frames = 0; session.service_us = 0; session.native_us = 0;
+                                session.active = Some(frame.request); session.frames = 0; session.service_us = 0;
                             } else if session.active != Some(frame.request) {
                                 frame.response(ERROR, b"stale tool reply".to_vec()).write(&mut output)?; continue;
                             }
@@ -158,24 +141,14 @@ fn main() -> io::Result<()> {
                 if frame.op != READY && session.active != Some(frame.request) { continue; }
                 session.frames += 1;
                 match frame.op {
-                    NATIVE => {
-                        let native_start = Instant::now();
-                        let payload = match read_native(&root, &frame.data) {
-                            Ok(data) => data,
-                            Err(error) => { let mut result = vec![0]; result.extend_from_slice(error.to_string().as_bytes()); result }
-                        };
-                        session.native_us += native_start.elapsed().as_micros();
-                        frame.response(NATIVE_RESULT, payload).write(&mut session.input)?;
-                        session.service_us += start.elapsed().as_micros();
-                    }
                     DONE => {
                         session.service_us += start.elapsed().as_micros();
-                        let stats = format!("{{\"frames\":{},\"broker_service_us\":{},\"native_read_us\":{}}}",
-                            session.frames, session.service_us, session.native_us);
+                        let stats = format!("{{\"frames\":{},\"broker_service_us\":{}}}",
+                            session.frames, session.service_us);
                         frame.response(METRICS, stats.into_bytes()).write(&mut output)?;
                         frame.write(&mut output)?; session.active = None;
                     }
-                    READY | CALL => { frame.write(&mut output)?; session.service_us += start.elapsed().as_micros(); }
+                    READY | CALL | NATIVE => { frame.write(&mut output)?; session.service_us += start.elapsed().as_micros(); }
                     _ => { frame.response(ERROR, b"invalid worker opcode".to_vec()).write(&mut output)?; }
                 }
             }

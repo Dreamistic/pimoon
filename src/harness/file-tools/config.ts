@@ -1,3 +1,4 @@
+import { protectedCredentialPaths } from "../../pimoon/profile.ts";
 import {
 	CONFIG_DEFINITIONS,
 	ConfigError,
@@ -87,7 +88,7 @@ async function loadMergedConfig(cwd: string): Promise<ConfigSnapshot<FileToolsCo
 function materializeConfig(raw: CompleteFileToolsConfig): FileToolsConfig {
 	return {
 		filesystem: {
-			blockedPaths: raw.blocked_path,
+			blockedPaths: [...new Set([...raw.blocked_path, ...protectedCredentialPaths.map(target => `${target}/`)])],
 			visibility: {
 				ignoredPaths: raw.ignored_path,
 				ignore: {

@@ -3,9 +3,9 @@ import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Runtime } from "../../pimoon/runtime.mjs";
 import { fingerprint, labels, record, pimoonTelemetry } from "../../pimoon/telemetry.ts";
-import { agentHome } from "../../pimoon/profile.ts";
+import { agentHome, protectedCredentialPaths } from "../../pimoon/profile.ts";
 import path from "node:path";
-import { checkWorkspacePath } from "../../pimoon/paths.ts";
+import { checkReadablePath, checkWorkspacePath } from "../../pimoon/paths.ts";
 import type { ExecutionTrace } from "../../pimoon/trace.ts";
 
 interface RuntimeTags extends ExecutionTrace {
@@ -16,7 +16,7 @@ interface RuntimeTags extends ExecutionTrace {
 
 import { codemodeAllowedTools as allowed, codemodeHiddenDeclarations, codemodeSelection } from "../codemode/loadout.ts";
 import { codemodeCatalog } from "../codemode/catalog.ts";
-const description = "CodeAct: the only execution entry. Run persistent Python for file, process and network tasks. Call enabled host functions with keyword arguments; ? marks optional arguments (omit, do not pass None). Example: print(6*7). Host functions return text or structured data; images are forwarded unchanged. Filter and combine results before printing; no top-level return. batch(name, jobs, limit=6) runs independent read/find/grep/ls jobs concurrently (max 16), returning ordered {ok,value|error} items. observe(value, fields=[...], limit=8) projects tables. Output: 40k chars; _last_output retains up to 1 Mi chars. Direct Python file I/O is workspace-only; no direct network, subprocess or FFI. Use enabled bash/websearch/webfetch functions for process/network access; host approvals still apply. Errors raise or appear in structured results. Cancellation/restart clears variables, not completed writes. native_read(path): UTF-8 <=4 MiB.";
+const description = "CodeAct: the only execution entry. Run persistent Python for file, process and network tasks. Call enabled host functions with keyword arguments; ? marks optional arguments (omit, do not pass None). Example: print(6*7). Host functions return text or structured data; images are forwarded unchanged. Filter and combine results before printing; no top-level return. batch(name, jobs, limit=6) runs independent read/find/grep/ls jobs concurrently (max 16), returning ordered {ok,value|error} items. observe(value, fields=[...], limit=8) projects tables. Output: 40k chars; _last_output retains up to 1 Mi chars. Analyze files in Python, not bash-launched Python. Reads may leave the workspace; writes stay inside. Protected credential paths are blocked. No direct network, subprocess or FFI. Use enabled bash/websearch/webfetch functions for process/network access; host approvals still apply. Errors raise or appear in structured results. Cancellation/restart clears variables, not completed writes. native_read(path): UTF-8 <=4 MiB.";
 
 /** 用官方工具管线接真实 Python，不更改 SDK 解释器或绕过宿主审批。 */
 export default function codemode(pi: ExtensionAPI): void {
@@ -34,7 +34,7 @@ export default function codemode(pi: ExtensionAPI): void {
 		if (runtime && (runtime.dead || runtime.cwd !== ctx.cwd || runtimeSession !== session)) closeRuntime(runtime.dead ? "unavailable" : "session_changed");
 		if (runtime) return runtime;
 		const started = performance.now();
-		const created = new Runtime({ transport: "rust", observe: false, cwd: ctx.cwd, tools: tools.filter(tool => allowed.has(tool.name) && tool.name !== "codemode") });
+		const created = new Runtime({ transport: "rust", observe: false, cwd: ctx.cwd, protectedPaths: protectedCredentialPaths, tools: tools.filter(tool => allowed.has(tool.name) && tool.name !== "codemode") });
 		runtime = created;
 		runtimeSession = session;
 		const tags = { ...labels(ctx), runtime_id: randomUUID(), workspace: fingerprint(ctx.cwd), prewarmed };
@@ -94,10 +94,16 @@ export default function codemode(pi: ExtensionAPI): void {
 			? ("workdir" in event.input ? event.input.workdir : undefined)
 			: ("path" in event.input ? event.input.path : undefined);
 		const paths: unknown[] = Array.isArray(inputPath) ? inputPath : [inputPath ?? "."];
-		try { for (const file of paths) { if (typeof file !== "string") throw new Error("无效路径。"); await checkWorkspacePath(ctx.cwd, file); } }
+		try {
+			for (const file of paths) {
+				if (typeof file !== "string") throw new Error("无效路径。");
+				if (["read", "find", "grep", "ls"].includes(event.toolName)) await checkReadablePath(ctx.cwd, file, protectedCredentialPaths);
+				else await checkWorkspacePath(ctx.cwd, file);
+			}
+		}
 		catch (error) {
-			blocked("workspace_path_rejected");
-			return { block: true, reason: error instanceof Error ? error.message : "工作区路径校验失败。" };
+			blocked("filesystem_path_rejected");
+			return { block: true, reason: error instanceof Error ? error.message : "文件路径校验失败。" };
 		}
 	});
 	pi.on("user_bash", () => ({ result: { output: "请让 agent 通过 CodeAct 调用 bash，以沿用宿主审批。", exitCode: 1, cancelled: false, truncated: false } }));
