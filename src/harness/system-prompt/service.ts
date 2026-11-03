@@ -22,8 +22,11 @@ function promptOptions(
 ): BuildSystemPromptOptions {
 	const cwd = options.cwd.replace(/\\/g, "/");
 	const sections: Record<string, string> = { ...options.sections };
-	if (options.selectedTools?.length) sections.tool_policy = formatToolPolicy(options);
-	if (options.selectedTools?.includes("skill") && skills.length > 0) {
+	const hidden = new Set(options.hiddenTools);
+	const visibleTools = options.selectedTools?.filter(name => !hidden.has(name)) ?? [];
+	for (const name of ["tool_policy", "skill_policy", "skills", "subagents"]) delete sections[name];
+	if (visibleTools.length) sections.tool_policy = formatToolPolicy({ ...options, selectedTools: visibleTools });
+	if (visibleTools.includes("skill") && skills.length > 0) {
 		sections.skill_policy = SKILL_POLICY;
 		sections.skills = formatSkillIndex(skills);
 	}
@@ -63,7 +66,7 @@ function subagentRole(options: BuildSystemPromptOptions): string {
 function formatToolPolicy(options: BuildSystemPromptOptions): string {
 	const rules = [
 		"Use the narrowest suitable tool.",
-		"Parallelize independent tool calls. Sequence dependent calls.",
+		...(options.selectedTools?.includes("codemode") ? [] : ["Parallelize independent tool calls. Sequence dependent calls."]),
 		"Retrieve again only if context is incomplete or stale.",
 		...(options.selectedTools ?? []).flatMap((name) => options.toolGuidelines?.[name] ?? []),
 		...(options.promptGuidelines ?? []),
@@ -112,7 +115,7 @@ async function runtimePromptOptions(options: BuildSystemPromptOptions, cwd: stri
 	}
 	if (process.env.PI_SUBAGENT_CHILD === "1") return promptOptions(options, subagentRole(options), []);
 	const extraSections: Record<string, string> = {};
-	if (subagentToolAvailable) {
+	if (subagentToolAvailable && !options.hiddenTools?.includes("subagent")) {
 		const config = await loadSubagentConfig(cwd);
 		const { agents } = discoverAgents(cwd, config);
 		if (agents.length > 0) extraSections.subagents = agents.map((agent) => `- ${agent.name}: ${agent.description}`).join("\n");

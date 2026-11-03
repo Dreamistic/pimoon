@@ -25,12 +25,14 @@ const renderTool = (value: Activity, expanded?: boolean) => parseHTML(renderWith
 	new Map(expanded === undefined ? [] : [[`tool:${value.id}`, expanded]]))).document;
 
 describe("codemode 工具层级", () => {
-	it("直接声明的文件工具与 CodeAct 平级显示", () => {
+	it("文件工具展示为 CodeAct 的宿主能力，不与执行入口平级", () => {
 		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
-			snapshot: { toolDefaultsChanged: false, toolPreset: null, tools, modelTools: ["codemode", "read"] }, send: async () => true, disabled: false,
+			snapshot: { toolDefaultsChanged: false, toolPreset: null, tools, modelTools: ["codemode"] }, send: async () => true, disabled: false,
 		}))).document;
-		expect(doc.querySelector('.tool-selection > [data-tool-option="read"]')).not.toBeNull();
-		expect(doc.querySelector('.tool-selection-children [data-tool-option="read"]')).toBeNull();
+		expect(doc.querySelector('.tool-selection > [data-tool-option="read"]')).toBeNull();
+		expect(doc.querySelector('.tool-selection-children [data-tool-option="read"]')).not.toBeNull();
+		expect(doc.querySelector('[data-tool-option="read"] .tool-callable-state')?.textContent).toBe("宿主能力");
+		expect(doc.querySelector('[data-tool-option="codemode"]')?.textContent).toContain("唯一执行入口");
 	});
 	it.each([false, true])("搜索入口只在普通模式显示禁用的复选框：codemode=%s", (enabled) => {
 		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
@@ -94,7 +96,7 @@ describe("codemode 工具层级", () => {
 		expect(doc.querySelector('.mcp-shared-tools [aria-label="read_mcp_resource"]')?.getAttribute("aria-checked")).toBe("true");
 	});
 
-	it("关闭模式恢复平级选择，保留普通工具的勾选", () => {
+	it("关闭入口时仍显示可配置的宿主能力", () => {
 		const doc = parseHTML(renderWithMemory(createElement(ToolSelection, {
 			snapshot: { toolDefaultsChanged: false, toolPreset: null, tools: tools.map((item) => item.name === "codemode" ? { ...item, enabled: false as const } : item), modelTools: ["skill", "read"] },
 			send: async () => true, disabled: false,

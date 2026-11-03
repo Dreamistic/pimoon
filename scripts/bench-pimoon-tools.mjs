@@ -35,5 +35,5 @@ await fs.writeFile(path.join(base, "results.json"), JSON.stringify(results, null
 console.log("Offline SDK benchmark; bundled harness + built workers; filesystem warm. First call includes lazy initialization, not desktop startup.");
 console.table(results.flatMap(result => result.rows.map(row => ({ app: result.app, ...row }))));
 console.table(results.map(({ app, declarations, modelRequests, toolTurns, telemetry, prewarm }) => ({ app, ...declarations, toolTurns, modelRequests, telemetryEnqueueMs: telemetry ? +telemetry.enqueueMs.toFixed(2) : undefined, backgroundIoMs: telemetry ? +telemetry.ioMs.toFixed(2) : undefined, prewarmMs: prewarm ? +prewarm.startupMs.toFixed(2) : undefined, readyBeforeCodeAct: prewarm?.readyBeforeFirstCall })));
-console.log("Token counts: generic o200k_base estimates, not provider usage. pimoon also runs 40 CodeAct cases; total requests are not a speed comparison.");
+console.log("Token counts: generic o200k_base estimates, not provider usage. pimoon routes every operation through CodeAct and adds 30 orchestration cases; total requests are not a speed comparison.");
 console.log(`Raw samples: ${path.join(base, "results.json")}`);

@@ -169,7 +169,9 @@ function ToolChoice({ tool, send, disabled, nested, showExposure = false }: { to
 			onCheckedChange={(checked) => void send({ action: "tool", name: tool.name, enabled: checked === true })} />
 		<div className="tool-choice-details">
 			<div className="tool-choice-heading">
-				<label className="tool-name" htmlFor={id} title={tool.name} data-disabled={locked || undefined}><strong>{name}</strong></label>
+				<label className="tool-name" htmlFor={id} title={tool.name} data-disabled={locked || undefined}><strong>{name === "codemode" ? "CodeAct (codemode)" : name}</strong></label>
+				{name === "codemode" && <small className="tool-callable-state">唯一执行入口</small>}
+				{nested && tool.exposure === "direct" && <small className="tool-callable-state">宿主能力</small>}
 				{(alwaysCallable || tool.name === "tool_search") && <small className="tool-callable-state">自动</small>}
 			</div>
 			{showExposure && tool.mcpServer && <small className="tool-choice-exposure"><McpExposureLabel exposure={tool.mcpServer.exposure} /></small>}

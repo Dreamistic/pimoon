@@ -14,8 +14,9 @@ interface RuntimeTags extends ExecutionTrace {
 	prewarmed: boolean;
 }
 
-import { codemodeAllowedTools as allowed, codemodeHiddenDeclarations } from "../codemode/loadout.ts";
-const description = "Use direct tools for single operations. Run persistent Python for batches, loops or computation. Tools accept keyword arguments. batch(name, jobs, limit=6) runs read/find/grep/ls concurrently (max 16); returns ordered {ok,value|error} items. Print needed results; no top-level return. observe(value, fields=[...], limit=8) projects tables. Output: 40k chars; _last_output retains up to 1 Mi chars. Python file I/O is workspace-only; no direct network, subprocess or FFI. Use bash, websearch or webfetch for process/network access through host tools. Errors raise or appear in structured results. Cancellation/restart clears variables, not completed writes. native_read(path): UTF-8 <=4 MiB.";
+import { codemodeAllowedTools as allowed, codemodeHiddenDeclarations, codemodeSelection } from "../codemode/loadout.ts";
+import { codemodeCatalog } from "../codemode/catalog.ts";
+const description = "CodeAct: the only execution entry. Run persistent Python for file, process and network tasks. Call enabled host functions with keyword arguments; ? marks optional arguments (omit, do not pass None). Example: print(6*7). Host functions return text or structured data; images are forwarded unchanged. Filter and combine results before printing; no top-level return. batch(name, jobs, limit=6) runs independent read/find/grep/ls jobs concurrently (max 16), returning ordered {ok,value|error} items. observe(value, fields=[...], limit=8) projects tables. Output: 40k chars; _last_output retains up to 1 Mi chars. Direct Python file I/O is workspace-only; no direct network, subprocess or FFI. Use enabled bash/websearch/webfetch functions for process/network access; host approvals still apply. Errors raise or appear in structured results. Cancellation/restart clears variables, not completed writes. native_read(path): UTF-8 <=4 MiB.";
 
 /** 用官方工具管线接真实 Python，不更改 SDK 解释器或绕过宿主审批。 */
 export default function codemode(pi: ExtensionAPI): void {
@@ -50,14 +51,20 @@ export default function codemode(pi: ExtensionAPI): void {
 		});
 		return created;
 	};
+	const activateEntry = (): void => {
+		const active = pi.getActiveTools(), selected = codemodeSelection(active.filter(name => allowed.has(name)));
+		if (selected.length !== active.length || selected.some((name, index) => name !== active[index])) pi.setActiveTools(selected);
+	};
 	// 初始工作区随应用启动初始化；只发送 INIT，不执行用户代码或调用工具。
 	pi.on("session_start", (_event, ctx) => {
+		activateEntry();
 		if (!pi.getActiveTools().includes("codemode") || containsCredentials(ctx.cwd)) return;
 		try { runtimeFor(ctx, pi.getAllTools(), true); }
 		catch (error) { record("runtime_start_failed", { ...labels(ctx), error: fingerprint(String(error)) }); }
 	});
 	pi.on("session_shutdown", (event) => closeRuntime(event.reason));
 	pi.on("before_agent_start", (_event, ctx) => {
+		activateEntry();
 		if (runtime?.hasState && runtimeSession === ctx.sessionManager.getSessionId()) return;
 		if (!ctx.sessionManager.getBranch().some(entry => entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "codemode")) return;
 		record("runtime_state_notice", { ...labels(ctx), reason: "history_without_memory", state_restored: false });
@@ -69,6 +76,14 @@ export default function codemode(pi: ExtensionAPI): void {
 		if (!allowed.has(event.toolName)) {
 			blocked("tool_not_allowed");
 			return { block: true, reason: "pimoon 未开放此工具。" };
+		}
+		if (event.toolName !== "codemode" && !event.parentToolCallId) {
+			blocked("codeact_required");
+			return { block: true, reason: "请通过 codemode 执行 Python 并调用宿主工具。" };
+		}
+		if (event.toolName !== "codemode" && !pi.getActiveTools().includes(event.toolName)) {
+			blocked("tool_disabled");
+			return { block: true, reason: "此宿主工具未启用。" };
 		}
 		if (containsCredentials(ctx.cwd)) {
 			blocked("credential_workspace");
@@ -85,21 +100,26 @@ export default function codemode(pi: ExtensionAPI): void {
 			return { block: true, reason: error instanceof Error ? error.message : "工作区路径校验失败。" };
 		}
 	});
-	pi.on("user_bash", () => ({ result: { output: "请让 agent 使用 bash 工具执行命令，以沿用宿主审批。", exitCode: 1, cancelled: false, truncated: false } }));
+	pi.on("user_bash", () => ({ result: { output: "请让 agent 通过 CodeAct 调用 bash，以沿用宿主审批。", exitCode: 1, cancelled: false, truncated: false } }));
 	pi.registerTool({
 		name: "codemode", label: "CodeAct", description, defaultActive: true, exposure: "model-only",
-		promptSnippet: "Execute Python and compose tools; print decision-relevant observations.",
+		promptSnippet: "CodeAct: execute Python and orchestrate enabled host functions.",
+		executionMode: "sequential",
 		parameters: Type.Object({ code: Type.String({ description: "Raw Python source, not JavaScript." }) }),
-		reachesTools: () => "all",
+		reachesTools: () => pi.getActiveTools().filter(name => name !== "codemode" && allowed.has(name)),
 		prepareLoadout(loadout) {
-			return { hiddenDeclarations: codemodeHiddenDeclarations(loadout.declared) };
+			const catalog = codemodeCatalog(loadout.declared);
+			return {
+				hiddenDeclarations: codemodeHiddenDeclarations(loadout.declared),
+				descriptions: { codemode: `${description}\nEnabled host functions:\n${catalog || "None."}` },
+			};
 		},
 		async execute(callId, args, signal, _update, ctx) {
 			const start = performance.now(), trace = { ...labels(ctx), tool_call_id: callId };
 			let active: Runtime | undefined, runtimeId: string | undefined, errorHash: ReturnType<typeof fingerprint> | undefined;
 			record("code_start", { ...trace, code: fingerprint(args.code) });
 			try {
-				active = runtimeFor(ctx, ctx.tools, false); runtimeId = runtimeTags?.runtime_id;
+				active = runtimeFor(ctx, pi.getAllTools(), false); runtimeId = runtimeTags?.runtime_id;
 				record("code_bound", { ...trace, runtime_id: runtimeId, python_pid: active.workerInfo?.pid, had_state: active.hasState });
 				return await active.run(args.code, ctx, signal, 1, (type, fields) => record(type, {
 					...trace, ...fields, code_call_id: callId, runtime_id: runtimeId,

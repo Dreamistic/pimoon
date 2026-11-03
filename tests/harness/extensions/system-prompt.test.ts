@@ -39,6 +39,18 @@ describe("system prompt extension", () => {
 			.resolves.toEqual(expect.any(String));
 	});
 
+	it("CodeAct 隐藏宿主声明后不残留直调、并行入口或技能指导", async () => {
+		const prompt = await buildRuntimeSystemPrompt({
+			cwd: temp.path, selectedTools: ["codemode", "read", "bash", "skill", "subagent"],
+			hiddenTools: ["read", "bash", "skill", "subagent"],
+			toolGuidelines: { bash: ["HOST_DIRECT_GUIDELINE"] },
+			sections: { skill_policy: "STALE_SKILL", skills: "STALE_INDEX", subagents: "STALE_AGENT" },
+		}, temp.path);
+		expect(prompt).not.toContain("HOST_DIRECT_GUIDELINE");
+		expect(prompt).not.toContain("Parallelize independent tool calls");
+		expect(prompt).not.toMatch(/STALE_SKILL|STALE_INDEX|STALE_AGENT/);
+	});
+
 	it("fork 子进程逐字读取父 system prompt 且不要求 Agent Markdown", async () => {
 		const prompt = "Exact parent prompt.\n保留 Unicode 与换行。\n";
 		const promptPath = path.join(temp.path, "prompt.txt");

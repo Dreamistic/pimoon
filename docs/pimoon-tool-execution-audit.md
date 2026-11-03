@@ -2,6 +2,8 @@
 
 2026-11-03，Windows x64，Node 24.18.0、Python 3.12.9。
 
+> 本文性能数据对应历史的“直调 + 可选 CodeAct”方案，不代表当前架构。现已收敛为 CodeAct 唯一执行入口，见 README 与 VALIDATION.md。基准脚本也已改为让 pimoon 全部操作经过 CodeAct，不能将新结果冒充原来的直接文件工具对测。
+
 ## 结论
 
 - 单次文件操作已与 o-pi 同源基线处于同一量级，不需要通过 Python，也没有增加模型往返。

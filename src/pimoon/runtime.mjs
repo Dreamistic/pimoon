@@ -113,7 +113,7 @@ export class Runtime {
     if(this.dead)throw Error('Runtime unavailable; state lost');
     this.busy=true;this.refs(true);
     const emit=(type,fields)=>{try{onEvent(type,fields);}catch{/* 遥测不能改变执行结果。 */}};
-    const start=performance.now();let request,stopReason;const structuredFailures=[];
+    const start=performance.now();let request,stopReason;const structuredFailures=[],images=[];
     const toolController=new AbortController();
     let internalCalls=0,internalFailures=0,internalOutputChars=0,batches=0,stateLossObserved=false;
     const stateLost=(reason)=>{
@@ -142,7 +142,10 @@ export class Runtime {
         if(stopReason||signal?.aborted)throw Error('Cancelled');
         const tool=context.tools.find(t=>t.name===name&&name!=='codemode');if(!tool)throw Error('Unknown tool: '+name);
         const outcome=await context.executeTool(name,args,{signal:toolController.signal});toolId=outcome.toolCall?.id;
-        const text=(outcome.result.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('\n');
+        const content=outcome.result.content||[];
+        // 图片不经 Python 字符串化，随父结果保留原始内容块。
+        images.push(...content.filter(c=>c.type==='image'));
+        const text=content.filter(c=>c.type==='text').map(c=>c.text).join('\n');
         failed=outcome.isError;chars=text.length;
         if(tool.outputSchema&&outcome.result.structuredContent!==undefined){
           if(failed)structuredFailures.push({tool:name,error:text.slice(0,600)||'structured tool failure'});
@@ -177,7 +180,7 @@ export class Runtime {
           const text=`${result.ok?'ok':'error'}${result.output?'\n'+result.output:''}${result.error?'\n'+result.error:''}${result.tool_failures.length?'\ntool_failures: '+JSON.stringify(result.tool_failures):''}${!result.output_complete?'\nOutput retention incomplete.':''}`;
           Object.assign(this.lastMetrics,result.metrics,{ok:result.ok,outcome:result.ok?(result.tool_failures.length?'tool_partial_failure':'success'):'python_error',metrics_complete:true,
             output_complete:result.output_complete,output_chars:result.output_chars,model_returned_text_chars:text.length,tool_failure_count:result.tool_failures.length});
-          return {content:[{type:'text',text}],isError:!result.ok,details:{runtime:this.transport,metrics:this.lastMetrics}};
+          return {content:[{type:'text',text},...images],isError:!result.ok,details:{runtime:this.transport,metrics:this.lastMetrics}};
         }
         if(frame.op===OP.NATIVE){
           let data;try{data=await this.nativeRead(frame.data);}catch(error){data=Buffer.concat([Buffer.from([0]),Buffer.from(error.message)]);}

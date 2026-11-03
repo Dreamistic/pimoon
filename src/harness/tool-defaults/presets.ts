@@ -1,6 +1,7 @@
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import type { ToolSelectionController, ToolSelectionItem } from "./controller.ts";
 import { TOOL_PRESETS, type ToolPreset } from "./types.ts";
+import { codemodeSelection } from "../codemode/loadout.ts";
 
 type ToolPresets = Record<ToolPreset, string[]>;
 const webTools = new Set(["websearch", "webfetch"]);
@@ -14,8 +15,8 @@ function resolveToolPresets(session: AgentSession, builtin: readonly ToolSelecti
 	}).map((tool) => tool.name);
 	return {
 		vanilla,
-		"web-chat": available.filter((tool) => webTools.has(tool.name)).map((tool) => tool.name),
-		offline: vanilla.filter((name) => !webTools.has(name)),
+		"web-chat": codemodeSelection(available.filter((tool) => webTools.has(tool.name)).map((tool) => tool.name)),
+		offline: codemodeSelection(vanilla.filter((name) => !webTools.has(name))),
 		"no-tools": [],
 	};
 }

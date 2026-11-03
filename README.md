@@ -7,11 +7,12 @@
 双击 **`启动 pimoon.cmd`**，或运行 `dist/pimoon/pimoon.exe`。移动应用时请移动整个 `dist/pimoon` 文件夹，不要只复制 EXE。本机需要可通过 PATH 启动的 Python 3.12+；Node/Bun 不用于运行成品。
 
 - 主模型固定 `openai-codex/gpt-6-astra`，仅走 Codex 订阅端点；不自动换模型。
-- 简单读写直接调用文件工具，不必包 `print(read(...))`；批量、循环和计算使用 CodeAct。界面按实际调用显示操作，Python 语言只在代码详情中标注。
-- 普通 `print` 不再自动缩成预览；大结果可用 `observe(value, fields=[...], limit=8)` 主动筛选。仍保留统一输出上限和截断提示。
+- **CodeAct（工具名 `codemode`）是模型唯一的执行入口。** 文件、进程和网络操作都由持久 Python 编排，如 `print(read(path="README.md"))`；用 `batch()` 并发独立读取，用脚本筛选后再返回结果。模型只收到一个工具声明，启用的宿主函数签名从真实参数 schema 生成；直接调用底层工具会被拒绝。界面按实际嵌套调用显示操作。
+- 普通 `print` 不再自动缩成预览；大结果可用 `observe(value, fields=[...], limit=8)` 主动筛选。仍保留统一输出上限和截断提示。宿主返回的图片内容块随 CodeAct 父结果原样转交，不转换为 Python 字符串。
 - 同一会话保留 Python 变量和导入；新会话隔离。关闭应用、取消执行、会话淘汰后不会恢复 Python 内存，文件写入不会回滚。
 - 默认工作区是 `%APPDATA%/pimoon/workspace`。可在左侧选择可信项目；建议先用副本。
-- 默认开放 Python、工作区文件工具、`bash`、`websearch` 和 `webfetch`，可直接运行 Git、构建、测试命令及搜索、读取网页，也可在 CodeAct 内组合调用。Windows 需要已安装 Git Bash；命令使用宿主权限，推送、安装依赖和破坏性操作沿用审批规则。Python 的直接进程与网络调用仍受限，路径与 Python audit 检查**不是强安全沙箱**。旧版原始默认工具列表会自动补上这三个工具；自定义列表可在工具面板手动启用。
+- 默认启用 Python、工作区文件、`bash`、`websearch` 和 `webfetch` 宿主能力。工具面板的底层开关控制 CodeAct 可调用的能力；关闭 CodeAct 会同时关闭这些能力，不回落到直调。旧的默认列表和会话会自动补齐 `codemode`，不额外启用未选择的进程或网络工具；显式空列表仍无工具。保留的上游工具不因此成为已交付能力。
+- Git、构建、测试通过 Python 中的 `bash(command="...")` 执行；搜索和网页使用 `websearch(...)`、`webfetch(...)`。Windows 需要已安装 Git Bash；命令使用宿主权限，推送、安装依赖和破坏性操作沿用审批规则。Python 的直接进程与网络调用仍受限，路径与 Python audit 检查**不是强安全沙箱**。
 - **JEV 未接入本桌面版本，不会向它发送聊天。** Discord 状态同步默认关闭。
 
 ## 数据与访问凭据

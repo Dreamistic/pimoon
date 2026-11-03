@@ -2,15 +2,15 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
 	createAgentSessionFromServices, createAgentSessionServices, createAgentSessionRuntime,
-	SessionManager, type AgentSessionRuntime, type ExtensionAPI, type ExtensionFactory,
+	SessionManager, type AgentSessionRuntime,
 } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Type } from "typebox";
-import { extensions } from "../../../src/harness/extensions.ts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createToolsExtension } from "../../../src/harness/extensions/cmd-slash-tools.ts";
+import { codemodeSelection } from "../../../src/harness/codemode/loadout.ts";
 import type { ToolSelectionController } from "../../../src/harness/tool-defaults/controller.ts";
 import { startModelServer } from "../../cli/model-server.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
+import { createRuntimeResources } from "../../pimoon/runtime-resources.ts";
 
 const temp = useTempDir("pimoon-tools-session-");
 preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_OFFLINE");
@@ -27,10 +27,11 @@ beforeEach(async () => {
 	process.env.PI_OFFLINE = "1";
 	await mkdir(cwd, { recursive: true });
 	await mkdir(agentDir, { recursive: true });
+	vi.stubEnv("PIMOON_RESOURCE_DIR", await createRuntimeResources(temp.path));
 	server = await startModelServer(() => ({ text: "done" }));
 	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
 		defaultProvider: "fixture", defaultModel: "test", defaultThinkingLevel: "off",
-		defaultTools: ["read", "bash", "write"], codemode: { mode: "on" },
+		defaultTools: ["read", "bash", "write"],
 		compaction: { enabled: false }, retry: { enabled: false },
 	}));
 	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: {
@@ -44,25 +45,25 @@ afterEach(async () => {
 	await runtime?.dispose();
 	runtime = undefined;
 	await server.close();
+	vi.unstubAllEnvs();
 });
 
-async function start(manager = SessionManager.create(cwd), tools?: string[], fixture?: ExtensionFactory) {
+async function start(manager = SessionManager.create(cwd), tools?: string[]) {
 	let controller: ToolSelectionController | undefined;
+	const { default: codemode } = await import("../../../src/harness/extensions/codemode.ts");
 	runtime = await createAgentSessionRuntime(async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
 		const services = await createAgentSessionServices({
 			cwd, agentDir,
 			resourceLoaderOptions: {
 				noSkills: true, noThemes: true, noPromptTemplates: true, noContextFiles: true,
 				extensionFactories: [
-					...extensions.filter((extension) => extension.name === "codemode" || extension.name === "tool-search"),
-					...(fixture ? [{ name: "fixture", factory: fixture }] : []),
-					{ name: "tools", factory: createToolsExtension({ bindController: (value) => { controller = value; }, startup: tools === undefined ? {} : { tools } }) },
+					{ name: "codemode", builtin: true, factory: codemode },
+					{ name: "tools", factory: createToolsExtension({ bindController: value => { controller = value; }, startup: tools === undefined ? {} : { tools } }) },
 				],
 			},
 		});
-		expect(services.resourceLoader.getExtensions().errors).toEqual([]);
 		return {
-			...await createAgentSessionFromServices({ services, sessionManager, ...(tools ? { tools } : {}), ...(sessionStartEvent ? { sessionStartEvent } : {}) }),
+			...await createAgentSessionFromServices({ services, sessionManager, ...(tools ? { tools: codemodeSelection(tools) } : {}), ...(sessionStartEvent ? { sessionStartEvent } : {}) }),
 			services, diagnostics: services.diagnostics,
 		};
 	}, { cwd, agentDir, sessionManager: manager });
@@ -72,224 +73,93 @@ async function start(manager = SessionManager.create(cwd), tools?: string[], fix
 }
 
 function selected(controller: ToolSelectionController): string[] {
-	return controller.listTools().filter((tool) => tool.enabled).map((tool) => tool.name);
+	return controller.listTools().filter(tool => tool.enabled).map(tool => tool.name);
 }
 
 function requestedTools(): string[] {
-	return server.requests.at(-1)?.tools?.map((tool) => tool.function.name) ?? [];
+	return server.requests.at(-1)?.tools?.map(tool => tool.function.name) ?? [];
 }
 
-describe("工具选择与 SDK 状态", () => {
-	it("没有候选工具时，显式配置和手动操作都不能启用 tool_search", async () => {
-		const { session, controller } = await start(SessionManager.create(cwd), ["tool_search"]);
-		expect(controller.listTools().find((tool) => tool.name === "tool_search")).toMatchObject({ available: false, enabled: false });
-		controller.set("tool_search", true);
-		expect(session.getActiveToolNames()).not.toContain("tool_search");
-		await session.prompt("没有可搜索工具");
-		expect(requestedTools()).not.toContain("tool_search");
-	});
-
-	it.each(["codemode", "deferred"] as const)("%s 搜索入口随候选集合自动启停，codemode 下禁用", async (exposure) => {
-		let api: ExtensionAPI | undefined;
-		const candidate = {
-			name: "fixture", label: "Fixture", description: "Fixture records", exposure,
-			parameters: Type.Object({}),
-			async execute() { return { content: [{ type: "text" as const, text: "record" }], details: {} }; },
-		};
-		const { session, controller } = await start(SessionManager.create(cwd), undefined, (pi) => {
-			api = pi;
-			pi.registerTool(candidate);
-		});
-		if (!api) throw new Error("测试扩展未绑定");
-		const search = () => controller.listTools().find((tool) => tool.name === "tool_search");
-		expect(search()).toMatchObject({ available: true, enabled: true });
-		controller.set("tool_search", false);
-		expect(session.getActiveToolNames()).toContain("tool_search");
-		session.setActiveToolsByName(["tool_search", "fixture"]);
-		await session.prompt("SDK 加载全部候选后更新搜索入口");
-		expect(search()).toMatchObject({ available: false, enabled: false });
-		expect(session.getActiveToolNames()).toEqual(["fixture"]);
-		controller.set("tool_search", true);
-		expect(session.getActiveToolNames()).toEqual(["fixture"]);
-
-		controller.set("fixture", false);
-		expect(search()).toMatchObject({ available: true, enabled: true });
-		expect(session.getActiveToolNames()).toEqual(["tool_search"]);
-		await controller.persistUserDefaults();
-		expect(JSON.parse(await readFile(path.join(agentDir, "settings.json"), "utf8")).defaultTools).toEqual([]);
-		api.registerTool({ ...candidate, exposure: "hidden" });
-		await session.prompt("扩展隐藏候选后更新搜索入口");
-		expect(search()).toMatchObject({ available: false, enabled: false });
-		expect(session.getActiveToolNames()).not.toContain("tool_search");
-
-		api.registerTool(candidate);
-		await session.prompt("候选恢复后自动启用搜索");
-		expect(search()).toMatchObject({ available: true, enabled: true });
-		expect(requestedTools()).toContain("tool_search");
-		controller.set("codemode", true);
-		expect(search()).toMatchObject({ available: false, enabled: false });
-		expect(session.getActiveToolNames()).not.toContain("tool_search");
-		await session.prompt("脚本模式保留延迟工具");
-		expect(requestedTools()).toEqual(["codemode"]);
-		controller.set("codemode", false);
-		expect(session.getActiveToolNames()).toEqual(["tool_search"]);
-		controller.set("fixture", true);
-		expect(search()).toMatchObject({ available: false, enabled: false });
-		expect(session.getActiveToolNames()).toEqual(["fixture"]);
-		controller.set("codemode", true);
-		await session.prompt("脚本模式也隐藏已激活的间接工具声明");
-		expect(requestedTools()).toEqual(["codemode"]);
-		expect(session.getActiveToolNames()).toEqual(["fixture", "codemode"]);
-		controller.set("codemode", false);
-		await session.prompt("恢复间接工具的直接调用");
-		expect(requestedTools()).toEqual(["fixture"]);
-	});
-
-	it("SDK 显式工具选择优先于已保存的默认值", async () => {
-		let host = await start();
-		host.controller.set("bash", false);
-		await host.controller.persistUserDefaults();
-		await runtime?.dispose();
-		host = await start(SessionManager.create(cwd), ["bash"]);
-		expect(selected(host.controller)).toEqual(["bash"]);
-		await host.session.prompt("使用显式工具选择");
-		expect(requestedTools()).toEqual(["bash"]);
-	});
-
-	it("保存 codemode 后由 SDK 在新会话启用", async () => {
-		let host = await start();
-		host.controller.set("codemode", true);
-		await host.controller.persistUserDefaults();
-		await runtime?.dispose();
-		host = await start();
-		expect(selected(host.controller)).toContain("codemode");
-		await host.session.prompt("使用保存的脚本入口");
-		expect(requestedTools()).toEqual(["codemode"]);
-	});
-
-	it("保存全局默认值后，新会话使用保存的选择，旧会话仍使用分支选择", async () => {
-		let host = await start();
-		host.controller.set("bash", false);
-		await host.controller.persistUserDefaults();
-		host.controller.set("read", false);
-		await host.session.prompt("保存分支选择");
-		const file = host.session.sessionFile;
-		if (!file) throw new Error("缺少会话文件");
-		await runtime?.dispose();
-		host = await start();
-		expect(selected(host.controller)).toEqual(["read", "write"]);
-		await host.session.prompt("使用全局默认值");
-		expect(requestedTools()).toEqual(["read", "write"]);
-		await runtime?.dispose();
-		host = await start(SessionManager.open(file));
-		expect(selected(host.controller)).toEqual(["write"]);
-	});
-
-	it("切换 codemode 只隐藏或恢复普通声明，不改变已选工具", async () => {
+describe("CodeAct 工具选择与 SDK 状态", () => {
+	it("旧默认列表补齐入口，不改写默认配置或擅自添加能力", async () => {
 		const { session, controller } = await start();
-		await session.prompt("直接调用");
-		expect(requestedTools()).toEqual(["read", "bash", "write"]);
-		expect(controller.listTools().map((tool) => tool.name)).toContain("codemode");
-		controller.set("codemode", true);
-		await session.prompt("脚本调用");
-		expect(requestedTools()).toEqual(["codemode"]);
 		expect(selected(controller)).toEqual(expect.arrayContaining(["read", "bash", "write", "codemode"]));
-		const scriptDescription = server.requests.at(-1)?.tools?.[0]?.function.description;
-		expect(scriptDescription).toContain("read(args:");
-		expect(scriptDescription).toContain("`models`");
-		controller.set("read", false);
-		await session.prompt("更新脚本目录");
-		const updated = server.requests.at(-1)?.tools?.[0]?.function.description;
-		expect(updated).not.toContain("read(args:");
-		expect(updated).toContain("write(args:");
-		expect(updated).toContain("`models`");
-		controller.set("read", true);
-		controller.set("codemode", false);
-		await session.prompt("恢复直接调用");
-		expect(requestedTools()).toEqual(["bash", "write", "read"]);
-		expect(selected(controller)).toEqual(["read", "bash", "write"]);
+		expect(selected(controller)).toHaveLength(4);
+		expect(controller.hasUserDefaultChanges(["read", "bash", "write"])).toBe(false);
+		await session.prompt("测试 CodeAct");
+		expect(requestedTools()).toEqual(["codemode"]);
+		expect(JSON.parse(await readFile(path.join(agentDir, "settings.json"), "utf8")).defaultTools).toEqual(["read", "bash", "write"]);
 	});
 
-	it("恢复会话和导航分支后，codemode 仍只声明脚本入口", async () => {
+	it("显式工具选择只补入口，空列表保持无工具", async () => {
+		let host = await start(SessionManager.create(cwd), ["bash"]);
+		expect(selected(host.controller)).toEqual(expect.arrayContaining(["bash", "codemode"]));
+		await host.session.prompt("只启用进程能力");
+		expect(requestedTools()).toEqual(["codemode"]);
+		const description = server.requests.at(-1)?.tools?.[0]?.function.description;
+		expect(description).toContain("bash(");
+		expect(description).not.toContain("read(path:");
+		await runtime?.dispose();
+		host = await start(SessionManager.create(cwd), []);
+		expect(selected(host.controller)).toEqual([]);
+		await host.session.prompt("无工具对话");
+		expect(requestedTools()).toEqual([]);
+	});
+
+	it("关闭 CodeAct 同时关闭宿主能力，重新启用能力会恢复入口", async () => {
+		const { session, controller } = await start();
+		controller.set("codemode", false);
+		expect(selected(controller)).toEqual([]);
+		await session.prompt("关闭执行");
+		expect(requestedTools()).toEqual([]);
+		controller.set("read", true);
+		expect(selected(controller)).toEqual(expect.arrayContaining(["read", "codemode"]));
+		await session.prompt("只允许读取");
+		expect(requestedTools()).toEqual(["codemode"]);
+		const description = server.requests.at(-1)?.tools?.[0]?.function.description;
+		expect(description).toContain("read(");
+		expect(description).not.toContain("bash(");
+	});
+
+	it("目录随能力选择变化，保存默认后新会话仍只有脚本入口", async () => {
 		let host = await start();
-		host.controller.set("codemode", true);
-		await host.session.prompt("脚本分支");
-		const leaf = host.session.sessionManager.getLeafId();
-		const file = host.session.sessionFile;
-		if (!leaf || !file) throw new Error("缺少分支或会话文件");
+		host.controller.set("read", false);
+		await host.controller.persistUserDefaults();
+		await host.session.prompt("更新能力目录");
+		expect(server.requests.at(-1)?.tools?.[0]?.function.description).not.toContain("read(path:");
+		await runtime?.dispose();
+		host = await start();
+		expect(selected(host.controller)).not.toContain("read");
+		expect(selected(host.controller)).toContain("codemode");
+		await host.session.prompt("使用已保存默认值");
+		expect(requestedTools()).toEqual(["codemode"]);
+	});
+
+	it("恢复会话及导航分支保留能力选择，不回落到直接调用", async () => {
+		let host = await start();
+		host.controller.set("bash", false);
+		await host.session.prompt("文件能力分支");
+		const leaf = host.session.sessionManager.getLeafId(), file = host.session.sessionFile;
+		if (!leaf || !file) throw new Error("缺少会话分支");
 		await runtime?.dispose();
 		host = await start(SessionManager.open(file));
-		await host.session.prompt("恢复脚本分支");
+		expect(selected(host.controller)).not.toContain("bash");
+		await host.session.prompt("恢复分支");
 		expect(requestedTools()).toEqual(["codemode"]);
 		host.controller.set("codemode", false);
-		await host.session.prompt("直接调用分支");
-		expect(requestedTools()).toEqual(["read", "bash", "write"]);
+		await host.session.prompt("关闭执行分支");
+		expect(requestedTools()).toEqual([]);
 		await host.session.navigateTree(leaf, { summarize: false });
-		await host.session.prompt("回到脚本分支");
+		await host.session.prompt("回到文件能力分支");
 		expect(requestedTools()).toEqual(["codemode"]);
+		expect(selected(host.controller)).not.toContain("bash");
 	});
 
-	it("SDK 改变工具后，选择器与下一次请求使用同一状态", async () => {
-		const { session, controller } = await start();
+	it("SDK 恢复旧的直接工具集合后，下一次请求也补齐脚本入口", async () => {
+		const { session } = await start();
 		session.setActiveToolsByName(["bash"]);
-		expect(selected(controller)).toEqual(["bash"]);
-		controller.set("write", true);
-		await session.prompt("使用当前工具");
-		expect(requestedTools()).toEqual(["bash", "write"]);
-		expect(selected(controller)).toEqual(["bash", "write"]);
-	});
-
-	it("恢复手动选择时保持声明顺序，不追加重复 system 消息", async () => {
-		let host = await start();
-		host.session.setActiveToolsByName(["write", "read", "bash"]);
-		host.controller.set("bash", false);
-		await host.session.prompt("保存当前工具状态");
-		const systems = host.session.messages.filter((message) => message.role === "system");
-		const file = host.session.sessionFile;
-		if (!file) throw new Error("缺少会话文件");
-		await runtime?.dispose();
-		host = await start(SessionManager.open(file));
-		expect(host.session.getActiveToolNames()).toEqual(["write", "read"]);
-		expect(selected(host.controller)).toEqual(["read", "write"]);
-		await host.session.prompt("继续");
-		expect(requestedTools()).toEqual(["write", "read"]);
-		expect(host.session.messages.filter((message) => message.role === "system")).toEqual(systems);
-	});
-
-	it("恢复手动选择后新增的原生工具声明", async () => {
-		let host = await start();
-		host.controller.set("bash", false);
-		await host.session.prompt("保存手动选择");
-		host.session.setActiveToolsByName(["read", "write", "bash"]);
-		expect(host.session.getActiveToolNames()).toEqual(["read", "write", "bash"]);
-		await host.session.prompt("使用新发现的工具");
-		const file = host.session.sessionFile;
-		if (!file) throw new Error("缺少会话文件");
-		await runtime?.dispose();
-		host = await start(SessionManager.open(file));
-		expect(selected(host.controller)).toEqual(["read", "bash", "write"]);
-		await host.session.prompt("恢复后继续");
-		expect(requestedTools()).toEqual(["read", "write", "bash"]);
-	});
-
-	it("未发送请求的选择不持久化，导航分支使用 SDK 声明", async () => {
-		let host = await start();
-		host.controller.set("bash", false);
-		await host.session.prompt("第一个分支");
-		const leaf = host.session.sessionManager.getLeafId();
-		const file = host.session.sessionFile;
-		if (!leaf || !file) throw new Error("缺少分支或会话文件");
-		host.controller.set("read", false);
-		expect(selected(host.controller)).toEqual(["write"]);
-		await runtime?.dispose();
-		host = await start(SessionManager.open(file));
-		expect(selected(host.controller)).toEqual(["read", "write"]);
-		host.controller.set("read", false);
-		await host.session.prompt("第二个分支");
-		expect(requestedTools()).toEqual(["write"]);
-		await host.session.navigateTree(leaf, { summarize: false });
-		expect(selected(host.controller)).toEqual(["read", "write"]);
-		await host.session.prompt("回到第一个分支");
-		expect(requestedTools()).toEqual(["read", "write"]);
+		await session.prompt("旧工具集合");
+		expect(requestedTools()).toEqual(["codemode"]);
+		expect(session.getActiveToolNames()).toEqual(["bash", "codemode"]);
 	});
 });

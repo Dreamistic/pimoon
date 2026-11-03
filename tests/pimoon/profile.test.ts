@@ -8,11 +8,14 @@ import { expect, it } from "vitest";
 const execute = promisify(execFile);
 
 it.each([
-	{ name: "首次启动", original: undefined, shell: true },
-	{ name: "旧版默认列表保留注释及其他设置", original: '// keep comment\n{"defaultTools":["read","write","edit","find","grep","ls","codemode"],"defaultModel":"custom",}', shell: true },
-	{ name: "自定义工具列表", original: '{"defaultTools":["read","codemode"]}', shell: false },
-	{ name: "显式关闭工具", original: '{"defaultTools":[]}', shell: false },
-])("$name 的工具默认值", async ({ original, shell }) => {
+	{ name: "首次启动", original: undefined, expected: ["read", "write", "edit", "find", "grep", "ls", "bash", "websearch", "webfetch", "codemode"] },
+	{ name: "旧版原始默认列表", original: '// keep comment\n{"defaultTools":["read","write","edit","find","grep","ls","codemode"],"defaultModel":"custom",}', expected: ["read", "write", "edit", "find", "grep", "ls", "codemode"] },
+	{ name: "缺失入口的旧版桌面列表", original: '{"defaultTools":["read","bash","edit","write","grep","find","ls"]}', expected: ["read", "bash", "edit", "write", "grep", "find", "ls", "codemode"] },
+	{ name: "自定义文件能力补齐入口但不启用网络或进程", original: '{"defaultTools":["read"]}', expected: ["read", "codemode"] },
+	{ name: "已有入口", original: '{"defaultTools":["read","codemode"]}', expected: ["read", "codemode"] },
+	{ name: "纯 Python", original: '{"defaultTools":["codemode"]}', expected: ["codemode"] },
+	{ name: "显式关闭工具", original: '{"defaultTools":[]}', expected: [] },
+])("$name 的工具默认值", async ({ original, expected }) => {
 	const base = path.resolve(".tmp/tests/pimoon-profile");
 	await fs.mkdir(base, { recursive: true });
 	const folder = await fs.mkdtemp(path.join(base, "case-"));
@@ -25,12 +28,7 @@ it.each([
 	await execute(process.execPath, [path.resolve("src/pimoon/profile.ts")], { env, windowsHide: true });
 	const text = await fs.readFile(settings, "utf8");
 	const value: unknown = parse(text);
-	expect(value).toHaveProperty("defaultTools");
-	if (typeof value !== "object" || value === null || !("defaultTools" in value) || !Array.isArray(value.defaultTools)) throw new Error("工具配置无效");
-	expect(value.defaultTools.includes("bash")).toBe(shell);
-	expect(value.defaultTools.includes("websearch")).toBe(shell);
-	expect(value.defaultTools.includes("webfetch")).toBe(shell);
-	if (!shell) expect(text).toBe(original);
+	expect(value).toHaveProperty("defaultTools", expected);
 	if (original?.includes("keep comment")) {
 		expect(text).toContain("// keep comment");
 		expect(value).toHaveProperty("defaultModel", "custom");

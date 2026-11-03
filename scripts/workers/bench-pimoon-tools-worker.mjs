@@ -30,10 +30,16 @@ for (let round = 0; round < 10; round++) jobs.push(
 );
 if (app === "pimoon") for (let round = 0; round < 10; round++) jobs.push(
 	{ label: "CodeAct-print", tool: "codemode", args: { code: 'print("ready")' } },
-	{ label: "CodeAct-read", tool: "codemode", args: { code: 'print(read(path="note.txt"))' } },
 	{ label: "CodeAct-batch-8", tool: "codemode", args: { code: 'values=batch("read", [{"path":f"notes/{i}.txt"} for i in range(8)], limit=6)\nprint(len(values))' } },
 	{ label: "CodeAct-sequential-8", tool: "codemode", args: { code: 'values=[read(path=f"notes/{i}.txt") for i in range(8)]\nprint(len(values))' } },
 );
+// pimoon 基准也使用真实的唯一执行入口，不以被拒绝的直调充当性能样本。
+if (app === "pimoon") for (const job of jobs) {
+	if (job.tool === "codemode") continue;
+	const code = `print(${job.tool}(**json.loads(${JSON.stringify(JSON.stringify(job.args))})))`;
+	job.tool = "codemode";
+	job.args = { code };
+}
 let cursor = 0;
 const server = await startModelServer(() => cursor < jobs.length ? (() => { const job = jobs[cursor++]; return { tool: job.tool, args: job.args }; })() : { text: "done" });
 await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));

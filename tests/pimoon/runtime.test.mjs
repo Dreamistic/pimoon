@@ -80,6 +80,16 @@ test('桌面普通输出保留定向 read 全文和 grep 匹配行，不做二�
  },tools,false);
 });
 
+test('宿主图片随 CodeAct 父结果原样返回，不残留到下一次执行',async()=>{
+ const tool={name:'read',parameters:{type:'object',properties:{path:{type:'string'}}}};
+ const image={type:'image',data:Buffer.from('fixture image').toString('base64'),mimeType:'image/png'};
+ await runTest(async runtime=>{
+  const result=await runtime.run('print(read(path="sample.png"))',{tools:[tool],executeTool:async()=>({isError:false,result:{content:[{type:'text',text:'image loaded'},image]}})});
+  assert.equal(result.isError,false);assert.match(result.content[0].text,/image loaded/);assert.deepEqual(result.content[1],image);
+  const next=await runtime.run('print("next")',context);assert.equal(next.content.length,1);
+ },[tool],false);
+});
+
 test('普通成功输出只保留状态和原文，耗时留在指标中',()=>runTest(async runtime=>{
  const empty=await runtime.run('pass',context);assert.equal(empty.content[0].text,'ok');
  const printed=await runtime.run('print("原始结果")',context);assert.equal(printed.content[0].text,'ok\n原始结果\n');assert.ok(printed.details.metrics.host_ms>=0);

@@ -2,7 +2,29 @@
 
 2026-11-03，Windows x64。
 
-## CodeAct 启动预热与异步遥测
+## CodeAct 唯一执行入口（当前）
+
+- 模型请求只声明 `codemode`；文件、进程、网络宿主工具仅供 Python 内部调用。直接工具调用在执行边界被拒绝，嵌套调用仍经过审批、工作区校验、取消与遥测。
+- 原有底层工具选择保留为宿主能力开关。旧默认列表、恢复会话及 SDK 变更工具集合时补齐 CodeAct，不额外启用未选择的宿主能力；关闭入口同时关闭这些能力，显式空列表不启用工具。未交付的上游工具不能通过选择器启用。
+- 从实际启用工具的参数 schema 生成紧凑函数目录，包含可选参数和嵌套对象；隐藏工具的系统指导语、技能与子代理索引不残留。CodeAct 调用串行执行以保护持久变量，独立读取通过有界 `batch()` 并发。
+- 普通文本保留原文，脚本主动筛选；宿主图片内容块随父结果原样返回，不经过 Python 字符串化，不残留到下一次执行。
+- 验证通过：14 个 Vitest 文件、75 项测试；22 项真实 Python/Rust 执行器测试；全项目 TypeScript 类型检查。覆盖唯一声明、恶意直调拒绝、跨轮变量、读写与 CRLF、能力关闭、配置迁移、默认保存、会话恢复及分支导航、批次部分失败、审批、图片转交、取消和状态丢失。
+- Vitest 收集限定为 `tests/**/*.test.{ts,tsx}`，避免误收 `.tmp` 历史副本和应由 `node --test` 执行的 `.mjs` 套件。第一次按目录运行时曾误收这两类文件；调整后重跑上述套件全部通过。
+- 离线 SDK 基准已改为全量经过 CodeAct，100 次操作及 101 次本地固定响应请求成功，包含实际文件修改、批次与同一预热进程复用。原始结果：`.tmp/tests/tool-benchmark/run-57vQvS/results.json`。这是固定响应和热文件系统的功能/耗时检查，不是模型选择能力或端到端优势证明。
+- 桌面目录构建及独立便携包封装通过，产物为 `dist/desktop/app`、`dist/pimoon`。没有启动桌面窗口或付费模型，没有修改真实用户配置；正常启动新包时才迁移配置并加载新链路。
+
+定向验证命令（运行测试前将 PIMOON_HOME、HOME、USERPROFILE、APPDATA、LOCALAPPDATA、TEMP/TMP 全部隔离到 `.tmp/tests`）：
+
+```powershell
+node node_modules/typescript/bin/tsc --noEmit
+node node_modules/vitest/vitest.mjs run tests/pimoon tests/harness/tool-defaults tests/harness/extensions/system-prompt.test.ts tests/harness/extensions/system-prompt-session.test.ts tests/gui/frontend/features/chat/tools/codemode-ui.test.ts tests/gui/frontend/features/chat/tools/tool-presets-ui.test.tsx
+node --test tests/pimoon/runtime.test.mjs
+node scripts/bench-pimoon-tools.mjs
+bun scripts/build.mjs desktop --dir
+node scripts/build-pimoon-portable.mjs
+```
+
+## CodeAct 启动预热与异步遥测（历史记录）
 
 - 应用初始化当前工作区会话时后台启动 Python，不执行用户代码、不请求模型。首次工具调用复用预热进程；初始化未完成时仅等待剩余时间。不同会话变量隔离，关闭或回收执行资源时释放进程。
 - 两轮离线 SDK 基准：后台初始化约 194–237 ms；预热完成后的首次简单 CodeAct 调用约 2.9 ms，上轮按需启动为 215–367 ms。没有把启动成本消除或从计时中扣掉，而是提前重叠执行。

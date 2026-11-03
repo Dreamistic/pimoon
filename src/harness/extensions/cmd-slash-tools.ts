@@ -4,8 +4,6 @@ import {
 } from "../tool-defaults/controller.ts";
 import { canPresent, type Presenter } from "../presentation.ts";
 import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { discoverAgents } from "../subagent/agents.ts";
-import { loadSubagentConfig } from "../subagent/config.ts";
 import { initialToolDefaults, type ToolStartupOptions } from "../tool-defaults/initial.ts";
 
 interface ToolSelectorModule {
@@ -30,11 +28,6 @@ export function createToolsExtension({ loadTui, gui, bindController, startup = {
 	return function toolsExtension(pi: ExtensionAPI): void {
 		const controller = new ToolSelectionController(pi);
 		bindController?.(controller);
-
-		const refresh = async (ctx: ExtensionContext, initialTools?: readonly string[]): Promise<void> => {
-			const config = await loadSubagentConfig(ctx.cwd);
-			controller.refresh(discoverAgents(ctx.cwd, config).agents.length > 0, initialTools);
-		};
 
 		pi.registerCommand("tools", {
 			description: "Enable/disable tools",
@@ -72,8 +65,8 @@ export function createToolsExtension({ loadTui, gui, bindController, startup = {
 			},
 		});
 
-		pi.on("session_start", async (_event, ctx) => refresh(ctx, initialToolDefaults(pi, ctx.sessionManager.getBranch(), startup)));
-		pi.on("session_tree", async (_event, ctx) => refresh(ctx));
+		pi.on("session_start", (_event, ctx) => controller.refresh(initialToolDefaults(pi, ctx.sessionManager.getBranch(), startup)));
+		pi.on("session_tree", () => controller.refresh());
 	};
 }
 

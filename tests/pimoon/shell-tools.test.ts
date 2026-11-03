@@ -24,7 +24,7 @@ vi.mock("undici/index.js", async (importOriginal) => ({
 const execute = promisify(execFile);
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
-it("agent 直接及通过 Python 使用 Git、搜索和网页工具，嵌套调用仍经过宿主检查", async () => {
+it("Git、搜索和网页只通过 CodeAct 执行，直调被拒绝，嵌套调用保留审批", async () => {
 	const base = path.resolve(".tmp/tests/pimoon-shell-tools");
 	await fs.mkdir(base, { recursive: true });
 	const folder = await fs.mkdtemp(path.join(base, "case-"));
@@ -84,18 +84,21 @@ it("agent 直接及通过 Python 使用 Git、搜索和网页工具，嵌套调�
 			await runtime.session.bindExtensions({ mode: "print", onError: ({ error }) => { throw new Error(error); } });
 			await runtime.session.prompt("Run the isolated Git workflow.");
 			expect(server.requests).toHaveLength(jobs.length + 1);
-			expect(server.requests[0]?.tools?.map(tool => tool.function.name)).toEqual(expect.arrayContaining(["bash", "websearch", "webfetch", "codemode"]));
+			for (const request of server.requests) expect(request.tools?.map(tool => tool.function.name)).toEqual(["codemode"]);
+			const description = server.requests[0]?.tools?.[0]?.function.description;
+			for (const name of ["bash", "websearch", "webfetch"]) expect(description).toContain(`${name}(`);
 			const hidden = new Set(codemodeHiddenDeclarations(runtime.session.getAllTools()));
-			for (const name of ["bash", "websearch", "webfetch"]) expect(hidden.has(name)).toBe(false);
+			for (const name of ["bash", "websearch", "webfetch"]) expect(hidden.has(name)).toBe(true);
 			const results = runtime.session.messages.filter(message => message.role === "toolResult");
 			expect(results).toHaveLength(jobs.length);
-			expect(results.map(result => result.isError)).toEqual([false, false, true, true, true, true, false, false, false, false, true, true]);
-			for (const result of results.slice(0, 2)) expect(JSON.stringify(result.content)).toContain("?? sentinel.txt");
-			for (const result of results.slice(2, 4)) expect(JSON.stringify(result.content)).toMatch(/approval|审批/i);
-			for (const result of results.slice(4, 6)) expect(JSON.stringify(result.content)).toContain("工作区");
-			for (const result of results.slice(6, 8)) expect(JSON.stringify(result.content)).toContain("fixture search result");
-			for (const result of results.slice(8, 10)) expect(JSON.stringify(result.content)).toContain("fixture web content");
-			for (const result of results.slice(10)) expect(JSON.stringify(result.content)).toMatch(/approval|审批/i);
+			expect(results.map(result => result.isError)).toEqual([true, false, true, true, true, true, true, false, true, false, true, true]);
+			for (const result of results.filter((_, index) => index % 2 === 0)) expect(JSON.stringify(result.content)).toContain("codemode");
+			expect(JSON.stringify(results[1]?.content)).toContain("?? sentinel.txt");
+			expect(JSON.stringify(results[3]?.content)).toMatch(/approval|审批/i);
+			expect(JSON.stringify(results[5]?.content)).toContain("工作区");
+			expect(JSON.stringify(results[7]?.content)).toContain("fixture search result");
+			expect(JSON.stringify(results[9]?.content)).toContain("fixture web content");
+			expect(JSON.stringify(results[11]?.content)).toMatch(/approval|审批/i);
 			expect(network.fetch.mock.calls.every(([url]) => url.hostname !== "127.0.0.1")).toBe(true);
 			expect(await fs.readFile(path.join(repo, "sentinel.txt"), "utf8")).toBe("keep");
 		} finally { await runtime.dispose(); }

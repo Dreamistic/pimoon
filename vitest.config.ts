@@ -6,6 +6,7 @@ export default defineConfig({
 	plugins: [welcomeSvg()],
 	resolve: { alias: { "@": fileURLToPath(new URL("./src/gui/frontend", import.meta.url)) } },
 	test: {
+		include: ["tests/**/*.test.{ts,tsx}"],
 		testTimeout: 15_000,
 		setupFiles: ["./tests/helpers/worker-setup.ts"],
 		exclude: ["**/node_modules/**", "**/.git/**", "o-pet/**"],
