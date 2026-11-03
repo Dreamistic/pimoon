@@ -1,17 +1,18 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { codemodeAllowedTools } from "./loadout.ts";
 
-type CatalogTool = Pick<AgentTool, "name" | "description" | "parameters">;
+type CatalogTool = Pick<AgentTool, "name" | "description" | "parameters" | "outputSchema">;
 
 /** 从真实 schema 生成 Python 调用目录，不重复暴露 JSON 工具声明。 */
 export function codemodeCatalog(tools: readonly CatalogTool[]): string {
 	return tools.filter(tool => tool.name !== "codemode" && codemodeAllowedTools.has(tool.name)).map(tool => {
 		const schema: unknown = tool.parameters;
-		if (!isRecord(schema)) return `${tool.name}() - ${tool.description}`;
+		const output = tool.outputSchema === undefined ? "str" : pythonType(tool.outputSchema);
+		if (!isRecord(schema)) return `${tool.name}() -> ${output} - ${tool.description}`;
 		const required = new Set(Array.isArray(schema.required) ? schema.required : []);
 		const properties = isRecord(schema.properties) ? schema.properties : {};
 		const args = Object.entries(properties).map(([name, value]) => `${name}${required.has(name) ? "" : "?"}: ${pythonType(value)}`);
-		return [`${tool.name}(${args.join(", ")}) - ${tool.description}`, ...parameterNotes(properties)].join("\n");
+		return [`${tool.name}(${args.join(", ")}) -> ${output} - ${tool.description}`, ...parameterNotes(properties)].join("\n");
 	}).join("\n");
 }
 

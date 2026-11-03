@@ -5,7 +5,7 @@ import path from 'node:path';
 import {once} from 'node:events';
 const base=path.resolve('.tmp/tests/pimoon-runtime');await fs.mkdir(base,{recursive:true});
 const resources=await fs.mkdtemp(path.join(base,'resources-'));await fs.mkdir(path.join(resources,'pimoon'));
-for(const file of ['worker.py','observations.py','worker_hooks.py'])await fs.copyFile(path.join('src/pimoon',file),path.join(resources,'pimoon',file));
+for(const file of ['worker.py','execution.py','observations.py','worker_hooks.py'])await fs.copyFile(path.join('src/pimoon',file),path.join(resources,'pimoon',file));
 await fs.copyFile('assets/runtime/pimoon-runtime.exe',path.join(resources,'pimoon/pimoon-runtime.exe'));
 process.env.PIMOON_RESOURCE_DIR=resources;
 const {Runtime,Decoder}=await import('../../src/pimoon/runtime.mjs');
@@ -56,6 +56,61 @@ print(total(rows))`;
  },[],false,{transport,protectedPaths:[protectedDir]});
 });
 
+test('无需 print 的数据处理与跨轮复用；赋值和 None 不回灌',()=>runTest(async runtime=>{
+ const first=await runtime.run('rows=[{"name":"a","value":20},{"name":"b","value":22}]\nselected=[r["value"] for r in rows if r["value"]>20]\n{"count":len(selected),"total":sum(selected)}',context);
+ assert.equal(first.isError,false);assert.deepEqual(JSON.parse(first.content[0].text.slice(3)),{count:1,total:22});assert.equal(first.details.metrics.expression_results,1);
+ const next=await runtime.run('assert _["total"]==22\nrows[0]["value"]+=1\nsum(r["value"] for r in rows)',context);
+ assert.equal(next.content[0].text,'ok\n43\n');assert.equal(next.details.metrics.python_pid,first.details.metrics.python_pid);
+ for(const code of ['saved=rows','None','for r in rows:\n r["value"]','assert _==43']){
+  const silent=await runtime.run(code,context);assert.equal(silent.content[0].text,'ok');assert.equal(silent.details.metrics.expression_results,0);
+ }
+ const printed=await runtime.run('print("once")',context);assert.equal(printed.content[0].text,'ok\nonce\n');
+ const boolean=await runtime.run('False',context);assert.equal(boolean.content[0].text,'ok\nfalse\n');
+ const empty=await runtime.run('""',context);assert.equal(empty.content[0].text,'ok\n\n');
+},[],false));
+
+test('末尾宿主调用与编译缓存只执行一次副作用，失败无需 print',async()=>{
+ const tool={name:'write',parameters:{type:'object',properties:{path:{type:'string'}}}};let calls=0;
+ await runTest(async runtime=>{
+  const ctx={tools:[tool],executeTool:async()=>{calls++;return{isError:false,result:{content:[{type:'text',text:'changed once'}]}};}};
+  for(let n=1;n<=2;n++){
+   const result=await runtime.run('write(path="fixture")',ctx);assert.equal(calls,n);assert.equal(result.content[0].text,'ok\nchanged once\n');assert.equal(result.details.metrics.compile_cache_hit,n===2);
+  }
+  const failed=await runtime.run('write(path="fixture")',{tools:[tool],executeTool:async()=>({isError:true,result:{content:[{type:'text',text:'denied fixture'}]}})});
+  assert.equal(failed.isError,true);assert.match(failed.content[0].text,/denied fixture/);
+  const after=await runtime.run('assert "__pimoon_cell_result__" not in globals()\nassert _=="changed once"',context);assert.equal(after.content[0].text,'ok');
+ },[tool],false);
+});
+
+test('异常保留已完成写入和原行号，不自动回显旧结果',()=>runTest(async(runtime,cwd)=>{
+ await runtime.run('"previous"',context);
+ const failure=await runtime.run('from pathlib import Path\nPath("kept.txt").write_text("kept")\n1/0',context);
+ assert.equal(failure.isError,true);assert.match(failure.content[0].text,/<agent>"?, line 3/);assert.doesNotMatch(failure.content[0].text,/previous/);
+ assert.equal(await fs.readFile(path.join(cwd,'kept.txt'),'utf8'),'kept');
+ const syntax=await runtime.run('answer = (',context);assert.equal(syntax.isError,true);assert.match(syntax.content[0].text,/SyntaxError/);
+ const future=await runtime.run('from __future__ import annotations\ndef f(x: Unknown): return x\nf.__annotations__',context);
+ assert.equal(future.isError,false);assert.deepEqual(JSON.parse(future.content[0].text.slice(3)),{x:'Unknown'});
+},[],false));
+
+test('自动展示保留原始文本、截断信息和完整对象，循环对象不使执行失败',()=>runTest(async runtime=>{
+ const result=await runtime.run('"原文"+"x"*50000',context);
+ assert.equal(result.isError,false);assert.equal(result.details.metrics.display_truncated,true);assert.equal(result.details.metrics.output_complete,true);
+ const next=await runtime.run('assert _.startswith("原文")\nassert len(_)==50002\nlen(_)',context);assert.equal(next.content[0].text,'ok\n50002\n');
+ const keys=await runtime.run('{1:"number","1":"string"}',context);assert.deepEqual(JSON.parse(keys.content[0].text.slice(3)),{dict_entries:[[1,'number'],['1','string']]});
+ const cyclic=await runtime.run('items=[]\nitems.append(items)\nitems',context);assert.equal(cyclic.isError,false);assert.match(cyclic.content[0].text,/cycle; inspect _/);
+ const object=await runtime.run('class Item:\n def __repr__(self): raise RuntimeError("must not call repr")\nItem()',context);assert.equal(object.isError,false);assert.doesNotMatch(object.content[0].text,/must not call repr/);
+},[],false));
+
+test('自动显示图片结果不重复输出 Base64，完整对象与原始图片块仍可用',async()=>{
+ const tool={name:'read',parameters:{type:'object',properties:{}},outputSchema:{type:'object'}};
+ const image={type:'image',data:'SYNTHETIC_BASE64',mimeType:'image/png'};
+ await runTest(async runtime=>{
+  const result=await runtime.run('read()',{tools:[tool],executeTool:async()=>({isError:false,result:{content:[image],structuredContent:{items:[image]}}})});
+  assert.equal(result.isError,false);assert.doesNotMatch(result.content[0].text,/SYNTHETIC_BASE64/);assert.deepEqual(result.content[1],image);
+  const kept=await runtime.run('assert _["items"][0]["data"]=="SYNTHETIC_BASE64"',context);assert.equal(kept.content[0].text,'ok');
+ },[tool],false);
+});
+
 test('真实 Python 持久性与 live-object 预览/回读',()=>runTest(async runtime=>{
  const first=await runtime.run('counter=41\nrows=list(range(1000))\nprint(rows)',context);
  assert.match(first.content[0].text,/@o1/);assert.equal(first.details.metrics.auto_observations,1);
@@ -72,7 +127,7 @@ test('native_read 失败捕获后仍保留，stderr 独立计数',()=>runTest(as
 
 test('异常与大输出的不完整状态均可见',()=>runTest(async runtime=>{
  const failure=await runtime.run('raise ValueError("synthetic failure")',context);assert.equal(failure.isError,true);assert.match(failure.content[0].text,/synthetic failure/);
- const result=await runtime.run('import sys\nsys.stdout.write("x"*(1024*1024+20))',context);
+ const result=await runtime.run('import sys\nwritten=sys.stdout.write("x"*(1024*1024+20))',context);
  assert.equal(result.details.metrics.output_complete,false);assert.equal(result.details.metrics.output_chars,1024*1024+20);assert.match(result.content[0].text,/Output retention incomplete/);
 }));
 

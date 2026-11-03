@@ -21,6 +21,19 @@ it("目录从参数 schema 生成可区分可选参数和嵌套对象的紧凑�
 	expect(catalog).not.toContain('"properties"');
 });
 
+it("声明来自真实输出 schema 的字段，未声明结构化输出时返回文本", () => {
+	const catalog = codemodeCatalog([
+		{ name: "bash", description: "Run.", parameters: Type.Object({ command: Type.String() }),
+			outputSchema: Type.Object({ output: Type.String(), exit_code: Type.Union([Type.Integer(), Type.Null()]), truncated: Type.Boolean() }) },
+		{ name: "find", description: "Find.", parameters: Type.Object({}),
+			outputSchema: Type.Object({ matches: Type.Array(Type.Object({ path: Type.String() })) }) },
+		{ name: "ls", description: "List.", parameters: Type.Object({}) },
+	]);
+	expect(catalog).toContain("bash(command: str) -> {output: str, exit_code: int|None, truncated: bool}");
+	expect(catalog).toContain("find() -> {matches: list[{path: str}]}");
+	expect(catalog).toContain("ls() -> str");
+});
+
 it("只隐藏执行声明，不丢失底层能力选择或显式无工具状态", () => {
 	expect(codemodeHiddenDeclarations(["codemode", "read", "bash", "other"].map(name => ({ name })))).toEqual(["read", "bash", "other"]);
 	expect(codemodeSelection(["read", "bash"])).toEqual(["read", "bash", "codemode"]);

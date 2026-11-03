@@ -10,17 +10,19 @@ pimoon 桌面使用持久 CPython，`codemode` 是模型唯一执行入口。此
 from pathlib import Path
 import json
 rows = [json.loads(line) for line in Path("D:/data/events.jsonl").read_text(encoding="utf-8").splitlines()]
-print({"events": len(rows)})
+{"events": len(rows)}
 ```
 
 允许读取工作区外的普通文件；写入、删除和重命名仍限当前工作区。pimoon 登录凭据和常见用户凭据目录受保护。路径与 audit 检查不是强安全沙箱，不代表可以读取与任务无关的隐私文件。
 
-宿主函数已注入 Python，例如 `read(path=...)`、`bash(command=...)`、`websearch(...)`。启用的函数签名由真实 schema 生成，模型无须另找入口。底层能力关闭后不可调用；执行仍经过 SDK 校验、审批与遥测。Python 不直接启动进程、访问网络或调用 FFI。
+宿主函数已注入 Python，例如 `read(path=...)`、`bash(command=...)`、`websearch(...)`。启用的函数签名及返回结构由真实 schema 生成，模型无须另找入口。底层能力关闭后不可调用；执行仍经过 SDK 校验、审批与遥测。Python 不直接启动进程、访问网络或调用 FFI。
 
 `batch(name, jobs, limit=6)` 只并发独立的 read/find/grep/ls，最多 16 并发。返回有序的 `{ok, value|error}` 列表。
 
 ## 结果与状态
 
+- 最后一个顶层表达式自动展示（`None` 除外），完整结果保留在 `_`，后续可继续分析；赋值和循环内表达式不自动展示。字符串原样返回，列表/字典使用 JSON，图片只显示说明，原始图片块仍单独转交。未知对象/循环引用给出标记，不调用自定义 repr。
+- `print` 仍可显式输出，不自动重复；错误、内部工具失败即使没有 print 也会报告。不要为获取输出重放写入。
 - 返回前筛选或汇总；`observe(value, fields=[...], limit=8)` 可投影表格。
 - bash 返回 output/status/exit_code/wall_time_seconds/truncated/capture_complete，可含 full_output_path；失败可能通过字段或异常表达。
 - 输出展示最多约 40k 字符，`_last_output` 最多保留 1 Mi 字符；截断和保留不完整分别标记。

@@ -14,7 +14,7 @@ SCALARS = set('''schema run pid seq at mono_ms type application_run_id session_i
 METRICS = set('''outcome metrics_complete ok error_type host_ms python_ms compile_ms compile_cache_hit bridge_wait_ms
  observation_ms auto_observations explicit_observations observation_readbacks observation_readback_errors
  observation_input_rows observation_shown_rows python_pid cached_blocks frames broker_service_us native_read_us
- output_complete output_chars retained_output_chars displayed_output_chars display_truncated model_returned_text_chars
+ expression_results output_complete output_chars retained_output_chars displayed_output_chars display_truncated model_returned_text_chars
  tool_failure_count internal_tool_calls internal_tool_failures internal_output_text_chars batch_calls
  native_read_calls_observed native_read_trace_complete worker_telemetry_cpu_ms stdout_chars stderr_chars'''.split())
 FIELDS = METRICS | set('''status error_code changed input_edit_count input_old_chars input_new_chars input_old_lines input_new_lines

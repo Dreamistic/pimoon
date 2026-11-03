@@ -11,7 +11,8 @@ import sys
 from time import perf_counter
 import traceback
 import types
-from observations import Observations, PLAIN_PRINT
+from observations import Observations
+from execution import RESULT_NAME, compile_cell, display_result
 import worker_hooks as hooks
 
 HEADER = struct.Struct('<4sBIII')
@@ -180,7 +181,8 @@ while True:
     observer.auto_count = observer.observe_count = observer.readback_count = 0
     observer.input_rows = observer.shown_rows = observer.readback_errors = 0
     hooks.begin()
-    failures = []; stream = Capture(); error = None; error_type = None; cache_hit = False
+    failures = []; stream = Capture(); error = None; error_type = None; cache_hit = False; expression_results = 0
+    namespace.pop(RESULT_NAME, None)
     with contextlib.redirect_stdout(hooks.TaggedStream(stream)), contextlib.redirect_stderr(hooks.TaggedStream(stream, stderr=True)):
         try:
             code = payload.decode('utf-8')
@@ -188,17 +190,26 @@ while True:
             compiled = cache.get(code)
             cache_hit = compiled is not None
             if compiled is None:
-                compiled = compile(code, '<agent>', 'exec')
+                compiled = compile_cell(code)
                 # 只缓存字节码，不缓存结果或副作用。
                 if len(code) <= 65536:
                     cache[code] = compiled
                     while len(cache) > 64:
                         cache.popitem(last=False)
             compile_ms = (perf_counter() - compile_start) * 1000
-            exec(compiled, namespace)
+            bytecode, has_result = compiled
+            exec(bytecode, namespace)
+            if has_result:
+                value = namespace.pop(RESULT_NAME, None)
+                if value is not None:
+                    namespace['_'] = value
+                    expression_results = 1
+                    display_result(value)
         except BaseException as failure:
             error_type = type(failure).__name__
             error = traceback.format_exc(limit=6)
+        finally:
+            namespace.pop(RESULT_NAME, None)
     output = stream.getvalue()
     retained_chars = len(output)
     complete = stream.total <= 1024 * 1024
@@ -207,7 +218,7 @@ while True:
         output = output[:20000] + '\n[truncated; retained portion in _last_output; complete=' + str(complete) + ']\n' + output[-20000:]
     send(DONE, {'ok': error is None, 'output': output, 'error': error, 'tool_failures': failures,
                 'output_complete': complete, 'output_chars': stream.total,
-                'metrics': {**hooks.snapshot(), 'error_type': error_type, 'compile_cache_hit': cache_hit,
+                'metrics': {**hooks.snapshot(), 'expression_results': expression_results, 'error_type': error_type, 'compile_cache_hit': cache_hit,
                             'retained_output_chars': retained_chars, 'displayed_output_chars': len(output),
                             'display_truncated': retained_chars > 40000,
                             'observation_input_rows': observer.input_rows, 'observation_shown_rows': observer.shown_rows,

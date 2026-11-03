@@ -25,7 +25,7 @@ it("CodeAct 是唯一执行入口，拒绝直调，保留正文、变量和宿�
 	const replies: ModelResponse[] = [
 		{ tool: "read", args: { path: "App.css" } },
 		{ tool: "edit", args: { path: "App.css", edits } },
-		{ tool: "codemode", args: { code: 'source=read(path="App.css"); print(source)' } },
+		{ tool: "codemode", args: { code: 'source=read(path="App.css"); source' } },
 		{ tool: "codemode", args: { code: `print(edit(path="App.css", edits=${JSON.stringify(edits)}))\nassert "20px 20px 8px 20px" not in native_read("App.css")\nanswer=6*7\nprint(answer)` } },
 		{ text: "done" },
 	];
@@ -55,7 +55,9 @@ it("CodeAct 是唯一执行入口，拒绝直调，保留正文、变量和宿�
 			for (const request of server.requests) expect(request.tools?.map(tool => tool.function.name)).toEqual(["codemode"]);
 			const description = server.requests[0]?.tools?.[0]?.function.description;
 			expect(description).toContain("CodeAct: the only execution entry");
-			expect(description).toContain("read(path: str, lines?: str, pages?: str)");
+			expect(description).toContain("read(path: str, lines?: str, pages?: str) -> str|");
+			expect(description).toContain("final top-level expression");
+			expect(description).toContain("_ retains its full value");
 			expect(description).toContain("edits: list[{old: str, new: str, replace_all?: bool}]");
 			expect(description).not.toContain('"properties"');
 			expect(description).not.toContain("bash(");
@@ -67,7 +69,7 @@ it("CodeAct 是唯一执行入口，拒绝直调，保留正文、变量和宿�
 			expect(JSON.stringify(results[2]?.content)).toContain("原始正文 context");
 			expect(JSON.stringify(results[2]?.content)).toContain("border-radius: 20px 20px 8px 20px;");
 			expect(await fs.readFile(path.join(cwd, "App.css"), "utf8")).toBe(text.replace("20px 20px 8px 20px", "20px"));
-			replies.push({ tool: "codemode", args: { code: 'assert answer==42; assert "原始正文" in source; print(answer)' } }, { text: "done" });
+			replies.push({ tool: "codemode", args: { code: 'assert answer==42; assert "原始正文" in source; answer' } }, { text: "done" });
 			await runtime.session.prompt("Continue using the Python variables.");
 			expect(runtime.session.messages.filter(message => message.role === "toolResult").at(-1)).toMatchObject({ toolName: "codemode", isError: false });
 			const external = path.join(folder, "external.txt");
