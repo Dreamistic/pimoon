@@ -1,0 +1,338 @@
+{
+	"enabled": true,
+	"exclude_paths": [
+		"~"
+	],
+	"startup_timeout_ms": 8000,
+	"request_timeout_ms": 5000,
+	"idle_timeout_ms": 300000,
+	// 仓库配置覆盖内置默认值 64。
+	"max_open_documents": 128,
+	"diagnostics": {
+		"enabled": true,
+		"max_wait_ms": 3000,
+		"settle_ms": 150,
+		"max_items": 8,
+		"max_related_locations": 3,
+		"min_severity": "warning"
+	},
+	"grep": {
+		"workspace_symbols": true,
+		"max_symbols": 20,
+		"max_exact_leaf_symbols": 2
+	},
+	"servers": {
+		"typescript": {
+			// TypeScript 7 原生 LSP；要求 PATH 中的 tsc 为 7.x。
+			"command": [
+				"tsc",
+				"--lsp",
+				"--stdio"
+			],
+			"languages": {
+				"typescript": "*.ts",
+				"typescriptreact": "*.tsx",
+				"javascript": "*.{js,mjs,cjs}",
+				"javascriptreact": "*.jsx"
+			}
+		},
+		"html": {
+			"command": [
+				"vscode-html-language-server",
+				"--stdio"
+			],
+			// 启用 <style> 与 <script> 中的嵌入语言，并校验其中的 CSS/JavaScript。
+			"init": {
+				"embeddedLanguages": {
+					"css": true,
+					"javascript": true
+				}
+			},
+			"settings": {
+				"html": {
+					"validate": {
+						"scripts": true,
+						"styles": true
+					}
+				}
+			},
+			"languages": {
+				"html": "*.{html,htm,shtml,xhtml}",
+				"handlebars": "*.{hbs,handlebars}"
+			}
+		},
+		"json": {
+			"command": [
+				"vscode-json-language-server",
+				"--stdio"
+			],
+			// 由 server 直接读取本地或远程 JSON Schema；package.json 默认关联 SchemaStore。
+			"init": {
+				"handledSchemaProtocols": [
+					"file",
+					"http",
+					"https"
+				]
+			},
+			"settings": {
+				"json": {
+					"validate": {
+						"enable": true
+					},
+					"schemas": [
+						{
+							"fileMatch": [
+								"package.json"
+							],
+							"url": "https://json.schemastore.org/package.json"
+						}
+					]
+				}
+			},
+			"languages": {
+				"json": [
+					"*.{json,webmanifest,har,jsonld,geojson,ipynb}",
+					"composer.lock",
+					".watchmanconfig"
+				],
+				"jsonc": [
+					"*.jsonc",
+					".{babelrc,eslintrc,hintrc,jscsrc,jsfmtrc,jshintrc,swcrc}",
+					".ember-cli"
+				]
+			}
+		},
+		"css": {
+			"command": [
+				"vscode-css-language-server",
+				"--stdio"
+			],
+			"settings": {
+				"css": {
+					"validate": true
+				},
+				"scss": {
+					"validate": true
+				},
+				"less": {
+					"validate": true
+				}
+			},
+			"languages": {
+				"css": "*.css",
+				"scss": "*.scss",
+				"less": "*.less"
+			}
+		},
+		"python": {
+			"command": [
+				"ty",
+				"server"
+			],
+			"settings": {
+				"ty": {
+					"diagnosticMode": "workspace",
+					"completions": {
+						"autoImport": true
+					}
+				}
+			},
+			"languages": {
+				"python": "*.{py,pyi}"
+			}
+		},
+		"jdtls": {
+			"command": [
+				"jdtls"
+			],
+			// 自动同步 Maven/Gradle classpath，并增强 symbol、references 与注解空值分析。
+			"settings": {
+				"java": {
+					"configuration": {
+						"updateBuildConfiguration": "automatic"
+					},
+					"import": {
+						"maven": {
+							"enabled": true
+						},
+						"gradle": {
+							"enabled": true,
+							"wrapper": {
+								"enabled": true
+							},
+							"annotationProcessing": {
+								"enabled": true
+							}
+						}
+					},
+					"autobuild": {
+						"enabled": true
+					},
+					"compile": {
+						"nullAnalysis": {
+							"mode": "automatic"
+						}
+					},
+					"symbols": {
+						"includeSourceMethodDeclarations": true
+					},
+					"references": {
+						"includeAccessors": true,
+						"includeDeclarations": true,
+						"includeDecompiledSources": true
+					},
+					"search": {
+						"scope": "all"
+					}
+				}
+			},
+			"languages": {
+				"java": "*.java"
+			}
+		},
+		"rust": {
+			"command": [
+				"rust-analyzer"
+			],
+			"settings": {
+				"rust-analyzer": {
+					"cargo": {
+						"features": "all"
+					},
+					"check": {
+						"command": "clippy"
+					}
+				}
+			},
+			"languages": {
+				"rust": "*.rs"
+			}
+		},
+		"gopls": {
+			"command": [
+				"gopls"
+			],
+			// 官方 Neovim 配置示例中的 gopls 设置。
+			"settings": {
+				"gopls": {
+					"analyses": {
+						"unusedparams": true
+					},
+					"staticcheck": true,
+					"gofumpt": true
+				}
+			},
+			"languages": {
+				"go": "*.go"
+			}
+		},
+		"clangd": {
+			"command": [
+				"clangd"
+			],
+			"languages": {
+				"c": "*.c",
+				"cpp": "*.{C,h,hh,hpp,hxx,cc,cpp,cxx}"
+			}
+		},
+		"texlab": {
+			"command": [
+				"texlab"
+			],
+			"languages": {
+				"latex": [
+					"*.tex",
+					"*.sty",
+					"*.cls"
+				]
+			}
+		},
+		"tombi": {
+			"command": [
+				"tombi",
+				"lsp"
+			],
+			// Tombi 项目或用户配置优先；这里提供启用 SchemaStore 严格校验的默认设置。
+			"settings": {
+				"tombi": {
+					"schema": {
+						"enabled": true,
+						"strict": true
+					},
+					"lsp": {
+						"diagnostic": {
+							"enabled": true
+						},
+						"references": {
+							"enabled": true
+						}
+					},
+					"extensions": {
+						"tombi-toml/cargo": {
+							"enabled": true
+						},
+						"tombi-toml/pyproject": {
+							"enabled": true
+						},
+						"tombi-toml/tombi": {
+							"enabled": true
+						}
+					}
+				}
+			},
+			"languages": {
+				"toml": [
+					"*.toml",
+					"Cargo.lock",
+					"Gopkg.lock",
+					"Pipfile",
+					"pdm.lock",
+					"poetry.lock",
+					"uv.lock"
+				]
+			}
+		},
+		"docker": {
+			"command": [
+				"docker-language-server",
+				"start",
+				"--stdio"
+			],
+			"languages": {
+				"dockerfile": [
+					"{Dockerfile,Containerfile}",
+					"?*.{Dockerfile,Containerfile}",
+					"{Dockerfile,Containerfile}.?*"
+				],
+				"dockercompose": [
+					"{compose,docker-compose}.{yaml,yml}",
+					"{compose,docker-compose}.?*.{yaml,yml}"
+				]
+			}
+		},
+		"yaml": {
+			"fallback": true,
+			"command": [
+				"yaml-language-server",
+				"--stdio"
+			],
+			"settings": {
+				"yaml": {
+					"validate": true,
+					"hover": true,
+					"format": {
+						"enable": true
+					}
+				}
+			},
+			"languages": {
+				"yaml": "*.{yaml,yml}"
+			}
+		}
+		// TCP 示例: 取消注释并将端点替换为用户提供的服务器.
+		// ,"remote-example": {
+		// 	"tcp": { "host": "127.0.0.1", "port": 2087 },
+		// 	"languages": { "remote": "*.remote" }
+		// }
+	}
+}

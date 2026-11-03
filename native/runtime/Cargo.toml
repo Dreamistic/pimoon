@@ -1,0 +1,12 @@
+[package]
+name = "pimoon-runtime"
+version = "0.1.0"
+authors = ["Dream"]
+license = "AGPL-3.0-only"
+edition = "2021"
+publish = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

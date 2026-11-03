@@ -1,0 +1,95 @@
+import { type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import type { ToolSelectionController } from "../../../harness/tool-defaults/controller.ts";
+import type { GuiToolSelectionItem } from "../../shared/config/mcp.ts";
+import { codemodeHiddenDeclarations } from "../../../harness/codemode/loadout.ts";
+import { getCodexSpeed } from "../../../harness/codex-speed/state.ts";
+import type { GuiSnapshot } from "../../shared/protocol/state.ts";
+import { guiModel } from "../session/runtime.ts";
+import { builtinCommands } from "../session/commands.ts";
+import { matchingToolPreset } from "../../../harness/tool-defaults/presets.ts";
+import type { GuiHistory } from "./history.ts";
+
+type PresentationState = Pick<
+	GuiSnapshot,
+	"titleGeneration" | "canSubmit" | "canChangeSession" | "commandRunning" | "liveTools" | "history" | "bashCommand" | "bashOutput" | "scopedModels" | "modelScopeChanged" | "modelServicesRevision" | "streamingMessage"
+>;
+
+/** 从 SDK 当前状态投影界面快照，不保存另一份会话。 */
+export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: PresentationState, history: GuiHistory, selection: ToolSelectionController, mcpTools: GuiToolSelectionItem[]): GuiSnapshot {
+	const { session, services, cwd } = runtime;
+	const stats = session.getSessionStats();
+	const routed = session.routedModel;
+	const defaults = services.settingsManager.getGlobalSettings();
+	const allTools = session.getAllTools();
+	const activeTools = session.getActiveToolNames();
+	const descriptions = new Map(session.state.tools.map((tool) => [tool.name, tool.description]));
+	// 重载期间新的扩展 API 尚未绑定，工具列表直接取会话，controller 只投影可用性。
+	const mcpNames = new Set(mcpTools.map((tool) => tool.name));
+	const ordinaryTools = selection.listTools(allTools, activeTools).filter((tool) => !mcpNames.has(tool.name));
+	const callableTools = new Set(session.getCallableToolNames());
+	const hidden = new Set(activeTools.includes("codemode") ? codemodeHiddenDeclarations(allTools) : []);
+	const commands = new Map<string, { name: string; description: string }>();
+	for (const command of [
+		...session.extensionRunner
+			.getRegisteredCommands()
+			.map(({ name, description }) => ({ name, description: description ?? "" })),
+		...builtinCommands,
+		...session.promptTemplates.map(({ name, description }) => ({ name, description })),
+		...services.resourceLoader
+			.getSkills()
+			.skills.map(({ name, description }) => ({ name: `skill:${name}`, description })),
+	])
+		if (!commands.has(command.name)) commands.set(command.name, command);
+	return {
+		...presentation,
+		cwd,
+		leafId: session.sessionManager.getLeafId(),
+		sessionId: session.sessionId,
+		sessionFile: session.sessionFile ?? null,
+		name: session.sessionName ?? "未命名会话",
+		streaming: session.isStreaming,
+		retrying: session.isRetrying,
+		compacting: session.isCompacting,
+		running: !session.isIdle || session.isBashRunning || presentation.commandRunning,
+		// context_edit 只改变模型上下文，聊天区继续展示原始历史。
+		...history.project(session.sessionManager),
+		model: session.model ? guiModel(session.model) : null,
+		codexSpeed: getCodexSpeed(session.model?.provider, session.sessionManager.getBranch()),
+		routedModel: routed ? { model: guiModel(routed.model), ...(routed.thinkingLevel === undefined ? {} : { thinkingLevel: routed.thinkingLevel }) } : null,
+		models: services.modelRuntime.getAvailableSnapshot().map(guiModel),
+		defaultModel: {
+			provider: defaults.defaultProvider ?? null,
+			id: defaults.defaultModel ?? null,
+			thinking: defaults.defaultThinkingLevel ?? null,
+		},
+		thinking: session.thinkingLevel,
+		thinkingLevels: session.getAvailableThinkingLevels(),
+		context: stats.contextUsage ?? null,
+		stats,
+		// SDK 原地追加队列，快照必须持有独立数组供增量比较。
+		queue: { steering: [...session.getSteeringMessages()], followUp: [...session.getFollowUpMessages()] },
+		settings: {
+			compaction: session.autoCompactionEnabled,
+			retry: session.autoRetryEnabled,
+			steering: session.steeringMode,
+			followUp: session.followUpMode,
+			autoResize: services.settingsManager.getImageAutoResize(),
+			blockImages: services.settingsManager.getBlockImages(),
+		},
+		commands: [...commands.values()],
+		// 启用工具展示 loadout 处理后的声明，未启用工具保留注册描述。
+		tools: [...ordinaryTools, ...mcpTools].map((tool) => ({ ...tool, description: descriptions.get(tool.name) ?? tool.description, callable: callableTools.has(tool.name) })),
+		modelTools: activeTools.filter((name) => !hidden.has(name)),
+		toolDefaultsChanged: selection.hasUserDefaultChanges(defaults.defaultTools),
+		toolPreset: matchingToolPreset(session, ordinaryTools),
+		providers: services.modelRuntime
+			.getProviders()
+			.map((provider) => ({
+				id: provider.id,
+				name: provider.name,
+				apiKey: provider.auth.apiKey?.login !== undefined,
+				oauth: provider.auth.oauth !== undefined,
+				authenticated: services.modelRuntime.hasConfiguredAuth(provider.id),
+			})),
+	};
+}

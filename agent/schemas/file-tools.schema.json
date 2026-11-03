@@ -1,0 +1,190 @@
+{
+	"$schema": "https://json-schema.org/draft-07/schema",
+	"$id": "file-tools.schema.json",
+	"title": "Pi file-tools config",
+	"type": "object",
+	"additionalProperties": false,
+	"properties": {
+		"$schema": {
+			"type": "string"
+		},
+		"blocked_path": {
+			"type": "array",
+			"default": [".git/"],
+			"items": {
+				"type": "string",
+				"minLength": 1
+			}
+		},
+		"ignored_path": {
+			"type": "array",
+			"default": [],
+			"items": {
+				"type": "string",
+				"minLength": 1
+			}
+		},
+		"limits": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"ls_entries": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 10000,
+					"default": 200
+				},
+				"read_lines": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 100000,
+					"default": 2000
+				},
+				"read_bytes": {
+					"type": "integer",
+					"minimum": 1024,
+					"maximum": 10485760,
+					"default": 51200
+				},
+				"read_max_file_bytes": {
+					"type": "integer",
+					"minimum": 1024,
+					"maximum": 104857600,
+					"default": 16777216
+				},
+				"read_pdf_pages": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 100,
+					"default": 20
+				},
+				"read_outline_symbols": {
+					"description": "整文件截断后的大纲符号上限，0 关闭。",
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 200,
+					"default": 40
+				},
+				"read_suggestion_limit": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 10,
+					"default": 3
+				},
+				"write_max_file_bytes": {
+					"type": "integer",
+					"minimum": 1024,
+					"maximum": 104857600,
+					"default": 16777216
+				},
+				"edit_max_file_bytes": {
+					"type": "integer",
+					"minimum": 1024,
+					"maximum": 104857600,
+					"default": 16777216
+				},
+				"edit_match_hint_limit": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 10,
+					"default": 3
+				},
+				"find_result_limit": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 10000,
+					"default": 50
+				},
+				"find_max_depth": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 256,
+					"default": 12
+				},
+				"find_max_entries": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 1000000,
+					"default": 20000
+				},
+				"grep_max_depth": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 256,
+					"default": 12
+				},
+				"grep_max_entries": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 1000000,
+					"default": 10000
+				},
+				"grep_max_search_bytes": {
+					"type": "integer",
+					"minimum": 1024,
+					"maximum": 10737418240,
+					"default": 134217728
+				},
+				"grep_ast_max_file_bytes": {
+					"type": "integer",
+					"minimum": 1024,
+					"maximum": 104857600,
+					"default": 262144
+				},
+				"grep_content_cache_bytes": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 104857600,
+					"default": 16777216
+				},
+				"grep_content_cache_entries": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 100000,
+					"default": 2048
+				},
+				"grep_result_limit": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 50,
+					"default": 24
+				},
+				"grep_related_result_limit": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 50,
+					"default": 8
+				},
+				"grep_regional_display_limit": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 20,
+					"default": 3
+				}
+			}
+		},
+		"ignore": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"piignore": {
+					"type": "boolean",
+					"default": true
+				},
+				"gitignore": {
+					"type": "boolean",
+					"default": true
+				},
+				"git_tracked_files_bypass": {
+					"type": "boolean",
+					"default": true
+				},
+				"builtin_profile": {
+					"type": "string",
+					"enum": ["none", "minimal", "performance"],
+					"default": "minimal"
+				}
+			}
+		}
+	}
+}

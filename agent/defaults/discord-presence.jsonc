@@ -1,0 +1,70 @@
+{
+	"$schema": "../schemas/discord-presence.schema.json",
+	"enabled": false,
+	"application_id": "1540224977184358430",
+	"update_interval_ms": 5000,
+	"retry_interval_ms": 30000,
+	"profile": "standard",
+	"profiles": {
+		"minimal": {
+			"details": {
+				"idle": "Waiting for input",
+				"thinking": "Thinking"
+			},
+			"state": "pimoon",
+			"show_elapsed": false
+		},
+		"standard": {
+			"details": {
+				"idle": "Idle",
+				"thinking": "Thinking",
+				"reading": "Reading code",
+				"editing": "Editing code",
+				"writing": "Writing code",
+				"searching": "Searching the codebase",
+				"browsing": "Browsing the web",
+				"shell": "Running {executable}",
+				"other_tool": "Using {tool}"
+			},
+			"state": "pimoon w/ {model}",
+			"show_elapsed": true
+		},
+		"detailed": {
+			"details": {
+				"idle": "Waiting in {project}",
+				"thinking": "Thinking about the next change",
+				"reading": "Reading {file}",
+				"editing": "Editing {file}",
+				"writing": "Writing {file}",
+				"searching": "Searching the codebase",
+				"browsing": "Browsing the web",
+				"shell": "Running {executable}",
+				"other_tool": "Using {tool}"
+			},
+			"state": "pimoon w/ {model}",
+			"show_elapsed": true
+		}
+	},
+	"assets": {
+		"large": {
+			"key": "",
+			"text": "pimoon"
+		},
+		"small": {
+			"text": "{label}",
+			"default": "",
+			"activities": {
+				"idle": "idle",
+				"thinking": "thinking",
+				"reading": "reading",
+				"editing": "editing",
+				"writing": "writing",
+				"searching": "searching",
+				"browsing": "browsing",
+				"shell": "shell",
+				"other_tool": "other_tool"
+			},
+			"languages": {}
+		}
+	}
+}

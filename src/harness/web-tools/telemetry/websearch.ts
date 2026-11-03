@@ -1,0 +1,32 @@
+import { fields, textFields } from "../../telemetry/projection.ts";
+import type { Candidate, ToolTelemetry } from "../../telemetry/types.ts";
+import type { WebSearchDetails, WebSearchParams, WebSearchSuccessDetails } from "../core/types.ts";
+import { webResultFields } from "./common.ts";
+
+export const webSearchTelemetry = {
+	input(params) {
+		return { fields: fields({ ...textFields("input_query", params.query), input_limit: params.limit }) };
+	},
+	result(_params, details) {
+		const attempts = "attempts" in details ? details.attempts : undefined;
+		return {
+			fields: { ...webResultFields(details), ...fields({
+				provider_latencies: attempts?.map((attempt) => `${attempt.provider}:${attempt.duration_ms}`),
+				provider_errors: attempts?.flatMap((attempt) => attempt.status === "failed"
+					? [`${attempt.provider}:${attempt.error.code}`]
+					: []),
+			}) },
+			candidates: details.status === "success" ? webCandidates(details) : [],
+		};
+	},
+} satisfies ToolTelemetry<WebSearchParams, WebSearchDetails>;
+
+function webCandidates(details: WebSearchSuccessDetails): Candidate[] {
+	return details.results.map((item, index) => ({
+		kind: "url",
+		value: item.url,
+		rank: index + 1,
+		group: "primary",
+		sources: [item.provider],
+	}));
+}

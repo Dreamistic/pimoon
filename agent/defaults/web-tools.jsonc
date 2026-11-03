@@ -1,0 +1,119 @@
+{
+	"$schema": "../schemas/web-tools.schema.json",
+	"network": {
+		// 启用后所有 Web 请求都会按目标协议选择代理。
+		"proxy": {
+			"enabled": false,
+			"http_proxy": "",
+			"https_proxy": "",
+			"socks5_proxy": ""
+		},
+		// Clash/mihomo TUN fake-ip 可填 ["198.18.0.0/15"] 或更窄范围。
+		// 仅放行域名 DNS 解析得到的 fake-ip；URL 直接写 IP 仍会拒绝。
+		"fake_ip_ranges": [
+			"198.18.0.0/15"
+		]
+	},
+	"websearch": {
+		// 主组按顺序回退，辅助组全部并发请求。两组须包含全部引擎且不重复。
+		"primary_providers": ["exa_api", "brave_api", "tavily", "exa_mcp"],
+		"auxiliary_providers": ["tinyfish", "anysearch"],
+		// 合并去重后的总条数上限，模型未传 limit 时使用。
+		"default_results": 12,
+		// 包括提供方超时和回退。
+		"total_deadline_seconds": 20,
+		// 每次搜索都至少应用；query 中的 site: / -site: 会继续合并。
+		"include_domains": [],
+		"exclude_domains": [
+			"gitcode.com",
+			"csdn.com"
+		],
+		"brave_api": {
+			"enabled": true,
+			"max_results": 8,
+			"endpoint": "https://api.search.brave.com/res/v1/llm/context",
+			// 可直接填写 key；推荐用 $NAME 或 ${NAME} 引用环境变量；为空或无法解析时自动禁用。
+			"api_key": "$BRAVE_SEARCH_API_KEY",
+			"timeout_seconds": 8,
+			"response_bytes": 2097152
+		},
+		"exa_api": {
+			"enabled": true,
+			"max_results": 8,
+			"endpoint": "https://api.exa.ai/search",
+			"api_key": "$EXA_API_KEY",
+			"timeout_seconds": 10,
+			"response_bytes": 2097152
+		},
+		"exa_mcp": {
+			// 公共 MCP 免 key，受免费限流约束。
+			"enabled": true,
+			"max_results": 8,
+			"endpoint": "https://mcp.exa.ai/mcp",
+			"timeout_seconds": 10,
+			"response_bytes": 2097152
+		},
+		"tavily": {
+			"enabled": true,
+			"max_results": 8,
+			"endpoint": "https://api.tavily.com/search",
+			"api_key": "$TAVILY_API_KEY",
+			"timeout_seconds": 10,
+			"response_bytes": 2097152
+		},
+		"tinyfish": {
+			"enabled": true,
+			"max_results": 8,
+			"endpoint": "https://api.search.tinyfish.ai",
+			"api_key": "$TINYFISH_API_KEY",
+			"timeout_seconds": 8,
+			"response_bytes": 2097152
+		},
+		"anysearch": {
+			"enabled": true,
+			"max_results": 8,
+			"endpoint": "https://api.anysearch.com/v1/search",
+			// 缺少凭据时匿名请求。密钥被拒绝或额度耗尽时重试一次匿名请求。
+			"api_key": "$ANYSEARCH_API_KEY",
+			"timeout_seconds": 8,
+			"response_bytes": 2097152
+		}
+	},
+	"webfetch": {
+		// 单次请求总时间，包括重定向和正文读取。
+		"timeout_seconds": 30,
+		// 每个重定向目标都会重新执行 URL、DNS 和 Cookie 检查。
+		"max_redirects": 5,
+		// 可在需要复用浏览器登录态的站点按需手动调整。
+		"user_agent": "Mozilla/5.0 (X11; Linux x86_64; rv:155.0) Gecko/20100101 Firefox/155.0",
+		"readability": {
+			// Readability 接受正文结果所需的最少字符数。
+			"char_threshold": 500
+		},
+		"media": {
+			// auto: 仅显式 image 请求返回图片。on: 还自动返回图片直链和网页主图。off: 禁止图片。
+			"mode": "auto",
+			// 主图解压后响应上限。
+			"response_bytes": 5242880
+		},
+		"limits": {
+			// 每次 find 返回的上下文片段上限，邻近命中合并后计数。
+			"find_max_passages": 8,
+			// 解压后允许读取的最大响应正文。
+			"response_bytes": 10485760,
+			// 每次正文或 find 片段共用的原文字符预算。
+			"default_output_chars": 20000
+		},
+		"cookies": {
+			"enabled": true,
+			// example.com 只匹配自身；*.example.com 只匹配子域名。
+			"domains": [
+				"*.reddit.com",
+				"*.youtube.com",
+				"*.bilibili.com"
+			],
+			// always: 每次询问；session: 每个 origin 每会话首次询问；never: 命中后直接发送。
+			"confirmation": "never"
+		}
+	}
+}

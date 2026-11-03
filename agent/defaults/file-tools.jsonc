@@ -1,0 +1,58 @@
+{
+	"$schema": "../schemas/file-tools.schema.json",
+	// 硬阻止：不能直接访问，也不会出现在 ls 结果中。
+	"blocked_path": [
+		".git/",
+		"~/.ssh/id_*",
+		"~/.aws/credentials",
+		"~/.config/gcloud/application_default_credentials.json",
+		"~/.config/doctl/config.yaml",
+		"~/.kube/config",
+		"~/.docker/config.json",
+		"~/.azure/accessTokens.json",
+		"~/.npmrc",
+		"~/.pypirc",
+		"~/.netrc",
+		"~/.wrangler/config/default.toml",
+		"~/.config/gh/hosts.yml",
+		".env",
+		".env.local",
+		".env.production"
+	],
+	// 软忽略：ls/read 标记 ignored；不阻止显式 read/edit。
+	"ignored_path": [
+		".venv/",
+		"venv/",
+		"node_modules/"
+	],
+	"limits": {
+		"ls_entries": 200,
+		"read_lines": 3000,
+		"read_bytes": 51200,
+		"read_max_file_bytes": 16777216,
+		"read_pdf_pages": 20,
+		"read_suggestion_limit": 3,
+		"read_outline_symbols": 40,
+		"write_max_file_bytes": 16777216,
+		"edit_max_file_bytes": 16777216,
+		"edit_match_hint_limit": 5,
+		"find_result_limit": 80,
+		"find_max_depth": 12,
+		"find_max_entries": 20000,
+		"grep_max_depth": 12,
+		"grep_max_entries": 10000,
+		"grep_max_search_bytes": 134217728,
+		"grep_ast_max_file_bytes": 262144,
+		"grep_content_cache_bytes": 16777216,
+		"grep_content_cache_entries": 2048,
+		"grep_result_limit": 24,
+		"grep_related_result_limit": 8,
+		"grep_regional_display_limit": 3
+	},
+	"ignore": {
+		"piignore": true,
+		"gitignore": true,
+		"git_tracked_files_bypass": true,
+		"builtin_profile": "minimal"
+	}
+}

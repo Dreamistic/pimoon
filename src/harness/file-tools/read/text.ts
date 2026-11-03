@@ -1,0 +1,120 @@
+import type { TextContent, TextSlice } from "../../filesystem/contracts/content.ts";
+import type { FileRef } from "../../filesystem/contracts/path.ts";
+import { sliceTextByLineRange } from "../../filesystem/services/text.ts";
+import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.ts";
+import type { ReadCommandContext } from "./command.ts";
+import { formatReadSegment, formatReadStructureContext } from "./presenter.ts";
+import { formatReadRanges, type ReadRange, type ResolvedReadRange } from "../../content-ranges.ts";
+import { resolveReadRanges } from "./range.ts";
+import type { ReadStructureContext, ReadSuccess, ReadTextSegment } from "./types.ts";
+
+/** 从同一快照提取全部范围，行数只计正文，结构提示共享字节预算。 */
+export async function readTextRanges(
+	file: FileRef,
+	content: TextContent,
+	requested: readonly ReadRange[] | undefined,
+	context: ReadCommandContext,
+): Promise<ToolOutcome<ReadSuccess>> {
+	const ranges = resolveReadRanges(requested, content.totalLines, "lines", file.displayPath);
+	if (isFailed(ranges)) return ranges;
+	const segments: ReadTextSegment[] = [];
+	let remainingBytes = context.limits.read_bytes;
+	let remainingLines = context.limits.read_lines;
+	let continuation: ReadSuccess["continuation"];
+	for (const [index, range] of ranges.entries()) {
+		if (context.operation.signal?.aborted) return fail("OPERATION_ABORTED", "Operation aborted.", { path: file.displayPath });
+		const wrapperBytes = ranges.length > 1 ? Buffer.byteLength(formatReadSegment("\n", range.start, range.end)) : 0;
+		const maxBytes = remainingBytes - wrapperBytes;
+		if (maxBytes <= 0 || remainingLines <= 0) {
+			continuation = { lines: formatReadRanges(ranges.slice(index)) };
+			break;
+		}
+		const options = { startLine: range.start, endLine: range.end, maxBytes, maxLines: remainingLines, path: file.displayPath };
+		const initial = sliceTextByLineRange(content, options);
+		if (!initial.ok) {
+			// 前面的片段已消耗预算，下一整行留给后续调用，而不是丢弃已有结果。
+			if (initial.error.code === "too-large" && segments.length > 0) {
+				continuation = { lines: formatReadRanges(ranges.slice(index)) };
+				break;
+			}
+			return mapFsError(initial.error, { notFound: "file" });
+		}
+		let slice = initial.value;
+		let structure: ReadStructureContext | undefined;
+		let structureText: string | undefined;
+		while (true) {
+			structure = await structureContext(file, content, slice, requested !== undefined, context);
+			if (context.operation.signal?.aborted) return fail("OPERATION_ABORTED", "Operation aborted.", { path: file.displayPath });
+			structureText = formatReadStructureContext(structure);
+			if (structureText === undefined) break;
+			const bytes = Buffer.byteLength(`${structureText}\n`);
+			const reserved = bytes < maxBytes
+				? sliceTextByLineRange(content, {
+					...options, maxBytes: maxBytes - bytes,
+					maxLines: slice.endLine - slice.startLine + 1,
+				})
+				: undefined;
+			if (!reserved?.ok) {
+				structure = undefined;
+				structureText = undefined;
+				slice = initial.value;
+				break;
+			}
+			// 正文只会缩短，直到导航与最终切片一致。
+			const unchanged = reserved.value.endLine === slice.endLine;
+			slice = reserved.value;
+			if (unchanged) break;
+		}
+		segments.push({
+			content: slice.content,
+			start_line: slice.startLine,
+			end_line: slice.endLine,
+			...(structure === undefined ? {} : { structure }),
+		});
+		remainingBytes -= wrapperBytes + Buffer.byteLength(slice.content) + (structureText === undefined ? 0 : Buffer.byteLength(`${structureText}\n`));
+		remainingLines -= slice.endLine - slice.startLine + 1;
+		if (slice.continuation !== undefined) {
+			continuation = { lines: formatReadRanges(remainingRanges(ranges, index, slice.continuation.startLine)) };
+			break;
+		}
+	}
+	return {
+		path: file.displayPath,
+		segments,
+		total_lines: content.totalLines,
+		size_bytes: content.sizeBytes,
+		version: content.hash,
+		encoding: "utf-8",
+		newline: content.newline,
+		bom: content.hasBom,
+		truncated: continuation !== undefined,
+		...(continuation === undefined ? {} : { continuation }),
+	};
+}
+
+function remainingRanges(ranges: readonly ResolvedReadRange[], index: number, start: number): ResolvedReadRange[] {
+	return ranges.slice(index).map((range, offset) => offset === 0 ? { ...range, start } : range);
+}
+
+async function structureContext(
+	file: FileRef,
+	content: TextContent,
+	slice: TextSlice,
+	partial: boolean,
+	context: ReadCommandContext,
+): Promise<ReadStructureContext | undefined> {
+	if (!partial && !slice.truncated) return undefined;
+	try {
+		return await context.structure?.context({
+			file,
+			content: content.text,
+			startLine: slice.startLine,
+			endLine: slice.endLine,
+			partial,
+			truncated: slice.truncated,
+			...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+		});
+	} catch {
+		return undefined;
+	}
+}

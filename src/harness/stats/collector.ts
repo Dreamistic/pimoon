@@ -1,0 +1,124 @@
+import type { BuildSystemPromptOptions, ContextUsage, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { Api, Message, Model, ToolResultMessage } from "@earendil-works/pi-ai";
+import { buildContextBreakdown } from "./context-breakdown.ts";
+import type { StatsSnapshot, ToolStats } from "./types.ts";
+import { summarizeSessionUsage } from "./usage.ts";
+
+export interface StatsPiApi {
+	getAllTools(): ToolInfo[];
+	getActiveTools(): string[];
+	getThinkingLevel(): string;
+}
+
+export interface StatsQueryPort {
+	cwd: string;
+	model: Model<Api> | undefined;
+	getEntries(): SessionEntry[];
+	getBranch(): SessionEntry[];
+	isUsingSubscription(): boolean;
+	isIdle(): boolean;
+	getContextUsage(): ContextUsage | undefined;
+	getSystemPrompt(): string;
+	getSystemPromptOptions?(): BuildSystemPromptOptions;
+	now?(): Date;
+}
+
+/** 从 Pi 公开 API 读取当前会话统计，不写 session entry。 */
+export async function collectStatsSnapshot(port: StatsQueryPort, pi: StatsPiApi): Promise<StatsSnapshot> {
+	const entries = port.getEntries();
+	const branchEntries = port.getBranch();
+	const messages = entries.map((entry) => (entry.type === "message" ? entry.message : undefined)).filter((message): message is Message => message !== undefined);
+	const { usage, cache } = summarizeSessionUsage(entries);
+	const activeTools = pi.getActiveTools();
+	const allTools = pi.getAllTools();
+	const model = port.model;
+	const contextUsage = port.getContextUsage();
+	const systemPromptOptions = getSystemPromptOptions(port);
+
+	return {
+		session: {
+			cwd: port.cwd,
+			...(model?.id !== undefined ? { modelId: model.id } : {}),
+			...(model?.provider !== undefined ? { modelProvider: model.provider } : {}),
+			...(model?.reasoning !== undefined ? { modelReasoning: model.reasoning } : {}),
+			thinkingLevel: pi.getThinkingLevel(),
+			...(model !== undefined ? { usingSubscription: port.isUsingSubscription() } : {}),
+			status: port.isIdle() ? "ready" : "running",
+			userTurns: entries.filter((entry) => entry.type === "message" && entry.message.role === "user").length,
+			assistantTurns: entries.filter((entry) => entry.type === "message" && entry.message.role === "assistant").length,
+		},
+		usage,
+		cache,
+		context: await buildContextBreakdown({
+			usage: contextUsage,
+			systemPrompt: port.getSystemPrompt(),
+			activeTools,
+			allTools,
+			branchEntries,
+			model,
+			...(systemPromptOptions !== undefined ? { systemPromptOptions } : {}),
+		}),
+		tools: collectTools(messages, activeTools.length, allTools.length),
+		generatedAt: (port.now?.() ?? new Date()).toISOString(),
+	};
+}
+
+function getSystemPromptOptions(port: StatsQueryPort): BuildSystemPromptOptions | undefined {
+	try {
+		return port.getSystemPromptOptions?.();
+	} catch {
+		return undefined;
+	}
+}
+
+export function collectTools(messages: Message[], activeCount: number | undefined, totalCount: number | undefined): ToolStats {
+	const byName = new Map<string, { calls: number; failures: number; outputChars: number }>();
+	let calls = 0;
+	let successes = 0;
+	let failures = 0;
+
+	for (const message of messages) {
+		if (message.role === "assistant") {
+			for (const part of message.content) {
+				if (part.type !== "toolCall") continue;
+				calls += 1;
+				const stats = ensureToolStats(byName, part.name);
+				stats.calls += 1;
+			}
+		} else if (message.role === "toolResult") {
+			const stats = ensureToolStats(byName, message.toolName);
+			stats.outputChars += countContentChars(message.content);
+			if (message.isError) {
+				failures += 1;
+				stats.failures += 1;
+			} else successes += 1;
+		}
+	}
+
+	return {
+		...(activeCount !== undefined ? { activeCount } : {}),
+		...(totalCount !== undefined ? { totalCount } : {}),
+		calls,
+		...(successes + failures > 0 ? { successes, failures } : {}),
+		byName: [...byName.entries()]
+			.map(([name, value]) => ({
+				name,
+				calls: value.calls,
+				...(value.failures > 0 ? { failures: value.failures } : {}),
+				...(value.outputChars > 0 ? { outputChars: value.outputChars } : {}),
+			}))
+			.sort((left, right) => right.calls - left.calls || left.name.localeCompare(right.name)),
+	};
+}
+
+function ensureToolStats(map: Map<string, { calls: number; failures: number; outputChars: number }>, name: string): { calls: number; failures: number; outputChars: number } {
+	const existing = map.get(name);
+	if (existing !== undefined) return existing;
+	const created = { calls: 0, failures: 0, outputChars: 0 };
+	map.set(name, created);
+	return created;
+}
+
+function countContentChars(content: ToolResultMessage["content"]): number {
+	return content.reduce((total, part) => total + (part.type === "text" ? [...part.text].length : part.data.length), 0);
+}

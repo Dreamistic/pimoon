@@ -1,0 +1,50 @@
+.session-heading { display: flex; flex: 1; min-inline-size: 0; font-size: var(--text-heading); }
+.session-title-text { position: relative; display: block; min-inline-size: 0; }
+.session-title-target, .session-title-display { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-title-target { opacity: 0; }
+.session-title-display { position: absolute; inset: 0; }
+.session-name { min-inline-size: 0; max-inline-size: 100%; padding: 0.25em 0.375em; border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; font: inherit; font-weight: 500; line-height: 1.5; text-align: start; }
+button.session-name, strong.session-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.session-name:hover { background: var(--accent); }
+input.session-name { flex: 1; background: var(--surface); }
+input.session-name:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.session-history { margin-block: var(--space-6); min-width: 0; }
+.session-history:not(.session-history-flat) .history-scroll { max-block-size: 60vh; }
+.history-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding-inline-start: var(--space-3); color: var(--muted-foreground); }
+.history-heading h2 { font-size: var(--text-caption); font-weight: 500; }
+.history-heading svg { inline-size: 1em; block-size: 1em; }
+.workspace-sessions { margin-block-start: var(--space-2); }
+.workspace-toggle { width: 100%; padding: var(--space-2); gap: var(--space-2); justify-content: flex-start; color: var(--muted-foreground); font-weight: 400; }
+.workspace-toggle > svg { inline-size: 1em; block-size: 1em; flex-shrink: 0; }
+.workspace-toggle > .workspace-chevron { inline-size: 0.875em; }
+.workspace-toggle[data-state="open"] > .workspace-chevron { transform: rotate(90deg); }
+.workspace-sessions[data-current="true"] .workspace-toggle { color: var(--foreground); }
+.workspace-label { min-width: 0; text-align: left; }
+.workspace-label > span, .workspace-label > small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-label > small { margin-block-start: var(--space-1); font-size: var(--text-caption); font-weight: 400; color: var(--muted-foreground); direction: rtl; text-align: left; }
+.workspace-session-list { display: grid; margin: var(--space-1) 0 var(--space-2) var(--space-3); padding-inline-start: var(--space-2); border-inline-start: 1px solid var(--divider); }
+.history-session { width: 100%; min-width: 0; gap: var(--space-2); padding: 0.75em; justify-content: flex-start; font-size: var(--text-small); font-weight: 400; color: var(--muted-foreground); }
+.history-session[aria-current="page"] { color: var(--foreground); font-weight: 500; }
+.history-session[aria-current="page"] > svg { color: var(--selected-foreground); fill: currentColor; }
+.history-session-row { --row-action-background: var(--background); }
+.history-virtual-row { padding-block-end: var(--space-1); }
+.history-session-row[data-current="true"] { --row-action-background: var(--selected); background: var(--selected); }
+.workspace-heading { display: flex; min-inline-size: 0; }
+.workspace-heading .workspace-toggle { min-width: 0; }
+.history-session-row > input.session-name { font: inherit; }
+button[data-confirming="true"] { color: var(--destructive); }
+.history-session > svg { inline-size: 1em; block-size: 1em; flex-shrink: 0; }
+.history-session-label { flex: 1; min-width: 0; text-align: start; }
+.history-session-title { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.history-session-excerpt { display: block; margin-block-start: var(--space-1); font-size: var(--text-caption); color: var(--muted-foreground); }
+.search-excerpt { display: flex; min-inline-size: 0; white-space: nowrap; }
+.search-excerpt-prefix, .search-excerpt-match { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+.search-excerpt-prefix { max-inline-size: 25%; }
+.history-session mark { color: var(--foreground); background: var(--selected); border-radius: var(--radius-sm); }
+.history-session time { flex-shrink: 0; font-size: var(--text-caption); font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
+.history-more { justify-self: start; color: var(--muted-foreground); font-size: var(--text-caption); }
+.history-hint { padding: var(--space-2) var(--space-3); color: var(--muted-foreground); font-size: var(--text-caption); }
+@media (max-width: 767px) {
+	.history-session, .workspace-toggle { min-block-size: 2.75rem; }
+	.history-heading > button { min-inline-size: 2.75rem; min-block-size: 2.75rem; }
+}

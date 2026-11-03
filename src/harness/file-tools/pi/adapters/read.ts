@@ -1,0 +1,118 @@
+import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
+import { readFile } from "../../read/command.ts";
+import type { InlineImageProcessor } from "../../read/ports.ts";
+import type { PdfDocumentSource } from "../../../media/pdf-types.ts";
+import { formatReadModelResult, formatReadPdfModelSummary, formatReadPdfPageMarker } from "../../read/presenter.ts";
+import type { ReadFileSuccess, ReadParams } from "../../read/types.ts";
+import { isFailed, type FailedResult } from "../../shared/result.ts";
+import type { LoadLsp } from "../../../lsp/file-operations.ts";
+import { parseSkillPath, type SkillPath } from "../../../skill-context/resources.ts";
+import { failedToolResult, withFileToolsInvocation, type FileToolRuntime } from "../invocation.ts";
+import { createReadStructureSource } from "../ports/read-structure.ts";
+
+export interface ExecuteReadOptions extends FileToolRuntime {
+	readonly model: { input?: readonly string[] } | undefined;
+	readonly lsp: LoadLsp;
+}
+
+export async function executeRead(params: ReadParams, options: ExecuteReadOptions) {
+	const skill = params.path.startsWith("skill://") ? parseSkillPath(params.path) : undefined;
+	return withFileToolsInvocation<ReadFileSuccess | FailedResult>(options, async (opened) => {
+		const result = await readFile(
+			params,
+			{
+				...opened,
+				image: lazyInlineImageProcessor,
+				pdf: lazyPdfDocumentSource,
+				structure: createReadStructureSource(opened, options.lsp),
+			},
+		);
+		if (skill?.kind === "skill") applySkillResolution(result, skill);
+		return presentResult(result, options.model);
+	});
+}
+
+const lazyInlineImageProcessor: InlineImageProcessor = {
+	async process(input) {
+		const { createInlineImageProcessor } = await import("../ports/read-image.ts");
+		return await createInlineImageProcessor().process(input);
+	},
+};
+
+const lazyPdfDocumentSource: PdfDocumentSource = {
+	async open(input) {
+		const { createPdfDocumentSource } = await import("../../../media/pdf.ts");
+		return await createPdfDocumentSource().open(input);
+	},
+};
+
+function presentResult(
+	result: ReadFileSuccess | FailedResult,
+	model: { input?: readonly string[] } | undefined,
+) {
+	if (isFailed(result)) return failedToolResult(result);
+	if (!("media_type" in result)) {
+		const text = formatReadModelResult(result);
+		return { content: [{ type: "text" as const, text }], structuredContent: text, details: result };
+	}
+	if (result.media_type === "image") {
+		const content = formatReadImageModelContent(result, model);
+		return {
+			content, details: result,
+			structuredContent: { type: "image" as const, data: result.image.data, mimeType: result.image.mime_type, note: content[0].text },
+		};
+	}
+	const content = formatReadPdfModelContent(result, model);
+	return {
+		content, details: result,
+		structuredContent: { type: "pdf" as const, content: content.map((part) => part.type === "image"
+			? { type: part.type, data: part.data, mimeType: part.mimeType }
+			: { type: part.type, text: part.text }) },
+	};
+}
+
+function formatReadImageModelContent(
+	result: Extract<ReadFileSuccess, { media_type: "image" }>,
+	model: { input?: readonly string[] } | undefined,
+): [TextContent, ImageContent] {
+	const nonVisionNote = model === undefined || model.input?.includes("image")
+		? undefined
+		: "[Current model does not support images. The image may be omitted by the provider.]";
+	const note = [result.content, nonVisionNote].filter((part): part is string => part !== undefined).join("\n");
+	return [
+		{ type: "text", text: note },
+		{ type: "image", data: result.image.data, mimeType: result.image.mime_type },
+	];
+}
+
+function formatReadPdfModelContent(
+	result: Extract<ReadFileSuccess, { media_type: "pdf" }>,
+	model: { input?: readonly string[] } | undefined,
+): Array<TextContent | ImageContent> {
+	const nonVisionNote = model === undefined || model.input?.includes("image")
+		? undefined
+		: "[Current model does not support images. PDF page images may be omitted by the provider.]";
+	const summary = formatReadPdfModelSummary(result);
+	const content: Array<TextContent | ImageContent> = [
+		{ type: "text", text: nonVisionNote === undefined ? summary : `${summary}\n${nonVisionNote}` },
+	];
+	for (const page of result.pages) {
+		content.push(
+			{ type: "text", text: formatReadPdfPageMarker(page) },
+			{ type: "image", data: page.image.data, mimeType: page.image.mime_type },
+		);
+	}
+	return content;
+}
+
+function applySkillResolution(
+	result: ReadFileSuccess | FailedResult,
+	skill: SkillPath,
+): void {
+	if (isFailed(result)) {
+		if (result.error.path !== undefined) result.error.path = skill.logicalPath;
+		return;
+	}
+	result.path = skill.logicalPath;
+	result.skill_resource = { skill: skill.skillName, path: skill.relativePath };
+}

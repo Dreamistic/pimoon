@@ -1,0 +1,190 @@
+import type { Worker } from "node:worker_threads";
+
+export class WorkerTaskAbortedError extends Error {
+	constructor() {
+		super("worker task aborted");
+		this.name = "WorkerTaskAbortedError";
+	}
+}
+
+export type WorkerTaskResponse<TResult> =
+	| { readonly id: number; readonly result: TResult }
+	| { readonly id: number; readonly error: string };
+
+export interface WorkerTaskRequest<TRequest> {
+	readonly id: number;
+	readonly request: TRequest;
+}
+
+interface WorkerTaskPoolOptions {
+	workerLimit: number;
+	createWorker: () => Worker;
+	workerName: string;
+}
+
+interface WorkerTask<TRequest, TResult> {
+	id: number;
+	request: TRequest;
+	resolve(result: TResult): void;
+	reject(error: Error): void;
+	signal?: AbortSignal;
+	onAbort?: () => void;
+	settled: boolean;
+}
+
+interface WorkerSlot<TRequest, TResult> {
+	worker: Worker;
+	task?: WorkerTask<TRequest, TResult>;
+	stopping: boolean;
+}
+
+/** 有界 worker 任务生命周期：队列、request ID、abort、崩溃、ref/unref 和 dispose。 */
+export class WorkerTaskPool<TRequest, TResult> {
+	private readonly queue = new Map<number, WorkerTask<TRequest, TResult>>();
+	private readonly slots = new Set<WorkerSlot<TRequest, TResult>>();
+	private nextTaskId = 1;
+	private disposed = false;
+
+	constructor(private readonly options: WorkerTaskPoolOptions) {
+		if (!Number.isInteger(options.workerLimit) || options.workerLimit < 1) throw new Error("workerLimit must be positive");
+	}
+
+	run(request: TRequest, signal?: AbortSignal): Promise<TResult> {
+		if (this.disposed) return Promise.reject(new Error(`${this.options.workerName} pool is disposed`));
+		return new Promise((resolve, reject) => {
+			const task: WorkerTask<TRequest, TResult> = {
+				id: this.nextTaskId,
+				request,
+				resolve,
+				reject,
+				...(signal !== undefined ? { signal } : {}),
+				settled: false,
+			};
+			this.nextTaskId += 1;
+			if (signal?.aborted) {
+				task.settled = true;
+				reject(new WorkerTaskAbortedError());
+				return;
+			}
+			if (signal !== undefined) {
+				task.onAbort = () => this.abortTask(task);
+				signal.addEventListener("abort", task.onAbort, { once: true });
+			}
+			this.queue.set(task.id, task);
+			this.dispatch();
+		});
+	}
+
+	dispose(): void {
+		if (this.disposed) return;
+		this.disposed = true;
+		for (const task of this.queue.values()) this.rejectTask(task, new WorkerTaskAbortedError());
+		this.queue.clear();
+		for (const slot of this.slots) {
+			if (slot.task !== undefined) this.rejectTask(slot.task, new WorkerTaskAbortedError());
+			slot.stopping = true;
+			void slot.worker.terminate();
+		}
+		this.slots.clear();
+	}
+
+	private dispatch(): void {
+		if (this.disposed) return;
+		let idleWorkers = Array.from(this.slots).filter((slot) => slot.task === undefined && !slot.stopping).length;
+		while (this.slots.size < this.options.workerLimit && idleWorkers < this.queue.size) {
+			try {
+				this.spawnWorker();
+				idleWorkers += 1;
+			} catch (error) {
+				const task = this.dequeue();
+				if (task !== undefined) this.rejectTask(task, error instanceof Error ? error : new Error(String(error)));
+			}
+		}
+		for (const slot of this.slots) {
+			if (slot.task !== undefined || slot.stopping) continue;
+			const task = this.dequeue();
+			if (task === undefined) return;
+			slot.task = task;
+			slot.worker.ref();
+			try {
+				slot.worker.postMessage({ id: task.id, request: task.request } satisfies WorkerTaskRequest<TRequest>);
+			} catch (error) {
+				this.failWorker(slot, error instanceof Error ? error : new Error(String(error)));
+			}
+		}
+	}
+
+	private dequeue(): WorkerTask<TRequest, TResult> | undefined {
+		const task = this.queue.values().next().value;
+		if (task !== undefined) this.queue.delete(task.id);
+		return task;
+	}
+
+	private spawnWorker(): void {
+		const worker = this.options.createWorker();
+		const slot: WorkerSlot<TRequest, TResult> = { worker, stopping: false };
+		this.slots.add(slot);
+		worker.on("message", (response: WorkerTaskResponse<TResult>) => this.finishTask(slot, response));
+		worker.on("error", (error: Error) => this.failWorker(slot, error));
+		worker.on("exit", (code: number) => {
+			if (!slot.stopping) this.failWorker(slot, new Error(`${this.options.workerName} worker exited with code ${code}`));
+		});
+		worker.unref();
+	}
+
+	private finishTask(slot: WorkerSlot<TRequest, TResult>, response: WorkerTaskResponse<TResult>): void {
+		const task = slot.task;
+		if (task === undefined || response.id !== task.id) {
+			this.failWorker(slot, new Error(`${this.options.workerName} worker returned an unexpected task`));
+			return;
+		}
+		delete slot.task;
+		slot.worker.unref();
+		if ("result" in response) this.resolveTask(task, response.result);
+		else this.rejectTask(task, new Error(response.error));
+		this.dispatch();
+	}
+
+	private failWorker(slot: WorkerSlot<TRequest, TResult>, error: Error): void {
+		if (!this.slots.delete(slot)) return;
+		slot.stopping = true;
+		void slot.worker.terminate();
+		if (slot.task !== undefined) this.rejectTask(slot.task, error);
+		this.dispatch();
+	}
+
+	private abortTask(task: WorkerTask<TRequest, TResult>): void {
+		if (task.settled) return;
+		if (this.queue.delete(task.id)) {
+			this.rejectTask(task, new WorkerTaskAbortedError());
+			return;
+		}
+		const slot = Array.from(this.slots).find((candidate) => candidate.task === task);
+		if (slot === undefined) return;
+		this.slots.delete(slot);
+		slot.stopping = true;
+		delete slot.task;
+		this.rejectTask(task, new WorkerTaskAbortedError());
+		void slot.worker.terminate();
+		this.dispatch();
+	}
+
+	private resolveTask(task: WorkerTask<TRequest, TResult>, result: TResult): void {
+		if (task.settled) return;
+		task.settled = true;
+		this.removeAbortListener(task);
+		task.resolve(result);
+	}
+
+	private rejectTask(task: WorkerTask<TRequest, TResult>, error: Error): void {
+		if (task.settled) return;
+		task.settled = true;
+		this.removeAbortListener(task);
+		task.reject(error);
+	}
+
+	private removeAbortListener(task: WorkerTask<TRequest, TResult>): void {
+		if (task.signal !== undefined && task.onAbort !== undefined) task.signal.removeEventListener("abort", task.onAbort);
+		delete task.onAbort;
+	}
+}

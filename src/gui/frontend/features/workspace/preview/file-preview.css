@@ -1,0 +1,19 @@
+.session-tab-body[data-file="true"] { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+.file-preview-frame { display: flex; flex-direction: column; flex: 1; min-block-size: 0; min-inline-size: 0; }
+.file-preview { display: flex; flex-direction: column; flex: 1; min-block-size: 0; min-inline-size: 0; }
+.file-preview-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); padding: var(--space-2) var(--space-3); border-block-end: 1px solid var(--divider); background: var(--control-surface); flex-shrink: 0; }
+.file-preview-path { flex: 1 1 6ch; min-inline-size: 0; font-size: var(--text-small); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-preview-modes { display: flex; align-items: center; gap: calc(var(--space-1) / 2); flex-shrink: 0; margin-inline-end: var(--space-2); padding: var(--space-1); border-radius: var(--radius-md); background: var(--secondary); }
+.file-preview-modes button { padding-inline: 0.5em; border-color: transparent; border-radius: calc(var(--radius-md) - var(--space-1)); background: transparent; color: var(--muted-foreground); }
+.file-preview-modes button[data-state="on"] { color: var(--foreground); }
+.file-preview-modes .animated-background { inset: 0; background: var(--control-base); }
+.file-preview-heading > button { font-size: var(--text-small); }
+.file-preview-heading > button[aria-pressed="true"] { background: var(--selected); color: var(--selected-foreground); }
+.file-preview-body { background: var(--background); overflow: auto; min-block-size: 0; min-inline-size: 0; flex: 1; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.file-preview-body .file-code { margin: 0; border: 0; border-radius: 0; background: var(--background); overflow: visible; inline-size: max-content; min-inline-size: 100%; }
+.file-preview-body .file-code pre { max-block-size: none; overflow: visible; }
+.file-preview-body .file-code code { font-size: var(--text-code); }
+.file-preview[data-wrap="true"] :is(.file-code, .file-diff) { inline-size: 100%; min-inline-size: 0; }
+.file-preview[data-wrap="true"] .file-code pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.file-preview[data-media="true"] .file-preview-body { display: flex; flex-direction: column; overflow: hidden; scrollbar-gutter: auto; }
+.file-preview[data-media="true"] .file-preview-body > div { display: flex; flex: 1; flex-direction: column; min-block-size: 0; }

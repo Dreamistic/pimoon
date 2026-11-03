@@ -1,0 +1,103 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { afterEach, beforeEach } from "vitest";
+
+import type {
+	MutationOptions,
+	CommittedMutation,
+	MutationSnapshot,
+	PreparedMutation,
+} from "../../../src/harness/filesystem/contracts/mutation.ts";
+import type { TargetRef } from "../../../src/harness/filesystem/contracts/path.ts";
+import type { FilesystemPolicy } from "../../../src/harness/filesystem/contracts/policy.ts";
+import { FileSystemRuntime, type WorkspaceFileSystemLease } from "../../../src/harness/filesystem/runtime.ts";
+import type { NativeFileSystem } from "../../../src/harness/filesystem/platform/node/native-filesystem.ts";
+import { createVisibilityPolicy } from "./policy-fixture.ts";
+import { useTempDir } from "../../helpers/lifecycle.ts";
+import { expectFsOk } from "./fixtures.ts";
+
+export function commitBytes(
+	opened: WorkspaceFileSystemLease,
+	target: TargetRef,
+	bytes: Uint8Array,
+	options: MutationOptions,
+): Promise<CommittedMutation<undefined>> {
+	return opened.filesystem.mutations.run(target, options, () => ({ bytes, prepared: undefined }));
+}
+
+type OpenMutationOptions = Readonly<{
+	blockedPaths?: readonly string[];
+	native?: NativeFileSystem;
+	signal?: AbortSignal;
+	initial?: string;
+}>;
+
+export function useMutationFixture(prefix: string) {
+	const temp = useTempDir(prefix);
+	let workspace: string;
+	let runtimes: FileSystemRuntime[];
+
+	beforeEach(async () => {
+		workspace = path.join(temp.path, "workspace");
+		await mkdir(workspace);
+		runtimes = [];
+	});
+	afterEach(() => {
+		for (const runtime of runtimes) runtime.dispose();
+	});
+
+	function policy(blockedPaths: readonly string[] = []): FilesystemPolicy {
+		const visibility = createVisibilityPolicy();
+		return { blockedPaths, visibility };
+	}
+
+	function track(runtime: FileSystemRuntime): FileSystemRuntime {
+		runtimes.push(runtime);
+		return runtime;
+	}
+
+	async function openRuntime(
+		blockedPaths: readonly string[] = [],
+		native?: NativeFileSystem,
+		signal?: AbortSignal,
+	): Promise<WorkspaceFileSystemLease> {
+		const runtime = track(new FileSystemRuntime(native === undefined ? {} : { native }));
+		return expectFsOk(await runtime.open({
+			cwd: workspace,
+			policy: policy(blockedPaths),
+			...(signal === undefined ? {} : { context: { signal } }),
+		}));
+	}
+
+	async function resolveTarget(opened: WorkspaceFileSystemLease, input: string): Promise<TargetRef> {
+		return expectFsOk(await opened.filesystem.paths.resolveTarget(input));
+	}
+
+	async function openMutation(input: string, options: OpenMutationOptions = {}) {
+		if (options.initial !== undefined) await writeFile(path.join(workspace, input), options.initial);
+		const opened = await openRuntime(options.blockedPaths, options.native, options.signal);
+		const target = await resolveTarget(opened, input);
+		return {
+			opened,
+			run<TPrepared>(
+				mutationOptions: MutationOptions,
+				transform: (snapshot: MutationSnapshot) => PreparedMutation<TPrepared> | Promise<PreparedMutation<TPrepared>>,
+			) { return opened.filesystem.mutations.run(target, mutationOptions, transform); },
+			commit: (bytes: Uint8Array, mutationOptions: MutationOptions) => commitBytes(opened, target, bytes, mutationOptions),
+		};
+	}
+
+	return {
+		get root() { return temp.path; },
+		get workspace() { return workspace; },
+		policy,
+		track,
+		openRuntime,
+		resolveTarget,
+		openMutation,
+		async commitPath(opened: WorkspaceFileSystemLease, input: string, bytes: Uint8Array, options: MutationOptions) {
+			const target = expectFsOk(await opened.filesystem.paths.resolveTarget(input));
+			return await commitBytes(opened, target, bytes, options);
+		},
+	};
+}

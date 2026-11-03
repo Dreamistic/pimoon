@@ -1,0 +1,183 @@
+import { type ExtensionCommandContext, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { type SubagentProgressCallback } from "../subagent/types.ts";
+
+import {
+	captureExecutorContext,
+	completeAgents,
+	parsePipeline,
+	queryAgentsSummary,
+	querySubagentConfigSummary,
+	runSubagentCommand,
+	executeSubagent,
+	SUBAGENT_COMMAND_ENTRY,
+	SubagentExecutionRegistry,
+	type SubagentInteractionPort,
+	type SubagentToolParams,
+} from "../subagent/index.ts";
+import { subagentTelemetry } from "../subagent/telemetry.ts";
+import { createToolRegistrar, type ToolTelemetrySink } from "../register-tool.ts";
+import { readCurrentSystemPrompt } from "../system-prompt/current.ts";
+
+interface SubagentTuiModule {
+	createSubagentCommandProgressAdapter(ui: ExtensionCommandContext["ui"]): {
+		onProgress: SubagentProgressCallback;
+		dispose(): void;
+	};
+}
+
+export interface SubagentCommandPresentation {
+	signal(): AbortSignal;
+	onProgress: SubagentProgressCallback;
+	present(result: Awaited<ReturnType<typeof runSubagentCommand>>): void;
+}
+
+const taskItem = Type.Object(
+	{
+		agent: Type.String({ minLength: 1 }),
+		task: Type.String({
+			minLength: 1,
+			description: "Task; {previous} inserts the prior result and enforces sequence.",
+		}),
+		cwd: Type.Optional(Type.String({ description: "Workspace-relative directory; default workspace." })),
+	},
+	{ additionalProperties: false },
+);
+
+const subagentParams = Type.Object(
+	{
+		tasks: Type.Array(taskItem, { minItems: 1 }),
+	},
+	{ additionalProperties: false },
+);
+
+/** 注册 subagent 工具和命令，/run 进度呈现按需加载。 */
+export function createSubagentExtension(loadTui?: () => Promise<SubagentTuiModule>, presentation?: SubagentCommandPresentation): (pi: ExtensionAPI, telemetry?: ToolTelemetrySink) => void {
+	return function subagentExtension(pi: ExtensionAPI, telemetry?: ToolTelemetrySink): void {
+		const registerTool = createToolRegistrar(pi, telemetry);
+		const executions = new SubagentExecutionRegistry();
+		registerTool({
+			tool: {
+				name: "subagent",
+				exposure: "model-only",
+				label: "subagent",
+				description: "Delegate bounded tasks to configured agents.",
+				promptSnippet: "delegate bounded tasks",
+				parameters: subagentParams,
+				async execute(toolCallId, params, signal, onUpdate, ctx) {
+					if (process.env.PI_SUBAGENT_CHILD === "1") throw new Error("Recursive subagent calls are forbidden.");
+					const lease = executions.start(signal);
+					try {
+						const interaction = createInteraction(ctx);
+						return await executeSubagent(params as SubagentToolParams, {
+							...captureExecutorContext(
+								pi,
+								{
+									cwd: ctx.cwd,
+									model: ctx.model,
+									sessionManager: ctx.sessionManager,
+									systemPrompt: ctx.getSystemPrompt(),
+								},
+								{ invocation: "tool", toolCallId },
+							),
+							signal: lease.signal,
+							...(interaction === undefined ? {} : { interaction }),
+							onProgress(event) {
+								if (event.phase !== "completed") onUpdate?.(event.result);
+							},
+						});
+					} finally {
+						lease.dispose();
+					}
+				},
+			},
+			repair: { pathFields: ["tasks.*.cwd"] },
+			telemetry: subagentTelemetry,
+		});
+
+		registerCommandAdapters(pi, executions, loadTui, presentation);
+		pi.on("session_shutdown", () => {
+			executions.abortAll();
+		});
+	};
+}
+
+function registerCommandAdapters(
+	pi: ExtensionAPI,
+	executions: SubagentExecutionRegistry,
+	loadTui: (() => Promise<SubagentTuiModule>) | undefined,
+	presentation: SubagentCommandPresentation | undefined,
+): void {
+	pi.registerCommand("agents", {
+		description: "List available subagents",
+		handler: async (_args, ctx) => {
+			ctx.ui.notify(await queryAgentsSummary(pi, { cwd: ctx.cwd, model: ctx.model }), "info");
+		},
+	});
+
+	pi.registerCommand("run", {
+		description: 'Run subagents: /run scout "task" | reviewer "task"',
+		getArgumentCompletions: (prefix) => completeAgents(prefix),
+		handler: async (args, ctx) => {
+			const parsed = parsePipeline(args);
+			if ("error" in parsed) {
+				ctx.ui.notify(parsed.error, "error");
+				return;
+			}
+
+			const progressAdapter =
+				ctx.mode === "tui" && loadTui !== undefined
+					? (await loadTui()).createSubagentCommandProgressAdapter(ctx.ui)
+					: undefined;
+			const signal = presentation?.signal();
+			const lease = executions.start(signal && ctx.signal ? AbortSignal.any([signal, ctx.signal]) : signal ?? ctx.signal);
+			try {
+				const interaction = createInteraction(ctx);
+				const result = await runSubagentCommand(
+					pi,
+					{
+						cwd: ctx.cwd,
+						model: ctx.model,
+						sessionManager: ctx.sessionManager,
+						systemPrompt: await readCurrentSystemPrompt(ctx),
+						signal: lease.signal,
+						...(interaction === undefined ? {} : { interaction }),
+					},
+					parsed.tasks,
+					presentation?.onProgress ?? progressAdapter?.onProgress,
+				);
+				if (presentation !== undefined) {
+					presentation.present(result);
+					return;
+				}
+				if (ctx.mode === "tui") {
+					pi.appendEntry(SUBAGENT_COMMAND_ENTRY, result);
+					return;
+				}
+				const failed = result.details.results.some((item) => item.error !== undefined);
+				ctx.ui.notify(result.content[0].text, failed ? "error" : "info");
+			} finally {
+				lease.dispose();
+				progressAdapter?.dispose();
+			}
+		},
+	});
+
+	pi.registerCommand("subagent-config", {
+		description: "Show subagent config summary",
+		handler: async (_args, ctx) => {
+			ctx.ui.notify(await querySubagentConfigSummary(ctx.cwd), "info");
+		},
+	});
+}
+
+function createInteraction(ctx: {
+	hasUI: boolean;
+	ui: { confirm(title: string, message: string): Promise<boolean> };
+}): SubagentInteractionPort | undefined {
+	if (!ctx.hasUI) return undefined;
+	return { confirmWrite: (title, message) => ctx.ui.confirm(title, message) };
+}
+
+
+export default createSubagentExtension();

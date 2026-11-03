@@ -1,0 +1,106 @@
+import type { FileToolLimits } from "../../file-tool-limits.ts";
+import type { MutationSnapshot } from "../../filesystem/contracts/mutation.ts";
+import { FileSystemError, type FsOperationContext } from "../../filesystem/contracts/result.ts";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
+import {
+	captureMutationDiagnostics,
+	collectMutationDiagnostics,
+	type MutationDiagnosticsSource,
+} from "../shared/mutation-diagnostics.ts";
+import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.ts";
+import type { TextDiffGenerator } from "../shared/text-diff.ts";
+import type { WriteParams, WritePreviewSuccess, WriteSuccess } from "./types.ts";
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });
+
+export interface WriteCommandContext {
+	readonly filesystem: WorkspaceFileSystem;
+	readonly operation: FsOperationContext;
+	readonly limits: Readonly<Pick<FileToolLimits, "write_max_file_bytes">>;
+	readonly diff: TextDiffGenerator;
+	readonly diagnostics?: MutationDiagnosticsSource;
+	readonly onPrepared?: (preview: WritePreviewSuccess) => void;
+}
+
+/** Creates or fully overwrites one guarded UTF-8 file. */
+export async function writeFile(params: WriteParams, context: WriteCommandContext): Promise<ToolOutcome<WriteSuccess>> {
+	const inputBytes = Buffer.byteLength(params.content, "utf8");
+	if (inputBytes > context.limits.write_max_file_bytes) return fileTooLarge(params.path, context.limits.write_max_file_bytes, inputBytes);
+	const target = await context.filesystem.paths.resolveTarget(params.path);
+	if (!target.ok) return mapFsError(target.error);
+	if (target.value.workspacePath === ".") {
+		return fail("INVALID_PATH", "Target must be a file path, not the current directory.", { path: params.path });
+	}
+
+	const bytes = encoder.encode(params.content);
+	const mutated = await context.filesystem.mutations.run(
+		target.value,
+		{
+			createParents: true,
+			maxSnapshotBytes: context.limits.write_max_file_bytes,
+			maxOutputBytes: context.limits.write_max_file_bytes,
+		},
+		async (current) => {
+			const renderedDiff = await context.diff(normalizeLineEndings(snapshotText(current)), normalizeLineEndings(params.content));
+			safePrepared(context.onPrepared, {
+				status: "preview",
+				path: target.value.displayPath,
+				diff: renderedDiff.diff,
+				...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
+			});
+			const baseline = await captureMutationDiagnostics(context.diagnostics, target.value, context.operation.signal);
+			return { bytes, prepared: { renderedDiff, baseline } };
+		},
+	).catch((error: unknown) => {
+		if (error instanceof FileSystemError) return mapFsError(error.error);
+		throw error;
+	});
+	if (isFailed(mutated)) return mutated;
+	const { receipt, prepared: { renderedDiff, baseline } } = mutated;
+	const result: WriteSuccess = {
+		status: "written",
+		path: receipt.target.displayPath,
+		bytes: receipt.sizeBytes,
+		action: receipt.created ? "create" : "modify",
+		...(receipt.before === undefined ? {} : {
+			before_version: receipt.before.hash,
+			before_size_bytes: receipt.before.sizeBytes,
+		}),
+		after_version: receipt.hash,
+		after_size_bytes: receipt.sizeBytes,
+		diff: renderedDiff.diff,
+		...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
+	};
+
+	const diagnostics = await collectMutationDiagnostics(context.diagnostics, {
+		target: receipt.target,
+		content: params.content,
+		created: receipt.created,
+		...(baseline === undefined ? {} : { baseline }),
+		...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+	});
+	if (diagnostics !== undefined) result.lsp = { diagnostics };
+	return result;
+}
+
+function fileTooLarge(path: string, limit: number, size: number) {
+	return fail("OUTPUT_LIMIT_EXCEEDED", "File exceeds the configured byte limit.", {
+		path,
+		details: { limit, size },
+	});
+}
+
+function snapshotText(snapshot: MutationSnapshot): string {
+	return snapshot.exists ? decoder.decode(snapshot.bytes) : "";
+}
+
+function normalizeLineEndings(text: string): string {
+	return text.replace(/\r\n/gu, "\n").replace(/\r/gu, "\n");
+}
+
+function safePrepared(observer: WriteCommandContext["onPrepared"], preview: WritePreviewSuccess): void {
+	try {
+		observer?.(preview);
+	} catch {}
+}

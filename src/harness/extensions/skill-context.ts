@@ -1,0 +1,93 @@
+import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import { registerSkillCommands } from "../skill-context/commands.ts";
+import { executeSkillLoad, SkillLoadError } from "../skill-context/executor.ts";
+import { collectSkillCandidates } from "../skill-context/loader.ts";
+import { findVisibleToolCallIds } from "../prune/prune.ts";
+import { type SkillCandidate, type SkillLoadDetails, type SkillToolErrorDetails } from "../skill-context/types.ts";
+import type { ToolTelemetry } from "../telemetry/types.ts";
+import { createToolRegistrar, type ToolTelemetrySink } from "../register-tool.ts";
+
+const skillParameters = Type.Object(
+	{
+		name: Type.String({
+			minLength: 1,
+			description: "Skill name from <skills>.",
+		}),
+	},
+	{ additionalProperties: false },
+);
+
+type SkillToolDetails = SkillLoadDetails | SkillToolErrorDetails;
+
+/** 注册模型与手动技能披露，并维护分支内的资源权限。 */
+export default function skillContextExtension(pi: ExtensionAPI, telemetry?: ToolTelemetrySink): void {
+	const registerTool = createToolRegistrar(pi, telemetry);
+	registerSkillCommands(pi);
+	let modelCandidates: SkillCandidate[] = [];
+	pi.on("before_agent_start", (event) => {
+		modelCandidates = collectSkillCandidates(event.systemPromptOptions, []);
+	});
+
+	registerTool({
+		tool: {
+			name: "skill",
+			exposure: "model-only",
+			label: "skill",
+			executionMode: "sequential",
+			description: "Load one model-invocable skill by name.",
+			promptSnippet: "load one indexed skill",
+			parameters: skillParameters,
+			async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+				try {
+					if (params.name.startsWith("skill://")) {
+						throw new SkillLoadError(
+							"SKILL_PATH_USE_FILESYSTEM",
+							`Use a filesystem tool with path "${params.name}" instead.`,
+						);
+					}
+					const branch = ctx.sessionManager.getBranch();
+					const contextMessages = ctx.sessionManager.buildSessionProjection().messages;
+					const result = await executeSkillLoad(pi, {
+						name: params.name,
+						loadedBy: "agent",
+						candidates: modelCandidates,
+						branch,
+						toolCallId: _toolCallId,
+						visibleToolCallIds: findVisibleToolCallIds(contextMessages, branch),
+					});
+					return { content: [{ type: "text", text: result.content }], details: result.details };
+				} catch (error) {
+					const message = error instanceof Error ? error.message : "skill loading failed.";
+					const details: SkillToolErrorDetails = {
+						status: "failed",
+						error: {
+							code: error instanceof SkillLoadError ? error.code : "SKILL_INVALID",
+							message,
+						},
+					};
+					return { content: [{ type: "text", text: `<error tool="skill">${escapeXml(message)}</error>` }], details, isError: true };
+				}
+			},
+		},
+		telemetry: {
+			input: ({ name }) => ({ fields: { skill: name } }),
+			result: (_params, details) =>
+				"deduplicated" in details
+					? {
+							fields: {
+								skill: details.name,
+								scope: details.scope,
+								loaded_by: details.loadedBy,
+								content_hash: details.contentHash,
+								deduplicated: details.deduplicated,
+							},
+						}
+					: { fields: { status: "failed" } },
+		} satisfies ToolTelemetry<{ name: string }, SkillToolDetails>,
+	});
+}
+
+function escapeXml(value: string): string {
+	return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}

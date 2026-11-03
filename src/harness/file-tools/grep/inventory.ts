@@ -1,0 +1,240 @@
+import type { DiscoveryEvent } from "../../filesystem/contracts/discovery.ts";
+import type { FileSnapshot } from "../../filesystem/contracts/metadata.ts";
+import type { DirectoryRef, FileRef } from "../../filesystem/contracts/path.ts";
+import type { FsOperationContext } from "../../filesystem/contracts/result.ts";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
+import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.ts";
+import { recordIncomplete } from "../shared/search-navigation.ts";
+import { compactGrepSkippedFiles, createGrepSkippedFiles, type MutableGrepSkippedFiles } from "./skipped.ts";
+import type { GrepScopeError, GrepSkippedFiles, TruncationReason } from "./types.ts";
+
+export interface InventoryScope {
+	readonly input: string;
+	readonly root: FileRef | DirectoryRef;
+}
+
+export interface ScopedFile {
+	readonly ref: FileRef;
+	readonly path: string;
+	readonly snapshot: FileSnapshot;
+	readonly scopeInput: string;
+	readonly explicitFile: boolean;
+}
+
+export interface ScopeInventory {
+	readonly scopes: readonly InventoryScope[];
+	readonly files: readonly ScopedFile[];
+	readonly scopeErrors: readonly GrepScopeError[];
+	readonly skipped: GrepSkippedFiles;
+	readonly traversedEntries: number;
+	readonly truncationReasons: readonly TruncationReason[];
+	readonly incomplete: readonly string[];
+}
+
+export interface ScopeInventoryContext {
+	readonly filesystem: WorkspaceFileSystem;
+	readonly operation: FsOperationContext;
+	readonly maxDepth: number;
+	readonly maxEntries: number;
+	readonly maxSearchBytes: number;
+}
+
+interface MutableInventoryState {
+	readonly context: ScopeInventoryContext;
+	readonly glob?: string;
+	readonly scopes: InventoryScope[];
+	readonly files: ScopedFile[];
+	readonly scopeErrors: GrepScopeError[];
+	readonly seenFiles: Map<string, number>;
+	readonly skipped: MutableGrepSkippedFiles;
+	readonly truncationReasons: Set<TruncationReason>;
+	readonly incomplete: string[];
+	traversedEntries: number;
+	reservedSearchBytes: number;
+}
+
+/** 只聚合每个 scope 的 discovery 事实，不读取正文或实现文件发现策略。 */
+export async function buildScopeInventory(
+	input: { readonly paths: readonly string[]; readonly glob?: string },
+	context: ScopeInventoryContext,
+): Promise<ToolOutcome<ScopeInventory>> {
+	const state: MutableInventoryState = {
+		context,
+		...(input.glob === undefined ? {} : { glob: input.glob }),
+		scopes: [],
+		files: [],
+		scopeErrors: [],
+		seenFiles: new Map(),
+		skipped: createGrepSkippedFiles(),
+		truncationReasons: new Set(),
+		incomplete: [],
+		traversedEntries: 0,
+		reservedSearchBytes: 0,
+	};
+
+	for (const [scopeIndex, scopeInput] of input.paths.entries()) {
+		if (isAborted(context.operation.signal)) return aborted(scopeInput);
+		const resolved = await resolveScope(scopeInput, context);
+		if (isFailed(resolved)) {
+			if (resolved.error.code === "OPERATION_ABORTED") return resolved;
+			state.scopeErrors.push({ path: scopeInput, error: resolved.error });
+			continue;
+		}
+		const visibility = await context.filesystem.visibility.evaluate(resolved, "search");
+		if (!visibility.ok) {
+			const failure = mapFsError(visibility.error, { path: resolved.displayPath });
+			if (failure.error.code === "OPERATION_ABORTED") return failure;
+			state.scopeErrors.push({ path: scopeInput, error: failure.error });
+			continue;
+		}
+		const scope: InventoryScope = {
+			input: scopeInput,
+			root: resolved,
+		};
+		const discovered = await discoverScope(scope, state);
+		if (isFailed(discovered)) {
+			if (discovered.error.code === "OPERATION_ABORTED") return discovered;
+			state.scopeErrors.push({ path: scopeInput, error: discovered.error });
+		} else {
+			state.scopes.push(scope);
+			if (state.truncationReasons.has("entry_limit") || state.truncationReasons.has("byte_limit")) {
+				for (const pending of input.paths.slice(scopeIndex + 1)) recordIncomplete(state.incomplete, pending);
+				break;
+			}
+		}
+	}
+
+	if (state.scopes.length === 0) {
+		const first = state.scopeErrors[0];
+		if (first === undefined) return fail("PATH_NOT_FOUND", "No searchable scope was provided.");
+		return withScopeErrors({ status: "failed", error: first.error }, input.paths, state.scopeErrors);
+	}
+	return {
+		scopes: state.scopes,
+		incomplete: state.incomplete,
+		files: state.files,
+		scopeErrors: state.scopeErrors,
+		skipped: compactGrepSkippedFiles(state.skipped),
+		traversedEntries: state.traversedEntries,
+		truncationReasons: (["depth_limit", "entry_limit", "byte_limit"] as const)
+			.filter((reason) => state.truncationReasons.has(reason)),
+	};
+}
+
+async function resolveScope(input: string, context: ScopeInventoryContext): Promise<ToolOutcome<FileRef | DirectoryRef>> {
+	const resolved = await context.filesystem.paths.resolveExisting(
+		input,
+		{ expected: "any", followFinalSymlink: true },
+	);
+	if (!resolved.ok) return mapFsError(resolved.error, resolved.error.code === "not-found" ? { message: "Path does not exist." } : {});
+	if (resolved.value.kind !== "file" && resolved.value.kind !== "directory") {
+		return fail("INVALID_PATH", "Path must be a regular file or directory.", { path: resolved.value.displayPath });
+	}
+	return resolved.value;
+}
+
+async function discoverScope(scope: InventoryScope, state: MutableInventoryState): Promise<ToolOutcome<void>> {
+	const opened = await state.context.filesystem.discovery.discover(scope.root, {
+		maxDepth: state.context.maxDepth,
+		maxEntries: Math.max(0, state.context.maxEntries - state.traversedEntries),
+		...(state.glob === undefined ? {} : { glob: state.glob }),
+	});
+	if (!opened.ok) {
+		return mapFsError(opened.error, {
+			...(scope.root.kind === "file" ? { notFound: "file" as const } : { message: "Path cannot be searched." }),
+			path: scope.root.displayPath,
+		});
+	}
+	try {
+		for await (const event of opened.value) {
+			if (isAborted(state.context.operation.signal)) return aborted(scope.root.displayPath);
+			const consumed = consumeDiscoveryEvent(event, scope, state);
+			if (consumed === "byte-limit") break;
+			if (consumed !== undefined) return consumed;
+		}
+	} finally {
+		await opened.value.close();
+	}
+}
+
+function consumeDiscoveryEvent(
+	event: DiscoveryEvent,
+	scope: InventoryScope,
+	state: MutableInventoryState,
+): FailedResult | "byte-limit" | undefined {
+	if (event.type === "skip") {
+		if (event.reason === "depth-limit" || event.reason === "entry-limit") {
+			state.truncationReasons.add(event.reason === "depth-limit" ? "depth_limit" : "entry_limit");
+			recordIncomplete(state.incomplete, event.path);
+		}
+		else if (scope.root.kind === "directory" && event.reason !== "blocked") state.traversedEntries += 1;
+		return;
+	}
+	if (event.type === "error") {
+		if (event.error.code === "aborted") return aborted(scope.root.displayPath);
+		if (event.error.code === "access-denied") state.skipped.access_denied += 1;
+		else if (event.error.code === "not-found" || event.error.code === "not-file") state.skipped.changed += 1;
+		// 子项解析错误消耗一个 traversal entry；目录读取错误对应已统计的目录 entry。
+		if (scope.root.kind === "directory" && event.kind !== undefined) state.traversedEntries += 1;
+		return;
+	}
+	if (scope.root.kind === "directory") state.traversedEntries += 1;
+	if (event.ref.kind !== "file") return;
+	return addFile(event.ref, event.snapshot, scope, state)
+		? undefined
+		: "byte-limit";
+}
+
+function normalizeOutputPath(value: string): string {
+	return value.replaceAll("\\", "/");
+}
+
+function addFile(
+	ref: FileRef,
+	snapshot: FileSnapshot,
+	scope: InventoryScope,
+	state: MutableInventoryState,
+): boolean {
+	const existingIndex = state.seenFiles.get(snapshot.identity);
+	const explicitFile = scope.root.kind === "file";
+	if (existingIndex !== undefined) {
+		const existing = state.files[existingIndex];
+		if (existing !== undefined && explicitFile && !existing.explicitFile) {
+			state.files[existingIndex] = { ...existing, scopeInput: scope.input, explicitFile: true };
+		}
+		return true;
+	}
+	if (snapshot.sizeBytes > state.context.maxSearchBytes - state.reservedSearchBytes) {
+		state.truncationReasons.add("byte_limit");
+		recordIncomplete(state.incomplete, ref.displayPath);
+		return false;
+	}
+	state.reservedSearchBytes += snapshot.sizeBytes;
+	state.seenFiles.set(snapshot.identity, state.files.length);
+	state.files.push({
+		ref,
+		path: normalizeOutputPath(ref.displayPath),
+		snapshot,
+		scopeInput: scope.input,
+		explicitFile,
+	});
+	return true;
+}
+
+function isAborted(signal: AbortSignal | undefined): boolean {
+	return signal?.aborted === true;
+}
+
+function aborted(path?: string): FailedResult {
+	return fail("OPERATION_ABORTED", "Operation aborted.", path === undefined ? {} : { path });
+}
+
+function withScopeErrors(result: FailedResult, paths: readonly string[], scopeErrors: readonly GrepScopeError[]): FailedResult {
+	return {
+		...result,
+		error: {
+			...result.error,
+			details: { ...(result.error.details ?? {}), paths: [...paths], scope_errors: [...scopeErrors] },
+		},
+	};
+}

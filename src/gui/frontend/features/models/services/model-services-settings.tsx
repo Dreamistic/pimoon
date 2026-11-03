@@ -1,0 +1,107 @@
+import { useCallback, useMemo, useRef, useState } from "react";
+import { AnimatePresence } from "motion/react";
+import { Plus } from "lucide-react";
+import type { Query } from "../../../../shared/protocol/queries.ts";
+import { editModelsDocument } from "../../../../../harness/model-services/config-edits.ts";
+import { emptyModelsDocument } from "../../../../../harness/model-services/document.ts";
+import { modelsConfigIssues } from "../../../../../harness/model-services/validation.ts";
+import type { Send } from "@/connection/connection.ts";
+import { Button } from "@/ui/button.tsx";
+import { SourceEditor } from "@/forms/source-editor.tsx";
+import { Reveal } from "@/ui/motion/animated.tsx";
+import { SettingsHeading, SettingsSourceButton } from "@/forms/settings-controls.tsx";
+import { useTextConfigDraft } from "@/forms/use-text-config-draft.ts";
+import { useSettingsDraft, useSettingsState } from "@/forms/drafts.tsx";
+import { AddServiceItem } from "./add-service-item.tsx";
+import { parseServiceDraft, serviceDraftChanged } from "./service-draft.ts";
+import { ServiceItem } from "./service-item.tsx";
+import { ModelApiChoicesContext } from "./service-fields.tsx";
+import type { CatalogQuery } from "./use-service-catalog.ts";
+import "./model-services.css";
+
+export function ModelServicesSettings({ globalQuery, query, send, disabled, sessionId, sessionRevision, sessionReady }: {
+	globalQuery: Query<{ query: "modelServices" }>;
+	query: CatalogQuery;
+	send: Send;
+	disabled: boolean;
+	sessionId: string | undefined;
+	sessionRevision: number | undefined;
+	sessionReady: boolean;
+}) {
+	const editor = useTextConfigDraft(useCallback(() => globalQuery({ query: "modelServices" }), [globalQuery]));
+	const { document, draft, error } = editor;
+	const { saving } = useSettingsState();
+	const [source, setSource] = useState(false);
+	const [viewDocument, setViewDocument] = useState(document);
+	const [adding, setAdding] = useState(false);
+	const addButton = useRef<HTMLButtonElement>(null);
+	const cancel = () => { setAdding(false); addButton.current?.focus(); };
+	const [expanded, setExpanded] = useState<string>();
+	const parsed = useMemo(() => parseServiceDraft(draft === "" && document?.content === "" ? emptyModelsDocument : draft),
+		[draft, document?.content]);
+	const issues = useMemo(() => parsed.value && document ? modelsConfigIssues(parsed.value, document.schema) : [], [parsed.value, document]);
+	const saved = useMemo(() => parseServiceDraft(document?.content || emptyModelsDocument).value, [document?.content]);
+	const dirty = useMemo(() => document !== undefined && draft !== document.content
+		&& (editor.sourceEdited || serviceDraftChanged(saved, parsed.value)), [document, draft, editor.sourceEdited, saved, parsed.value]);
+	const blocked = disabled || saving;
+	const invalid = !!parsed.error || issues.length > 0;
+	const newDocument = document !== viewDocument;
+	const sourceView = source || document !== undefined && newDocument && invalid;
+	if (newDocument) {
+		setViewDocument(document);
+		if (document && invalid) setSource(true);
+	}
+
+	async function save() {
+		return editor.save(draft, async (document, content) => {
+			const success = await send({ action: "saveModelServices", original: document.content, content });
+			return success ? { ...document, content } : undefined;
+		});
+	}
+	function discard() {
+		editor.discard();
+		if (document && (!saved || modelsConfigIssues(saved, document.schema).length > 0)) setSource(true);
+		setAdding(false);
+	}
+	function toggleSource() {
+		if (!dirty) editor.discard();
+		setSource(!sourceView);
+		setAdding(false);
+	}
+	function addService(id: string) {
+		editor.change((current) => editModelsDocument(current, ["providers", id], { baseUrl: "", api: "" }));
+		setExpanded(id);
+		setAdding(false);
+	}
+	useSettingsDraft("modelServices", {
+		title: "模型服务", dirty, blocked: disabled, invalid, save, discard,
+	});
+	const providers = parsed.value?.providers ?? {};
+	const services = Object.entries(providers);
+
+	return <section className="settings-module" aria-label="模型服务">
+		<SettingsHeading title="模型服务">
+			{document && <>
+				{!sourceView && <Button ref={addButton} variant="outline" size="sm" disabled={blocked} aria-expanded={adding} onClick={() => setAdding(!adding)}><Plus />添加服务</Button>}
+				<SettingsSourceButton file={document.path} source={sourceView} disabled={blocked || sourceView && invalid} onClick={toggleSource} />
+			</>}
+		</SettingsHeading>
+		<div className="settings-section">{!document ? <>
+			{error ? <><p role="alert">{error}</p><Button variant="ghost" onClick={editor.reload}>重试</Button></> : <p role="status">读取中…</p>}
+		</> : <ModelApiChoicesContext value={document.apis}>
+			{sourceView ? <SourceEditor file={document.path} label="模型服务 JSON" value={draft} disabled={blocked} onChange={editor.changeSource} /> : <>
+				<AnimatePresence initial={false}>{adding && <Reveal key="add">
+					<AddServiceItem label="服务 ID" existing={Object.keys(providers)} disabled={blocked} cancel={cancel} add={addService} />
+				</Reveal>}</AnimatePresence>
+				<div className="model-service-list"><AnimatePresence initial={false}>
+					{services.map(([id, config]) => <ServiceItem key={id} id={id} config={config} disabled={blocked}
+						open={expanded === id} setOpen={(open) => setExpanded(open ? id : undefined)}
+						savedConfig={saved?.providers[id]} sessionId={sessionId} sessionRevision={sessionRevision} sessionReady={sessionReady}
+						query={query} changeDraft={editor.change} />)}
+				</AnimatePresence></div>
+				{!services.length && !adding && <p className="settings-empty">暂无服务</p>}
+			</>}
+			{[parsed.error, ...issues, error].filter(Boolean).map((message, index) => <p role="alert" key={index}>{message}</p>)}
+		</ModelApiChoicesContext>}</div>
+	</section>;
+}

@@ -1,0 +1,21 @@
+{
+	"compilerOptions": {
+		"target": "ESNext",
+		"jsx": "react-jsx",
+		"paths": { "@/*": ["./src/gui/frontend/*"] },
+		"module": "Preserve",
+		"moduleResolution": "Bundler",
+		"allowImportingTsExtensions": true,
+		"verbatimModuleSyntax": true,
+		"noEmit": true,
+		"strict": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noUncheckedIndexedAccess": true,
+		"exactOptionalPropertyTypes": true,
+		"skipLibCheck": true,
+		"types": ["node", "vitest", "react-syntax-highlighter"]
+	},
+	"include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "types/**/*.d.ts"],
+	"exclude": ["o-pet"]
+}

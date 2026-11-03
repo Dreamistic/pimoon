@@ -1,0 +1,82 @@
+{
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"title": "GUI preferences",
+	"type": "object",
+	"additionalProperties": false,
+	"$defs": {
+		"materialSurface": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"opacity": { "type": "number", "minimum": 0, "maximum": 100, "description": "浅色模式的表面不透明度，百分比。" },
+				"darkOpacity": { "type": "number", "minimum": 0, "maximum": 100, "description": "深色模式的表面不透明度，百分比。" },
+				"blur": { "type": "number", "minimum": 0, "maximum": 64, "description": "页面内背景模糊，单位 px，不控制系统材质。" },
+				"saturation": { "type": "number", "minimum": 0, "maximum": 200, "description": "页面内背景饱和度，百分比。" }
+			}
+		},
+		"fontChain": {
+			"type": "array",
+			"uniqueItems": true,
+			"items": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "\\S" }
+		}
+	},
+	"properties": {
+		"$schema": { "type": "string" },
+		"theme": { "enum": ["system", "light", "dark"] },
+		"themeColor": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+		"materials": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"enabled": { "type": "boolean", "description": "启用半透明磨砂，关闭后使用实色表面。" },
+				"desktop": { "type": "boolean", "description": "允许 Desktop 背景透出系统材质，Web 不使用此项。" },
+				"canvas": { "$ref": "#/$defs/materialSurface" },
+				"sidebar": { "$ref": "#/$defs/materialSurface" },
+				"toolbar": { "$ref": "#/$defs/materialSurface" },
+				"inspector": { "$ref": "#/$defs/materialSurface" },
+				"composer": { "$ref": "#/$defs/materialSurface" },
+				"floating": { "$ref": "#/$defs/materialSurface" },
+				"dialog": { "$ref": "#/$defs/materialSurface" },
+				"overlay": { "$ref": "#/$defs/materialSurface" }
+			}
+		},
+		"fonts": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"ui": { "$ref": "#/$defs/fontChain" },
+				"code": { "$ref": "#/$defs/fontChain" }
+			}
+		},
+		"fontSizes": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"ui": { "type": "number", "minimum": 8, "maximum": 48 },
+				"chat": { "type": "number", "minimum": 8, "maximum": 48 },
+				"code": { "type": "number", "minimum": 8, "maximum": 48 }
+			}
+		},
+		"sendShortcut": { "enum": ["mod-enter", "enter"] },
+		"openFileLinksExternally": { "type": "boolean", "description": "Desktop 使用系统默认应用打开聊天中的文件链接，Web 仍使用预览。" },
+		"preventSleepWhileRunning": { "type": "boolean", "description": "Desktop 执行任务时防止空闲睡眠，不阻止显示器熄灭或用户主动睡眠。" },
+		"desktopWeb": {
+			"type": "object",
+			"additionalProperties": false,
+			"description": "Desktop 的 Web 访问，重启 Desktop 后生效，不影响 pimoon-web。",
+			"properties": {
+				"enabled": { "type": "boolean" },
+				"host": { "type": "string", "minLength": 1, "pattern": "^\\S+$" },
+				"port": { "type": "integer", "minimum": 0, "maximum": 65535, "description": "监听端口，0 表示自动分配。" }
+			}
+		},
+		"sessionCache": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"idleLimit": { "type": "integer", "minimum": 0, "description": "已超时且可安全释放的实例最多保留数，按最近使用排序，0 表示不保留此类实例。" },
+				"idleMs": { "type": "integer", "minimum": 1, "maximum": 2147483647, "description": "进入淘汰候选的空闲时长和回收扫描间隔，单位毫秒。" }
+			}
+		}
+	}
+}

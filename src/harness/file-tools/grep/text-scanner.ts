@@ -1,0 +1,325 @@
+import { availableParallelism } from "node:os";
+
+import { createTextTokenMatcher, splitTokens } from "../../code-index/text.ts";
+import { languageFromPath } from "../../syntax-tree/grammars.ts";
+import type { ScannedLine, TextContent } from "../../filesystem/contracts/content.ts";
+import { scannedTextLines, utf8ByteOffset } from "../../filesystem/services/text.ts";
+import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.ts";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.ts";
+import { fail, mapFsError, type ToolOutcome } from "../shared/result.ts";
+import type { LexicalTextAnchor, TextFileEvidence, TextHit } from "./candidates.ts";
+import type { GrepContentCacheLease } from "./content-cache.ts";
+import type { ScopeInventory, ScopedFile } from "./inventory.ts";
+import type { QueryPlan } from "./query-plan.ts";
+import { compactGrepSkippedFiles, createGrepSkippedFiles, recordSkippedFile } from "./skipped.ts";
+import type { GrepScopeError, GrepSkippedFiles } from "./types.ts";
+import { GrepLineMatcher, type LineMatch } from "./regex-matcher.ts";
+import { WorkerTaskAbortedError } from "../../worker-runtime/worker-task-pool.ts";
+
+const MAX_ANCHORS_PER_FILE = 64;
+const FILE_SCAN_CONCURRENCY = Math.max(1, Math.min(8, Math.floor(availableParallelism() / 2)));
+export const MAX_STORED_TEXT_HITS = 10_000;
+export const MAX_STORED_LEXICAL_ANCHORS = 10_000;
+
+export interface TextScanStats {
+	readonly searchedFiles: number;
+	readonly searchedBytes: number;
+	readonly droppedTextHits: number;
+	readonly droppedRelatedAnchors: number;
+	readonly skipped: GrepSkippedFiles;
+}
+
+export interface TextScanResult {
+	readonly hits: readonly TextHit[];
+	readonly totalHits: number;
+	readonly fileEvidence: readonly TextFileEvidence[];
+	/** 小型代码文件的稳定正文，供后续 LSP 或 Tree-sitter 直接复用。 */
+	readonly contents: ReadonlyMap<string, TextContent>;
+	readonly stats: TextScanStats;
+	readonly scopeErrors: readonly GrepScopeError[];
+}
+
+export interface TextScannerContext {
+	readonly filesystem: WorkspaceFileSystem;
+	readonly operation: FsOperationContext;
+	readonly retainTextMaxBytes?: number;
+	readonly contentCache?: GrepContentCacheLease;
+}
+
+interface PreparedTextQuery {
+	readonly queryMode: QueryPlan["queryMode"];
+	readonly matcher: GrepLineMatcher;
+	readonly queryTerms: readonly string[];
+	readonly matchTerms: (line: string) => readonly string[];
+	readonly phrase: string;
+}
+
+interface FileScanSuccess {
+	readonly hits: TextHit[];
+	readonly totalHits: number;
+	readonly evidence: TextFileEvidence;
+	readonly totalAnchors: number;
+	readonly content?: TextContent;
+}
+
+/** 通过 filesystem line scan 产生 regex/literal 事实命中，并同步收集零命中回退所需的有界词法证据。 */
+export async function scanInventoryText(
+	inventory: ScopeInventory,
+	plan: Pick<QueryPlan, "queryMode" | "regex" | "targetTerms" | "targetQuery">,
+	context: TextScannerContext,
+): Promise<ToolOutcome<TextScanResult>> {
+	const matcher = new GrepLineMatcher(plan.regex, plan.queryMode === "literal");
+	try {
+		return await scanText(inventory, prepareTextQuery(plan, matcher), context);
+	} catch (error) {
+		if (context.operation.signal?.aborted === true || error instanceof WorkerTaskAbortedError) return aborted(inventory.scopes[0]?.input ?? ".");
+		throw error;
+	} finally {
+		matcher.dispose();
+	}
+}
+
+async function scanText(inventory: ScopeInventory, query: PreparedTextQuery, context: TextScannerContext): Promise<ToolOutcome<TextScanResult>> {
+	const hits: TextHit[] = [];
+	const fileEvidence: TextFileEvidence[] = [];
+	const contents = new Map<string, TextContent>();
+	const scopeErrors: GrepScopeError[] = [];
+	const skipped = createGrepSkippedFiles();
+	let searchedFiles = 0;
+	let searchedBytes = 0;
+	let totalHits = 0;
+	let storedAnchors = 0;
+	let droppedTextHits = 0;
+	let droppedRelatedAnchors = 0;
+
+	for (let start = 0; start < inventory.files.length; start += FILE_SCAN_CONCURRENCY) {
+		if (context.operation.signal?.aborted === true) return aborted(inventory.files[start]?.path ?? inventory.scopes[0]?.input ?? ".");
+		const batch = inventory.files.slice(start, start + FILE_SCAN_CONCURRENCY);
+		const cancellation = new AbortController();
+		const signal = context.operation.signal === undefined ? cancellation.signal
+			: AbortSignal.any([context.operation.signal, cancellation.signal]);
+		const scans = batch.map((file) => scanFile(file, query, { ...context, operation: { ...context.operation, signal } }));
+		let scannedBatch: Awaited<ReturnType<typeof scanFile>>[];
+		try {
+			scannedBatch = await Promise.all(scans);
+		} catch (error) {
+			cancellation.abort();
+			await Promise.allSettled(scans);
+			throw error;
+		} finally {
+			cancellation.abort();
+		}
+		for (const [index, scanned] of scannedBatch.entries()) {
+			const file = batch[index];
+			if (file === undefined) continue;
+			if (!scanned.ok) {
+				if (scanned.error.code === "aborted") return aborted(file.path);
+				if (file.explicitFile) scopeErrors.push(scopeError(file, mapFsError(scanned.error, { notFound: "file", path: file.path })));
+				else if (!recordSkippedFile(skipped, scanned.error)) return mapFsError(scanned.error, { path: file.path });
+				continue;
+			}
+			searchedFiles += 1;
+			searchedBytes += file.snapshot.sizeBytes;
+			totalHits += scanned.value.totalHits;
+			const retainedHits = scanned.value.hits.slice(0, Math.max(0, MAX_STORED_TEXT_HITS - hits.length));
+			hits.push(...retainedHits);
+			droppedTextHits += scanned.value.totalHits - retainedHits.length;
+			const retainedAnchors = scanned.value.evidence.anchors.slice(0, Math.max(0, MAX_STORED_LEXICAL_ANCHORS - storedAnchors));
+			fileEvidence.push({ ...scanned.value.evidence, anchors: retainedAnchors });
+			storedAnchors += retainedAnchors.length;
+			droppedRelatedAnchors += scanned.value.totalAnchors - retainedAnchors.length;
+			if (scanned.value.content !== undefined) contents.set(file.path, scanned.value.content);
+		}
+	}
+	if (totalHits > 0) {
+		const retainedPaths = new Set(hits.map((hit) => hit.path));
+		for (const path of contents.keys()) {
+			if (!retainedPaths.has(path)) contents.delete(path);
+		}
+	}
+
+	return {
+		hits,
+		totalHits,
+		fileEvidence,
+		contents,
+		stats: {
+			searchedFiles,
+			searchedBytes,
+			droppedTextHits,
+			droppedRelatedAnchors,
+			skipped: compactGrepSkippedFiles(skipped),
+		},
+		scopeErrors,
+	};
+}
+
+async function scanFile(
+	file: ScopedFile,
+	query: PreparedTextQuery,
+	context: TextScannerContext,
+): Promise<{ readonly ok: true; readonly value: FileScanSuccess } | { readonly ok: false; readonly error: FsError }> {
+	let retained: TextContent | undefined;
+	const retainText =
+		context.retainTextMaxBytes !== undefined
+		&& file.snapshot.sizeBytes <= context.retainTextMaxBytes
+		&& languageFromPath(file.path) !== "text";
+	if (retainText) {
+		retained = await context.contentCache?.get(file, context.filesystem, context.operation);
+	}
+	if (retainText && retained === undefined) {
+		const loaded = await context.filesystem.content.readText(
+			file.ref,
+			{
+				maxBytes: context.retainTextMaxBytes,
+				expectedSnapshot: file.snapshot,
+			},
+		);
+		if (!loaded.ok) return loaded;
+		retained = loaded.value;
+		context.contentCache?.set(file, context.filesystem, retained);
+	}
+	const fileHits: TextHit[] = [];
+	const anchors: LexicalTextAnchor[] = [];
+	const matchedTerms = new Set<string>();
+	let totalHits = 0;
+	let totalAnchors = 0;
+	const consumeLine = (line: ScannedLine, match: LineMatch | undefined): void => {
+		if (match !== undefined) {
+			totalHits += 1;
+			if (fileHits.length < MAX_STORED_TEXT_HITS) {
+				const hit = createTextHit(file.path, line, match, query.queryMode);
+				if (hit !== undefined) fileHits.push(hit);
+			}
+		}
+		const lineTerms = query.matchTerms(line.text);
+		for (const term of lineTerms) matchedTerms.add(term);
+		const hasPhrase = query.phrase.length > 0
+			&& line.text.toLocaleLowerCase().includes(query.phrase);
+		if (lineTerms.length > 0 || hasPhrase) {
+			totalAnchors += 1;
+			if (anchors.length < MAX_ANCHORS_PER_FILE) {
+				anchors.push(createLexicalAnchor(file.path, line, lineTerms, hasPhrase));
+			}
+		}
+	};
+	let pending: ScannedLine[] = [];
+	let pendingChars = 0;
+	const appendLine = (line: ScannedLine): boolean => {
+		pending.push(line);
+		pendingChars += line.text.length;
+		return pending.length >= 256 || pendingChars >= 64 * 1024;
+	};
+	const flush = async (): Promise<void> => {
+		if (pending.length === 0) return;
+		const matches = await query.matcher.match(pending.map((line) => line.text), context.operation.signal);
+		for (const [index, line] of pending.entries()) consumeLine(line, matches[index]);
+		pending = [];
+		pendingChars = 0;
+	};
+	if (retained !== undefined) {
+		for (const line of scannedTextLines(retained.text)) {
+			if (context.operation.signal?.aborted === true) throw new WorkerTaskAbortedError();
+			if (appendLine(line)) await flush();
+		}
+	} else {
+		const opened = await context.filesystem.content.scanLines(
+			file.ref,
+			{ expectedSnapshot: file.snapshot },
+		);
+		if (!opened.ok) return opened;
+		let failure: FsError | undefined;
+		try {
+			for await (const result of opened.value) {
+				if (!result.ok) {
+					failure = result.error;
+					break;
+				}
+				if (appendLine(result.value)) await flush();
+			}
+		} finally {
+			await opened.value.close();
+		}
+		if (failure !== undefined) return { ok: false, error: failure };
+	}
+	await flush();
+	return {
+		ok: true,
+		value: {
+			hits: fileHits,
+			totalHits,
+			totalAnchors,
+			evidence: {
+				path: file.path,
+				matchedTerms: query.queryTerms.filter((term) => matchedTerms.has(term)),
+				anchors,
+			},
+			...(retained === undefined ? {} : { content: retained }),
+		},
+	};
+}
+
+function prepareTextQuery(
+	plan: Pick<QueryPlan, "queryMode" | "regex" | "targetTerms" | "targetQuery">,
+	matcher: GrepLineMatcher,
+): PreparedTextQuery {
+	const queryTerms = uniqueLowerTerms(plan.targetTerms.flatMap(splitTokens));
+	return {
+		queryMode: plan.queryMode,
+		matcher,
+		queryTerms,
+		matchTerms: createTextTokenMatcher(queryTerms),
+		phrase: plan.targetQuery.trim().toLocaleLowerCase(),
+	};
+}
+
+function createTextHit(
+	path: string,
+	line: ScannedLine,
+	match: LineMatch,
+	queryMode: QueryPlan["queryMode"],
+): TextHit | undefined {
+	const startByte = utf8ByteOffset(line.text, match.start);
+	const endByte = utf8ByteOffset(line.text, match.end);
+	if (startByte === undefined || endByte === undefined) return undefined;
+	return {
+		path,
+		line: line.line,
+		byteStart: line.byteStart + startByte,
+		byteEnd: line.byteStart + endByte,
+		matchStart: match.start,
+		matchEnd: match.end,
+		matchMode: queryMode,
+		lineText: line.text,
+	};
+}
+
+function createLexicalAnchor(
+	path: string,
+	line: ScannedLine,
+	matchedTerms: readonly string[],
+	phrase: boolean,
+): LexicalTextAnchor {
+	return {
+		path,
+		line: line.line,
+		byteStart: line.byteStart,
+		byteEnd: line.byteEnd,
+		lineText: line.text,
+		matchedTerms: [...matchedTerms],
+		phrase,
+	};
+}
+
+function uniqueLowerTerms(terms: readonly string[]): string[] {
+	return [...new Set(terms.map((term) => term.toLocaleLowerCase()).filter((term) => term.length > 0))];
+}
+
+function scopeError(file: ScopedFile, failure: ReturnType<typeof fail>): GrepScopeError {
+	return { path: file.scopeInput, error: failure.error };
+}
+
+
+function aborted(path: string): ReturnType<typeof fail> {
+	return fail("OPERATION_ABORTED", "Operation aborted.", { path });
+}

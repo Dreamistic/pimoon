@@ -1,0 +1,47 @@
+{
+	"$schema": "../schemas/tui.schema.json",
+	"enabled": true,
+	"icons": "nerd",
+	"chrome": {
+		"title": true,
+		"header": false,
+		"footer": true,
+		"working_indicator": "spinner"
+	},
+	"footer": {
+		"segments": [
+			"cwd",
+			"git",
+			"ctx",
+			"tokens",
+			"cost"
+		],
+		"narrow_segments": [
+			"cwd",
+			"git",
+			"ctx",
+			"tokens",
+			"cost"
+		],
+		"style": {
+			"workspace_color": "accent",
+			"git_color": "success"
+		}
+	},
+	"home": {
+		"enabled": true,
+		"motion": "playful",
+		"pointer_effects": "click-hold",
+		"show_tagline": true,
+		"show_tips": true,
+		"show_hints": true,
+		"show_capabilities": true
+	},
+	"math": {
+		"enabled": true,
+		"max_width_cells": 120,
+		"max_height_cells": 18,
+		"svg_scale": 2,
+		"foreground": "#d4d4d4"
+	}
+}

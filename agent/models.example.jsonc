@@ -1,0 +1,216 @@
+{
+  // Pi 的 models.json 支持行注释和尾逗号。将所需 provider 合并到用户配置，不要覆盖已有配置。
+  "$schema": "https://pi.dev/schemas/models.schema.json",
+  "providers": {
+    "llama-cpp": {
+      "name": "Local AI",
+      "baseUrl": "http://127.0.0.1:8000/v1",
+      // 无认证服务使用服务允许的占位密钥，仍会发送 Authorization: Bearer local。
+      // EMPTY 不再有特殊含义。实际密钥可写为 "$LOCAL_API_KEY" 或 "!获取密钥的命令"。
+      "apiKey": "local",
+      "api": "openai-completions",
+      // provider 请求头由 SDK 解析，也支持环境变量和命令。
+      // "headers": { "X-Account": "$ACCOUNT_ID" },
+      // "authHeader": true,
+
+      // compat 是 Pi 原生字段，未配置的选项由 SDK 决定，扩展不再注入保守默认值。
+      // 模型 compat 覆盖同名字段，chatTemplateKwargs、chatTemplateArgs、
+      // openRouterRouting 和 vercelGatewayRouting 的嵌套属性按 SDK 规则合并。
+      // 以下启用常用本地 Chat Completions 配置，其余字段作为可选示例。
+      // 只有确认服务需要或支持对应行为后才取消注释。
+      "compat": {
+        // SDK 原生思考格式，未配置时继承或由 SDK 根据服务地址选择。
+        "thinkingFormat": "chat-template",
+        // 是否接受 store 字段，不支持时 Pi 不发送 store。
+        "supportsStore": false,
+        // 是否接受 developer role，false 时 Pi 改用 system role。
+        "supportsDeveloperRole": false,
+        // 是否接受 reasoning_effort。
+        "supportsReasoningEffort": false,
+        // 输出 token 上限字段：max_tokens 或 max_completion_tokens。
+        "maxTokensField": "max_tokens",
+
+        // 是否接受 stream_options.include_usage。
+        // "supportsUsageInStreaming": true,
+        // 流式响应是否提供 finish_reason，false 时由 Pi 推断。
+        // "supportsFinishReason": true,
+        // 限制思考 token 的请求字段。vLLM 使用 thinking_token_budget，
+        // Qwen、DashScope 和 SGLang 使用 thinking_budget，llama.cpp 使用 thinking_budget_tokens。
+        // "thinkingTokenBudgetField": "thinking_budget_tokens",
+        // 旧字段 supportsThinkingTokenBudget: true 仅等价于 vLLM 的 thinking_token_budget。
+
+        // tool message 是否必须携带 name。
+        // "requiresToolResultName": true,
+        // tool message 后接 user message 前是否必须插入 assistant message。
+        // "requiresAssistantAfterToolResult": true,
+        // 是否把 thinking block 转成带 <thinking> 分隔符的文本。
+        // "requiresThinkingAsText": true,
+        // 重放 reasoning assistant 消息时是否必须补空 reasoning_content。
+        // "requiresReasoningContentOnAssistantMessages": true,
+
+        // thinkingFormat=chat-template 时发送的 chat_template_kwargs。
+        // $var 在请求时替换为 Pi 当前的 thinking 开关或 effort。
+        "chatTemplateKwargs": {
+          "enable_thinking": { "$var": "thinking.enabled" }
+          // 服务支持 effort 时可同时添加，关闭思考时省略该参数。
+          // , "reasoning_effort": { "$var": "thinking.effort", "omitWhenOff": true }
+        }
+
+        // 是否接受 tool definition 中的 strict 和 OpenAI grammar tool。
+        // , "supportsStrictMode": false
+        // , "supportsOpenAIGrammarTools": false
+        // Anthropic 风格 prompt cache_control 标记。
+        // , "cacheControlFormat": "anthropic"
+        // 是否发送 session affinity headers。
+        // , "sendSessionAffinityHeaders": true
+        // session affinity header 格式：openai/openai-nosession/openrouter。
+        // , "sessionAffinityFormat": "openai-nosession"
+        // 是否接受长 prompt cache retention。
+        // , "supportsLongCacheRetention": false
+        // provider 延迟加载工具的序列化模式。
+        // , "deferredToolsMode": "kimi"
+        // z.ai 是否接受顶层 tool_stream=true。
+        // , "zaiToolStream": true
+
+        // OpenRouter 的 provider 路由参数。内置 OpenRouter 服务优先使用原生 openrouter provider。
+        // , "openRouterRouting": {
+        //   "allow_fallbacks": true,
+        //   "require_parameters": false,
+        //   "data_collection": "deny",
+        //   "zdr": true,
+        //   "enforce_distillable_text": false,
+        //   "order": ["provider-a", "provider-b"],
+        //   "only": ["provider-a"],
+        //   "ignore": ["provider-c"],
+        //   "quantizations": ["fp16", "bf16"],
+        //   "sort": { "by": "latency", "partition": "model" },
+        //   "max_price": {
+        //     "prompt": 1,
+        //     "completion": 2,
+        //     "image": 0.01,
+        //     "audio": 0.01,
+        //     "request": 0.001
+        //   },
+        //   "preferred_min_throughput": { "p50": 20, "p90": 10 },
+        //   "preferred_max_latency": { "p50": 1, "p90": 3 }
+        // }
+        // Vercel AI Gateway 的 provider 过滤和顺序。
+        // , "vercelGatewayRouting": {
+        //   "only": ["anthropic", "openai"],
+        //   "order": ["anthropic", "openai"]
+        // }
+      },
+      "models": [
+        {
+          "id": "gemma4-31b-it",
+          "name": "Gemma4 31B it",
+          // 原生 reasoning 需显式声明，不再从 defaultThinkingLevel 或 thinkingLevelMap 推导。
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 131072,
+          // 默认不发送输出上限，由服务端决定。需要限制时填写正数。
+          // "maxTokens": 8192,
+          // 可选扩展字段：选择模型时设置默认等级，恢复会话时不覆盖已恢复的等级。
+          // "defaultThinkingLevel": "off",
+          // 模型可以覆盖 provider 的 api、baseUrl、headers 和 compat。
+          // "headers": { "X-Model": "$MODEL_HEADER" },
+
+          // Pi 原生 samplingParams 使用请求体字段名，不在其中配置令牌上限或核心请求字段。
+          // 合并顺序：模型默认值 -> 有效思考等级的参数 -> 单次请求参数。
+          "samplingParams": {
+            "temperature": 1,
+            "top_p": 0.95,
+            "top_k": 40
+          },
+          // 使用 Pi 等级名，不是 thinkingLevelMap 映射后的上游值。
+          "samplingParamsByThinkingLevel": {
+            "off": { "temperature": 0.7, "top_p": 0.8 }
+          }
+        }
+      ]
+    },
+
+    "responses-demo": {
+      "name": "Responses Demo",
+      "baseUrl": "http://127.0.0.1:11451/v1",
+      "apiKey": "$RESPONSES_API_KEY",
+      "api": "openai-responses",
+      // Responses 使用 SDK 原生 reasoning 和 thinkingLevelMap。
+      // 可选请求体调整，不能覆盖或删除 model/messages/input/tools/stream。
+      // extraBody 仅在 provider 层提供，dropParams 还可配置在模型条目或 modelOverrides 中。
+      // "extraBody": { "custom_option": true },
+      // "dropParams": ["store"],
+
+      // Responses transport 只消费自己认识的 compat 字段。
+      "compat": {
+        // 是否接受 developer role，false 时使用 system role。
+        "supportsDeveloperRole": false
+        // session affinity header 格式。
+        // , "sessionAffinityFormat": "openai-nosession"
+        // 是否接受 prompt_cache_retention=24h。
+        // , "supportsLongCacheRetention": false
+        // 是否支持由客户端执行的 deferred tool search。
+        // , "supportsToolSearch": false
+        // 是否支持 grammar tool、additional_tools 和显式 prompt cache mode。
+        // , "supportsOpenAIGrammarTools": false
+        // , "supportsAdditionalTools": false
+        // , "supportsExplicitPromptCacheMode": false
+      },
+      "models": [
+        {
+          "id": "reasoning-model",
+          "name": "Reasoning Model",
+          "reasoning": true,
+          "contextWindow": 65536,
+          "defaultThinkingLevel": "xhigh",
+          // 映射到上游 effort，null 表示该 Pi 等级不受支持。
+          "thinkingLevelMap": {
+            "off": "none",
+            "minimal": null,
+            "xhigh": "max"
+          }
+        }
+      ]
+    },
+
+    // API 不限于 OpenAI。认证与协议请求继续由 Pi SDK 处理。
+    "anthropic-demo": {
+      "baseUrl": "https://api.anthropic.com",
+      "api": "anthropic-messages",
+      "apiKey": "$ANTHROPIC_API_KEY",
+      "models": [{ "id": "claude-sonnet-4-6", "reasoning": true }]
+    },
+    "google-demo": {
+      // 与 Pi Google 适配器一致，地址包含 API 版本路径。
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "api": "google-generative-ai",
+      "apiKey": "$GEMINI_API_KEY",
+      "models": [{ "id": "gemini-2.5-pro", "reasoning": true }]
+    },
+
+    "chat-template-enabled-demo": {
+      "name": "Chat Template Enabled Demo",
+      "baseUrl": "http://127.0.0.1:9000/v1",
+      "apiKey": "local",
+      "api": "openai-completions",
+      // 布尔思考模板直接使用 SDK 原生配置。
+      "compat": {
+        "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": { "enable_thinking": { "$var": "thinking.enabled" } },
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false,
+        "maxTokensField": "max_tokens"
+      },
+      "models": [
+        {
+          "id": "boolean-thinking-model",
+          "name": "Boolean Thinking Model",
+          "reasoning": true,
+          "contextWindow": 131072,
+          "defaultThinkingLevel": "high"
+        }
+      ]
+    }
+  }
+}

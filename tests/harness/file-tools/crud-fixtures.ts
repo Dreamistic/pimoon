@@ -1,0 +1,91 @@
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
+import { afterEach, beforeEach } from "vitest";
+
+import { editFile, previewEdit } from "../../../src/harness/file-tools/edit/command.ts";
+import type { MutationDiagnosticsSource } from "../../../src/harness/file-tools/shared/mutation-diagnostics.ts";
+import type { EditParams, EditSuccess } from "../../../src/harness/file-tools/edit/types.ts";
+import { generateDiffString } from "@earendil-works/pi-coding-agent";
+import { FileToolsHost, type FileToolsInvocation } from "../../../src/harness/file-tools/runtime/host.ts";
+import type { ToolOutcome } from "../../../src/harness/file-tools/shared/result.ts";
+import type { TextDiffGenerator } from "../../../src/harness/file-tools/shared/text-diff.ts";
+import { writeFile as writeFileCommand } from "../../../src/harness/file-tools/write/command.ts";
+import type { WriteParams, WriteSuccess } from "../../../src/harness/file-tools/write/types.ts";
+import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
+import { readWorkspaceFile, type ReadWorkspaceTestOptions } from "../../helpers/read-tool.ts";
+
+export interface CrudTestContext {
+	readonly workspace: string;
+	readonly outside: string;
+	read(params: Parameters<typeof readWorkspaceFile>[1], options?: ReadWorkspaceTestOptions): ReturnType<typeof readWorkspaceFile>;
+	write(params: WriteParams, diff?: TextDiffGenerator): Promise<ToolOutcome<WriteSuccess>>;
+	edit(params: EditParams, runtime?: { signal?: AbortSignal; diagnostics?: MutationDiagnosticsSource; diff?: TextDiffGenerator }): Promise<ToolOutcome<EditSuccess>>;
+	preview(params: EditParams): ReturnType<typeof previewEdit>;
+	useConfig(config: Record<string, unknown>): Promise<void>;
+}
+
+export function createCrudTestContext(): CrudTestContext {
+	const workspaceTemp = useTempDir("o-pi-crud-workspace-");
+	const outsideTemp = useTempDir("o-pi-crud-outside-");
+	preserveEnv("PI_FILE_TOOLS_CONFIG");
+	let host: FileToolsHost;
+
+	beforeEach(() => {
+		host = new FileToolsHost();
+	});
+	afterEach(() => host.dispose());
+
+	async function open(signal?: AbortSignal): Promise<ToolOutcome<FileToolsInvocation>> {
+		return await host.open({ cwd: workspaceTemp.path, sessionId: "crud", ...(signal === undefined ? {} : { signal }) });
+	}
+
+	return {
+		get workspace() { return workspaceTemp.path; },
+		get outside() { return outsideTemp.path; },
+		read(params, options = {}) {
+			return readWorkspaceFile(workspaceTemp.path, params, { ...options, host, sessionId: "crud" });
+		},
+		async write(params, diff = generateDiffString) {
+			const opened = await open();
+			if ("status" in opened) return opened;
+			try {
+				return await writeFileCommand(params, {
+					...opened,
+					diff,
+				});
+			} finally {
+				opened.dispose();
+			}
+		},
+		async edit(params, runtime = {}) {
+			const opened = await open(runtime.signal);
+			if ("status" in opened) return opened;
+			try {
+				return await editFile(params, {
+					...opened,
+					diff: runtime.diff ?? generateDiffString,
+					...(runtime.diagnostics === undefined ? {} : { diagnostics: runtime.diagnostics }),
+				});
+			} finally {
+				opened.dispose();
+			}
+		},
+		async preview(params) {
+			const opened = await open();
+			if ("status" in opened) return opened;
+			try {
+				return await previewEdit(params, {
+					...opened,
+					diff: generateDiffString,
+				});
+			} finally {
+				opened.dispose();
+			}
+		},
+		async useConfig(config) {
+			const configPath = path.join(outsideTemp.path, `file-tools-${Date.now()}-${Math.random()}.jsonc`);
+			await writeFile(configPath, JSON.stringify(config, null, 2));
+			process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		},
+	};
+}

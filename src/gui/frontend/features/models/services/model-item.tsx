@@ -1,0 +1,90 @@
+import { ArrowDown, ArrowUp, ChevronRight, RotateCcw } from "lucide-react";
+import { configObject } from "../../../../../harness/model-services/document.ts";
+import type { ModelSettings } from "../../../../../harness/model-services/model-settings.ts";
+import type { ModelSettingsView } from "../../../../../harness/model-services/settings-view.ts";
+import { Button } from "@/ui/button.tsx";
+import { IconButton } from "@/ui/icon-button.tsx";
+import { ConfirmAction } from "@/ui/confirm-action.tsx";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/ui/collapsible.tsx";
+import { Disclosure } from "@/ui/disclosure.tsx";
+import { Reveal } from "@/ui/motion/animated.tsx";
+import type { ChangeConfig } from "./service-draft.ts";
+import { ServiceBoolean, ServiceChoice, ServiceInput, ServiceNumber, ServiceText, textValue } from "./service-fields.tsx";
+import { ServiceCompat } from "./service-compat.tsx";
+import { ServiceThinking } from "./service-thinking.tsx";
+import { ServiceThinkingFormat } from "./service-thinking-format.tsx";
+
+export function ModelItem({ model, settings, open, setOpen, disabled, change, modelCount, move }: {
+	model: ModelSettings;
+	settings: ModelSettingsView;
+	open: boolean;
+	setOpen: (open: boolean) => void;
+	disabled: boolean;
+	change: ChangeConfig;
+	modelCount: number;
+	move: (index: number, direction: -1 | 1) => void;
+}) {
+	const { defaults, compat, thinking, overrides, api } = settings;
+	const { id, configured: fields, manualIndex } = model;
+	const name = textValue(fields.name) || textValue(defaults.name) || id;
+	const sampling = configObject(fields.samplingParams) ? fields.samplingParams : {};
+	const defaultSampling = configObject(defaults.samplingParams) ? defaults.samplingParams : {};
+	const edit: ChangeConfig = (path, value) => change([...model.path, ...path], value);
+	const outputHint = defaults.maxTokens !== undefined ? `继承：${textValue(defaults.maxTokens)}`
+		: api === "openai-completions" || api === "openai-responses" ? "不限制（由服务端决定）" : "继承 SDK 输出预算";
+	const defaultLevel = fields.defaultThinkingLevel ?? defaults.defaultThinkingLevel;
+	const defaultUnavailable = defaultLevel !== undefined && !thinking.rows.some((row) => row.level === defaultLevel && row.available);
+
+	return <Reveal layout="position"><Collapsible open={open} onOpenChange={setOpen} asChild>
+		<article className="service-model" aria-label={`模型 ${id}`}>
+			<div className="service-item-heading">
+				<CollapsibleTrigger className="service-summary" aria-label={`编辑模型 ${id}`}>
+					<strong>{name}</strong>{name !== id && <span>{id}</span>}
+				</CollapsibleTrigger>
+				<div className="service-item-actions">
+					{manualIndex !== undefined && <>
+						<IconButton label={`上移 ${id}`} tooltip="上移" size="icon-sm"
+							disabled={disabled || manualIndex === 0} onClick={() => move(manualIndex, -1)}><ArrowUp /></IconButton>
+						<IconButton label={`下移 ${id}`} tooltip="下移" size="icon-sm"
+							disabled={disabled || manualIndex === modelCount - 1} onClick={() => move(manualIndex, 1)}><ArrowDown /></IconButton>
+					</>}
+					{model.overridden && Object.keys(overrides).length > 0 && <IconButton size="icon-sm"
+						label={`还原模型设置 ${id}`} tooltip="还原模型设置" disabled={disabled}
+						onClick={() => change(["modelOverrides", id], undefined)}><RotateCcw /></IconButton>}
+					{manualIndex !== undefined && <ConfirmAction label={`删除模型 ${id}`} disabled={disabled}
+						confirm={async () => change(["models", manualIndex], undefined)} />}
+					<CollapsibleTrigger className="disclosure-trigger" asChild>
+						<Button variant="ghost" size="icon-sm" aria-label={`${open ? "收起" : "展开"}模型 ${id}`}>
+							<ChevronRight className="disclosure-chevron" />
+						</Button>
+					</CollapsibleTrigger>
+				</div>
+			</div>
+			<CollapsibleContent lazy><div className="service-model-form">
+				<ServiceText label="模型名称" value={fields.name} defaultValue={defaults.name} placeholder={textValue(defaults.name)}
+					disabled={disabled} change={(value) => edit(["name"], value)} />
+				<ServiceNumber label="上下文 Token" value={fields.contextWindow} defaultValue={defaults.contextWindow}
+					placeholder={textValue(defaults.contextWindow) || "继承 SDK"} disabled={disabled} change={(value) => edit(["contextWindow"], value)} />
+				<ServiceNumber label="最大输出 Token" value={fields.maxTokens} defaultValue={defaults.maxTokens}
+					placeholder={outputHint} disabled={disabled} change={(value) => edit(["maxTokens"], value)} />
+				<ServiceInput label="输入类型" value={fields.input} defaultValue={defaults.input}
+					disabled={disabled} change={(value) => edit(["input"], value)} />
+				<ServiceBoolean label="思考能力" value={fields.reasoning} defaultValue={defaults.reasoning} placeholder="继承 SDK"
+					disabled={disabled} change={(value) => edit(["reasoning"], value)} />
+				<ServiceThinkingFormat settings={compat} disabled={disabled} change={edit} />
+				<ServiceChoice label="默认思考等级" value={fields.defaultThinkingLevel} defaultValue={defaults.defaultThinkingLevel}
+					options={thinking.rows.map((row) => [row.level, row.level, !row.available] as const)} unsetLabel="不指定"
+					unavailable={!thinking.reasoning ? "开启思考能力后可设置默认等级。" : undefined}
+					hint={defaultUnavailable ? "已配置的等级当前不可选，运行时会自动调整。请改选或重置。" : undefined}
+					disabled={disabled} change={(value) => edit(["defaultThinkingLevel"], value)} />
+				<Disclosure className="service-disclosure" summary="采样参数" lazy><div className="settings-fields">
+					{([["temperature", "温度"], ["top_p", "Top P"], ["top_k", "Top K"]] as const).map(([key, label]) =>
+						<ServiceNumber key={key} label={label} value={sampling[key]} defaultValue={defaultSampling[key]}
+							placeholder={textValue(defaultSampling[key])} disabled={disabled} change={(value) => edit(["samplingParams", key], value)} />)}
+				</div></Disclosure>
+				<ServiceCompat settings={compat} reasoning={thinking.reasoning} disabled={disabled} change={edit} />
+				<ServiceThinking mapping={thinking} disabled={disabled} change={edit} />
+			</div></CollapsibleContent>
+		</article>
+	</Collapsible></Reveal>;
+}

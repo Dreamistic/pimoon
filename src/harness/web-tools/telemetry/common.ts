@@ -1,0 +1,22 @@
+import { fields } from "../../telemetry/projection.ts";
+import type { Fields } from "../../telemetry/types.ts";
+import type { WebFetchDetails, WebSearchDetails } from "../core/types.ts";
+
+type WebResultDetails = WebFetchDetails | WebSearchDetails;
+
+export function webResultFields(details: WebResultDetails): Fields {
+	const attempts = "attempts" in details ? details.attempts : undefined;
+	const errorCode = details.status === "failed" ? details.error.code : undefined;
+	return fields({
+		status: details.status,
+		error_code: errorCode,
+		provider: "provider" in details ? details.provider : undefined,
+		providers: "providers" in details ? details.providers : undefined,
+		http_status: "http_status" in details ? details.http_status : undefined,
+		attempt_count: attempts?.length,
+		fallback: attempts === undefined ? undefined : attempts.filter((attempt) => attempt.role === "primary").length > 1,
+		truncated: details.status === "success" && "range" in details ? details.range.has_more : undefined,
+		format: details.status === "success" && "format" in details ? details.format : undefined,
+		total_chars: details.status === "success" && "total_chars" in details ? details.total_chars : undefined,
+	});
+}

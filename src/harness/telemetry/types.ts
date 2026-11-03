@@ -1,0 +1,112 @@
+import type { ExecutionTrace } from "../../pimoon/trace.ts";
+import type { RepairFanout, RepairOperation, ToolArgumentStatus } from "../tool-repair/types.ts";
+
+export type FieldValue = string | number | boolean | null | string[];
+export type Fields = Record<string, FieldValue>;
+
+export interface Resource {
+	kind: string;
+	value: string;
+	start_line?: number;
+	end_line?: number;
+}
+
+export interface Candidate extends Resource {
+	rank: number;
+	group?: string;
+	sources: string[];
+	/** 排序器选择前的完整 relevance 名次。 */
+	relevance_rank?: number;
+	/** 离散 relevance tier；数值越小越强。 */
+	ranking_tier?: number;
+	/** 算法定义的主、辅助连续分数，只能在同算法语义下解释。 */
+	ranking_score?: number;
+	ranking_aux_score?: number;
+	/** 候选进入可见结果的选择阶段。 */
+	selection?: string;
+}
+
+/** Tool-owned, payload-free facts used by focused offline analyzers. */
+export interface TelemetryFacts {
+	fields?: Fields;
+	targets?: Resource[];
+	candidates?: Candidate[];
+}
+
+export interface ToolTelemetry<TParams, TDetails> {
+	input?(params: Readonly<TParams>): TelemetryFacts;
+	result?(params: Readonly<TParams>, details: Readonly<TDetails>): TelemetryFacts;
+}
+
+export interface TelemetryToolDefinition {
+	name: string;
+	description: string;
+	parameters: unknown;
+	promptSnippet?: string;
+	promptGuidelines?: string[];
+}
+
+export interface TelemetryToolRegistration {
+	definition: TelemetryToolDefinition;
+	input?: (params: unknown) => TelemetryFacts;
+	result?: (params: unknown, details: unknown) => TelemetryFacts;
+}
+
+export type GitRevision =
+	| { root: string; commit: string; dirty: false }
+	| { root: string; commit: string; dirty: true; dirty_diff_hash: string };
+
+interface TelemetryBaseRecord extends ExecutionTrace {
+	type: "run" | "call";
+	run_id: string;
+	at: string;
+}
+
+export interface RunRecord extends TelemetryBaseRecord {
+	type: "run";
+	session_id: string;
+	reason: "startup" | "reload" | "new" | "resume" | "fork";
+	cwd: string;
+	git?: GitRevision;
+}
+
+export interface CallBatch {
+	id: string;
+	size: number;
+	index: number;
+}
+
+export interface CallRepair {
+	status: ToolArgumentStatus;
+	operations: RepairOperation[];
+	fanout?: RepairFanout;
+}
+
+export interface CallError {
+	code?: string;
+}
+
+export interface CallRecord extends TelemetryBaseRecord, TelemetryFacts {
+	type: "call";
+	call_id: string;
+	parent_call_id?: string;
+	call_index: number;
+	turn_index?: number;
+	tool: string;
+	definition_hash?: string;
+	model?: { provider: string; id: string };
+	selected_model?: { provider: string; id: string };
+	thinking?: string;
+	started_at: string;
+	ended_at: string;
+	duration_ms?: number;
+	status: "success" | "error";
+	error?: CallError;
+	output_chars?: number;
+	output_lines?: number;
+	truncated?: boolean;
+	repair?: CallRepair;
+	batch?: CallBatch;
+}
+
+export type TelemetryRecord = RunRecord | CallRecord;

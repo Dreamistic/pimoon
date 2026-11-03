@@ -1,0 +1,354 @@
+import { isProbablyReaderable, Readability } from "@mozilla/readability";
+
+import type { HtmlReadabilityOptions } from "./types.ts";
+
+export type HtmlTextSource = "readability" | "semantic" | "body";
+
+export interface SelectedHtmlContent {
+	source: HtmlTextSource;
+	root: Element;
+	title?: string;
+	blockCount: number;
+}
+
+export type HtmlContentSelection =
+	| { preferred: SelectedHtmlContent }
+	| { body: SelectedHtmlContent; bodyPassesQuality: boolean };
+
+interface ContentQuality {
+	textLength: number;
+	linkDensity: number;
+	shortLinkListRatio: number;
+	headingCount: number;
+	paragraphCount: number;
+	codeCount: number;
+	tableCount: number;
+	mediaCount: number;
+	formCount: number;
+	noiseRatio: number;
+	hasPrimaryTitle: boolean;
+	title?: string;
+}
+
+interface Candidate {
+	source: HtmlTextSource;
+	root: Element;
+	quality: ContentQuality;
+	title?: string;
+}
+
+type QualityFor = (root: Element) => ContentQuality;
+
+const SEMANTIC_SELECTOR = 'main, [role="main"], article, [itemprop="articleBody"]';
+const OUTPUT_NOISE_SELECTORS = [
+	"header",
+	"nav",
+	"footer",
+	"aside",
+	"form",
+	"input",
+	"select",
+	"textarea",
+	"button",
+	'[role="navigation"]',
+	'[role="complementary"]',
+	'[role="button"]',
+	'[role="menu"]',
+	'[role="menuitem"]',
+	'[role="listbox"]',
+	'[role="option"]',
+	'[role="combobox"]',
+	'[role="search"]',
+	'[role="toolbar"]',
+	'[role="tablist"]',
+	"[aria-haspopup]",
+	"[placeholder]",
+	'[contenteditable="true"]',
+	'[slot="tooltip-content"]',
+	'[slot="dropdown-items"]',
+	'[slot="selected-item"]',
+	'[slot*="sort"]',
+	'[class*="recommend"]',
+	'[id*="recommend"]',
+	'[class*="related"]',
+	'[id*="related"]',
+	'[class*="sidebar"]',
+	'[id*="sidebar"]',
+	'[class*="trending"]',
+	'[id*="trending"]',
+] as const;
+const OUTPUT_NOISE_SELECTOR = OUTPUT_NOISE_SELECTORS.join(", ");
+const QUALITY_STRUCTURE_SELECTOR = [
+	"a", "li", "h1", "h2", "h3", "h4", "h5", "h6", "p", "pre", "code", "table",
+	"img", "picture", "video", "audio", "form", "input", "select", "textarea", "button",
+].join(", ");
+
+/** Generate ordered HTML candidates and select Readability/semantic before exposing body fallback. */
+export function selectHtmlContent(
+	document: Document,
+	options: HtmlReadabilityOptions,
+	primaryTitle?: string,
+	documentTitle?: string,
+): HtmlContentSelection {
+	const semanticRoots = [...document.querySelectorAll(SEMANTIC_SELECTOR)];
+	const qualityCache = new WeakMap<Element, ContentQuality>();
+	const qualityFor: QualityFor = (root) => {
+		const cached = qualityCache.get(root);
+		if (cached !== undefined) return cached;
+		const quality = analyzeQuality(root, primaryTitle);
+		qualityCache.set(root, quality);
+		return quality;
+	};
+	const readability = readabilityCandidate(document, options, primaryTitle, documentTitle, semanticRoots, qualityFor);
+	if (readability !== undefined && passesQuality(readability.quality, "readability")) {
+		return { preferred: finishSelection(readability) };
+	}
+
+	const semantic = bestSemanticCandidate(semanticRoots, qualityFor);
+	if (semantic !== undefined) {
+		return { preferred: finishSelection(semantic) };
+	}
+
+	const quality = qualityFor(document.body);
+	return {
+		body: finishSelection(candidateFromElement("body", document.body, quality)),
+		bodyPassesQuality: passesQuality(quality, "body"),
+	};
+}
+
+function readabilityInputRoot(document: Document, semanticRoots: readonly Element[], qualityFor: QualityFor): Element {
+	let best: { root: Element; score: number } | undefined;
+	for (const root of semanticRoots) {
+		const quality = qualityFor(root);
+		if (!quality.hasPrimaryTitle) continue;
+		const score = qualityScore(quality);
+		if (best === undefined || score > best.score) best = { root, score };
+	}
+	if (best !== undefined) return best.root;
+
+	return document.body;
+}
+
+function syntheticReadabilityDocument(document: Document, candidateRoot: Element, documentTitle: string | undefined): Document {
+	const synthetic = document.cloneNode(false) as Document;
+	const html = synthetic.createElement("html");
+	const head = synthetic.createElement("head");
+	const title = normalizeText(documentTitle);
+	if (title !== undefined) {
+		const titleNode = synthetic.createElement("title");
+		titleNode.textContent = title;
+		head.append(titleNode);
+	}
+	const body = synthetic.createElement("body");
+	if (candidateRoot === document.body) {
+		for (const child of candidateRoot.childNodes) body.append(child.cloneNode(true));
+	} else {
+		body.append(candidateRoot.cloneNode(true));
+	}
+	html.append(head, body);
+	synthetic.append(html);
+	return synthetic;
+}
+
+function readabilityCandidate(
+	document: Document,
+	options: HtmlReadabilityOptions,
+	primaryTitle: string | undefined,
+	documentTitle: string | undefined,
+	semanticRoots: readonly Element[],
+	qualityFor: QualityFor,
+): Candidate | undefined {
+	const readabilityDocument = syntheticReadabilityDocument(
+		document,
+		readabilityInputRoot(document, semanticRoots, qualityFor),
+		documentTitle,
+	);
+	if (!isProbablyReaderable(readabilityDocument)) return undefined;
+	const readable = new Readability(readabilityDocument, {
+		charThreshold: options.charThreshold,
+		// Readability 的正文容器固定为 Element，直接保留节点而不重新解析 HTML。
+		serializer: (node) => node as Element,
+	}).parse();
+	if (!readable?.content?.hasChildNodes()) return undefined;
+	const root = readable.content;
+	const quality = analyzeQuality(root, primaryTitle);
+	if (isDilutedByFocusedSemanticRoot(semanticRoots, quality, primaryTitle, qualityFor)) return undefined;
+	const title = normalizeText(readable.title);
+	return {
+		source: "readability",
+		root,
+		quality,
+		...(title !== undefined ? { title } : {}),
+	};
+}
+
+function isDilutedByFocusedSemanticRoot(
+	semanticRoots: readonly Element[],
+	readability: ContentQuality,
+	primaryTitle: string | undefined,
+	qualityFor: QualityFor,
+): boolean {
+	if (primaryTitle === undefined) return false;
+	for (const root of semanticRoots) {
+		const quality = qualityFor(root);
+		if (!quality.hasPrimaryTitle || quality.mediaCount === 0) continue;
+		if (readability.textLength > Math.max(quality.textLength * 4, quality.textLength + 400)) return true;
+	}
+	return false;
+}
+
+function bestSemanticCandidate(semanticRoots: readonly Element[], qualityFor: QualityFor): Candidate | undefined {
+	let best: { candidate: Candidate; score: number } | undefined;
+	for (const root of semanticRoots) {
+		const quality = qualityFor(root);
+		if (!passesQuality(quality, "semantic")) continue;
+		const candidate = candidateFromElement("semantic", root, quality);
+		const score = qualityScore(quality);
+		if (best === undefined || score > best.score) best = { candidate, score };
+	}
+	return best?.candidate;
+}
+
+function candidateFromElement(source: HtmlTextSource, root: Element, quality: ContentQuality): Candidate {
+	return {
+		source,
+		root,
+		quality,
+		...(quality.title !== undefined ? { title: quality.title } : {}),
+	};
+}
+
+function finishSelection(candidate: Candidate): SelectedHtmlContent {
+	const root = candidate.root;
+	removeHtmlOutputNoise(root);
+	return {
+		source: candidate.source,
+		root,
+		...(candidate.title !== undefined ? { title: candidate.title } : {}),
+		blockCount: candidate.quality.paragraphCount + candidate.quality.codeCount + candidate.quality.tableCount,
+	};
+}
+
+function analyzeQuality(root: Element, primaryTitle: string | undefined): ContentQuality {
+	const text = normalizedText(root);
+	const textLength = text.length;
+	const links: Element[] = [];
+	const listItems: Element[] = [];
+	const h1Titles: string[] = [];
+	let headingCount = 0;
+	let paragraphCount = 0;
+	let codeCount = 0;
+	let tableCount = 0;
+	let mediaCount = 0;
+	let formCount = 0;
+	for (const element of root.querySelectorAll(QUALITY_STRUCTURE_SELECTOR)) {
+		const tag = element.localName;
+		if (tag === "a") links.push(element);
+		else if (tag === "li") listItems.push(element);
+		else if (/^h[1-6]$/u.test(tag)) {
+			headingCount += 1;
+			if (tag === "h1") {
+				const title = normalizeText(element.textContent);
+				if (title !== undefined) h1Titles.push(title);
+			}
+		}
+		else if (tag === "p") paragraphCount += 1;
+		else if (tag === "pre" || tag === "code") codeCount += 1;
+		else if (tag === "table") tableCount += 1;
+		else if (tag === "img" || tag === "picture" || tag === "video" || tag === "audio") mediaCount += 1;
+		else formCount += 1;
+	}
+
+	let linkTextLength = 0;
+	const linkedTextByListItem = new Map<Element, number>();
+	const listItemSet = new Set(listItems);
+	for (const link of links) {
+		const length = normalizedText(link).length;
+		linkTextLength += length;
+		let parent = link.parentElement;
+		while (parent !== null && parent !== root) {
+			if (listItemSet.has(parent)) linkedTextByListItem.set(parent, (linkedTextByListItem.get(parent) ?? 0) + length);
+			parent = parent.parentElement;
+		}
+	}
+	const shortLinkItems = listItems.filter((item) => {
+		const itemText = normalizedText(item);
+		return itemText.length > 0
+			&& itemText.length <= 100
+			&& (linkedTextByListItem.get(item) ?? 0) / itemText.length >= 0.6;
+	}).length;
+	const noiseLength = topLevelNoiseNodes(root)
+		.reduce((sum, node) => sum + normalizedText(node).length, 0);
+	const comparableTitle = comparableText(primaryTitle);
+	return {
+		textLength,
+		linkDensity: textLength === 0 ? 0 : Math.min(1, linkTextLength / textLength),
+		shortLinkListRatio: listItems.length === 0 ? 0 : shortLinkItems / listItems.length,
+		headingCount,
+		paragraphCount,
+		codeCount,
+		tableCount,
+		mediaCount,
+		formCount,
+		noiseRatio: textLength === 0 ? 0 : Math.min(1, noiseLength / textLength),
+		hasPrimaryTitle: comparableTitle.length === 0 || comparableText(text).includes(comparableTitle),
+		...(h1Titles.length === 1 ? { title: h1Titles[0] } : {}),
+	};
+}
+
+function passesQuality(quality: ContentQuality, source: HtmlTextSource): boolean {
+	if (!quality.hasPrimaryTitle) return false;
+	const structured = quality.paragraphCount + quality.codeCount + quality.tableCount;
+	const titleOrMedia = quality.headingCount > 0 || quality.mediaCount > 0;
+	if (quality.textLength === 0 && quality.mediaCount === 0) return false;
+	if (quality.noiseRatio >= 0.5) return false;
+	if (quality.formCount > 2 && structured === 0) return false;
+	if (quality.linkDensity > 0.55 && quality.paragraphCount < 3) return false;
+	if (quality.shortLinkListRatio > 0.6 && quality.paragraphCount < 3) return false;
+	if (source === "readability") return quality.textLength >= 120 || structured >= 2;
+	if (source === "semantic") return quality.textLength >= 40 || structured > 0 || titleOrMedia;
+	return quality.textLength >= 80 || structured > 0 || titleOrMedia;
+}
+
+function qualityScore(quality: ContentQuality): number {
+	return Math.min(quality.textLength, 8_000)
+		+ (quality.hasPrimaryTitle ? 1_500 : 0)
+		+ quality.paragraphCount * 120
+		+ quality.headingCount * 80
+		+ quality.codeCount * 160
+		+ quality.tableCount * 200
+		+ quality.mediaCount * 120
+		- quality.linkDensity * 2_000
+		- quality.shortLinkListRatio * 1_500
+		- quality.noiseRatio * 3_000;
+}
+
+function topLevelNoiseNodes(root: Element): Element[] {
+	const nodes = [...root.querySelectorAll(OUTPUT_NOISE_SELECTOR)];
+	const noise = new Set(nodes);
+	return nodes.filter((node) => {
+		let parent = node.parentElement;
+		while (parent !== null && parent !== root) {
+			if (noise.has(parent)) return false;
+			parent = parent.parentElement;
+		}
+		return true;
+	});
+}
+
+export function removeHtmlOutputNoise(root: Element): void {
+	root.querySelectorAll(OUTPUT_NOISE_SELECTOR).forEach((node) => node.remove());
+}
+
+function normalizedText(root: Element): string {
+	return normalizeText(root.textContent) ?? "";
+}
+
+function normalizeText(value: string | null | undefined): string | undefined {
+	const normalized = value?.normalize("NFKC").replace(/\s+/gu, " ").trim();
+	return normalized === undefined || normalized.length === 0 ? undefined : normalized;
+}
+
+function comparableText(value: string | null | undefined): string {
+	return (value ?? "").normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim();
+}

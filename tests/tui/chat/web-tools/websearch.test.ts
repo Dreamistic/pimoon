@@ -1,0 +1,129 @@
+import { describe, expect, it } from "vitest";
+
+import { formatWebSearchCall, formatWebSearchResult, renderWebSearchCall, renderWebSearchResult } from "../../../../src/tui/chat/web-tools/websearch.ts";
+import { expectRendererLifecycle, theme } from "./fixtures.ts";
+
+
+describe("websearch renderer", () => {
+	it("清理调用参数，并安全渲染各进度阶段", () => {
+		expect(formatWebSearchCall({}, theme).length).toBeGreaterThan(0);
+		const text = formatWebSearchCall({ query: "pi\u001b[31m search" }, theme);
+		expect(text).toContain("pi search");
+		expect(text).not.toContain("\u001b");
+
+		for (const details of [
+			{ status: "progress", phase: "requesting" },
+			{ status: "progress", phase: "downloading", received_bytes: 2048 },
+			{ status: "progress", phase: "parsing" },
+		] as const) {
+			expect(formatWebSearchResult(details, { isPartial: true }, theme).length).toBeGreaterThan(0);
+		}
+	});
+
+	it("折叠隐藏结果正文，展开后保留结果信息", () => {
+		const details = successDetails(2);
+		const collapsed = formatWebSearchResult(details, {}, theme);
+		const expanded = formatWebSearchResult(details, { expanded: true }, theme);
+
+		for (const value of ["Snippet 1", "https://example.com/1"]) expect(collapsed).not.toContain(value);
+		for (const value of ["Title 1", "Snippet 1", "https://example.com/1", "exa_api"]) {
+			expect(expanded).toContain(value);
+		}
+		expect(expanded.length).toBeGreaterThan(collapsed.length);
+	});
+
+	it("fallback 与失败详情保留诊断信息，且清理敏感或不可信文本", () => {
+		const fallback = formatWebSearchResult(
+			{
+				...successDetails(1),
+				providers: ["tavily" as const],
+				attempts: [
+					{ provider: "exa_api" as const, role: "primary" as const, status: "failed" as const, error: { code: "TIMEOUT" as const, message: "secret-key" }, duration_ms: 12000 },
+					{ provider: "tavily" as const, role: "primary" as const, status: "success" as const, duration_ms: 1500 },
+				],
+			},
+			{ expanded: true },
+			theme,
+		);
+		for (const value of ["exa_api", "tavily"]) expect(fallback).toContain(value);
+		expect(fallback).not.toContain("secret-key");
+
+		const details = {
+			status: "failed" as const,
+			error: { code: "PARSE_FAILED" as const, message: "bad\u001b[31m page" },
+			provider: "tavily" as const,
+			http_status: 200,
+			duration_ms: 12,
+			attempts: [{ provider: "tavily" as const, role: "primary" as const, status: "failed" as const, error: { code: "PARSE_FAILED" as const, message: "bad page" } }],
+		};
+		const collapsed = formatWebSearchResult(details, {}, theme);
+		expect(collapsed).not.toContain("\u001b");
+		const expanded = formatWebSearchResult(details, { expanded: true }, theme);
+		expect(expanded).toContain("PARSE_FAILED");
+		expect(expanded).toContain("Attempts");
+		expect(expanded).not.toContain("\u001b");
+	});
+
+	it("Exa MCP 来源和失败详情可渲染", () => {
+		const details = { ...successDetails(1), providers: ["exa_mcp"], results: [
+			{ ...successDetails(1).results[0], provider: "exa_mcp" },
+		], attempts: [{ provider: "exa_mcp", role: "primary", status: "success" }] };
+		expect(formatWebSearchResult(details, { expanded: true }, theme)).toContain("exa_mcp");
+		expect(formatWebSearchResult({ status: "failed", provider: "exa_mcp", error: { code: "RATE_LIMITED", message: "limited" } }, { expanded: true }, theme)).toContain("RATE_LIMITED");
+	});
+
+	it("主辅汇总显示多个来源，不误标为 fallback", () => {
+		const details = { ...successDetails(2), providers: ["brave_api", "tinyfish", "anysearch"], attempts: [
+			{ provider: "brave_api", role: "primary", status: "success", result_count: 1 },
+			{ provider: "tinyfish", role: "auxiliary", status: "success", result_count: 1 },
+			{ provider: "anysearch", role: "auxiliary", status: "success", result_count: 1 },
+		] };
+		const collapsed = formatWebSearchResult(details, {}, theme);
+		expect(collapsed).toContain("brave_api+tinyfish+anysearch");
+		expect(collapsed).not.toContain("fallback");
+		const expanded = formatWebSearchResult(details, { expanded: true }, theme);
+		expect(expanded).toContain("auxiliary");
+		expect(expanded).toContain("primary");
+	});
+
+	it("progress 和最终结果接管调用阶段组件", () => {
+		const args = { query: "pi coding agent", limit: 5 };
+		expectRendererLifecycle({
+			createState: () => ({}),
+			renderCall: (lastComponent, state) => renderWebSearchCall(args, theme, { lastComponent, state }),
+			renderProgress: (lastComponent, state) => renderWebSearchResult(
+				{ details: { status: "progress", phase: "requesting" } },
+				{ isPartial: true },
+				theme,
+				{ args, lastComponent, state },
+			),
+			renderSettled: (lastComponent, state) => renderWebSearchResult(
+				{ details: { ...successDetails(2), query: args.query } },
+				{ isPartial: false },
+				theme,
+				{ args, lastComponent, state },
+			),
+			initialContains: [args.query],
+			progressContains: [args.query],
+			settledContains: [args.query, "exa_api"],
+		});
+	});
+});
+
+function successDetails(count: number) {
+	return {
+		status: "success" as const,
+		query: "pi search",
+		providers: ["exa_api" as const],
+		results: Array.from({ length: count }, (_, index) => ({
+			rank: index + 1,
+			provider: "exa_api" as const,
+			title: `Title ${index + 1}`,
+			url: `https://example.com/${index + 1}`,
+			snippet: `Snippet ${index + 1}`,
+		})),
+		downloaded_bytes: 2048,
+		duration_ms: 42,
+		attempts: [{ provider: "exa_api" as const, role: "primary" as const, status: "success" as const, duration_ms: 42 }],
+	};
+}
