@@ -16,3 +16,9 @@
 [按模块查阅](reference/README.md)。每个模块的首页介绍能力并链接到配置、接口和实现专题。
 
 配置路径与合并规则统一见[配置分层](reference/runtime/configuration.md)。命令语法与入口见 [Reference 命令索引](reference/README.md#命令索引)。
+
+## 设计方案
+
+以下文档描述计划中的能力，不代表已经交付。
+
+- [自主记忆与跨工作区操作](design/autonomous-memory.md)：AI 自主沉淀经验、短索引与按需读取、并发一致性和操作安全边界。
