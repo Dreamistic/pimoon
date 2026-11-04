@@ -14,6 +14,7 @@ import lsp from "./extensions/lsp.ts";
 import mcp from "./extensions/mcp.ts";
 import messagePerformance from "./extensions/message-performance.ts";
 import memory from "./extensions/memory.ts";
+import sessionEnvironment from "./extensions/session-environment.ts";
 import oPet from "./extensions/o-pet.ts";
 import modelServices from "./extensions/model-services.ts";
 import projectSkills from "./extensions/project-skills.ts";
@@ -62,6 +63,7 @@ export function createHarnessExtensions(options: HarnessOptions = {}): InlineExt
 		{ name: "model-services", factory: modelServices },
 		{ name: "project-skills", factory: projectSkills },
 		{ name: "prune", factory: prune },
+		{ name: "session-environment", factory: sessionEnvironment },
 		{ name: "memory", factory: memory },
 		{ name: "stats", factory: stats },
 		{ name: "system-prompt", factory: systemPrompt },
