@@ -27,7 +27,7 @@ for p in selected:
  i=int(p.split(".")[0])
  edit(path=p, edits=[{"old":f"value-{i}","new":f"changed-{i}"}])
 {"reads":len(rows),"edited":len(selected),"mean":mean(range(len(rows)))}`;
-	const first = `准备批量分析\n<execute>\n${code}\n</execute>\n这些是未看到结果的臆测`;
+	const first = `准备批量分析\n<execute>\n${code}\n</execute> trailing metadata\nedit(path="1.txt",edits=[{"old":"value-1","new":"must not run"}])\n这些是未看到结果的臆测`;
 	const replies: ModelResponse[] = [
 		{ text: first, chunks: first.match(/[\s\S]{1,3}/gu) ?? [] },
 		{ text: '<execute>\nassert len(rows)==8 and len(selected)==4\n{"retained":len(rows),"previous_mean":_["mean"]}\n</execute>' },
@@ -64,6 +64,8 @@ for p in selected:
 			expect(JSON.stringify(results[0]?.content)).not.toContain("value-1");
 			expect(JSON.stringify(results[1]?.content)).toContain("previous_mean");
 			expect(JSON.stringify(runtime.session.messages)).not.toContain("这些是未看到结果的臆测");
+			expect(JSON.stringify(server.requests)).not.toContain("trailing metadata");
+			expect(JSON.stringify(server.requests)).not.toContain("must not run");
 			for (let index = 0; index < 8; index++) expect(await fs.readFile(path.join(cwd, `${index}.txt`), "utf8")).toBe(`${index % 2 === 0 ? "changed" : "value"}-${index}`);
 			const unsafe = '<execute>\nedit(path="0.txt",edits=[{"old":"changed-0","new":"must not run"}])';
 			replies.push({ text: unsafe });

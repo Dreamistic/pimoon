@@ -21,6 +21,22 @@ it("任意分片、CRLF、Unicode 与结束标记同行到达的后缀均不改�
 	expect(parse([...source]).parser.closed).toBe(true);
 });
 
+it.each([" trailing metadata", "\tpostscript", "postscript", "\r\npostscript"])("结束标记后的同分片或后续文字不属于源码：%j", suffix => {
+	const prefix = "准备\n<execute>\nvalue=42\nvalue\n</execute>";
+	const source = prefix + suffix + "\nshould_not_run()";
+	for (let split = 0; split <= source.length; split++) {
+		const result = parse([source.slice(0, split), source.slice(split)]);
+		expect(result.code).toBe("value=42\nvalue\n");
+		expect(result.parser.consumed).toBe(prefix.length);
+		expect(result.chunks.filter(chunk => chunk.type === "close")).toHaveLength(1);
+	}
+	expect(parse([...source]).code).toBe("value=42\nvalue\n");
+});
+
+it.each(["</exec", "</executeX>", " </execute>"])("真正缺失或损坏的结束标记不自动补齐：%s", marker => {
+	expect(() => parse(["<execute>\nchange()\n" + marker])).toThrow("未闭合");
+});
+
 it("正文立即流出，保留可能的分片标记；未闭合、空块和超限代码不提交", () => {
 	const parser = new CodeActParser();
 	expect(join(parser.feed("普通正文"), "text")).toBe("普通正文");

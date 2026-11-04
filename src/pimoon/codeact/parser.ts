@@ -1,4 +1,4 @@
-/** 只识别独立行上的提交标记；代码围栏与文本 thinking 中的示例不执行。 */
+/** 开始标记独占一行，行首结束标记提交；围栏与文本 thinking 中的示例不执行。 */
 export type CodeActChunk = { type: "text" | "code"; text: string } | { type: "open" | "close" };
 
 export class CodeActParser {
@@ -39,8 +39,11 @@ export class CodeActParser {
 		const line = this.line.endsWith("\r") ? this.line.slice(0, -1) : this.line;
 		const marker = this.mode === "code" ? "</execute>" : "<execute>";
 		const eligible = this.mode === "code" || !this.fence && this.thinking === 0;
-		if (eligible && complete && line === marker) {
+		const closing = this.mode === "code" && line.startsWith(marker);
+		if (closing || eligible && complete && line === marker) {
 			if (this.mode === "code" && this.codeChars === 0) throw new Error("CodeAct 执行块为空，代码未执行。");
+			// 提交点精确到结束标签；同一行的后缀和换行都不能进入源码或重放文本。
+			if (closing) this.consumedChars -= this.line.length - marker.length + Number(newline);
 			chunks.push({ type: this.mode === "code" ? "close" : "open" });
 			this.mode = this.mode === "code" ? "closed" : "code";
 		} else if (complete || !eligible || !marker.startsWith(line)) {

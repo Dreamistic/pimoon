@@ -80,8 +80,22 @@ it("执行块先产生内部事件，但等待供应商终态与真实用量；�
 	expect(JSON.parse(deltas)).toEqual({ code: "value='😀\\n原文'\nvalue\n" });
 });
 
+it("结束标记同一行的后缀不阻止提交，也不进入源码或重放历史", async () => {
+	const stream = await codeactStream(provider("说明\n<execute>\nvalue=42\nvalue\n</execute> trailing metadata\nshould_not_run()"))(model, context());
+	for await (const _event of stream) { /* 排空流。 */ }
+	const result = await stream.result();
+	expect(result.stopReason).toBe("toolUse");
+	expect(result.content.find(part => part.type === "toolCall")).toMatchObject({ arguments: { code: "value=42\nvalue\n" } });
+	const history = context(); history.messages.push(result);
+	const replay = codeactTranscript(history).context.messages.at(-1);
+	if (replay?.role !== "assistant") throw new Error("fixture");
+	expect(replay.content.filter(part => part.type === "text").map(part => part.text).join("")).toBe("说明\n<execute>\nvalue=42\nvalue\n</execute>");
+	expect(JSON.stringify(result)).not.toContain("trailing metadata");
+	expect(JSON.stringify(result)).not.toContain("should_not_run");
+});
+
 it.each(["length", "aborted"] as const)("闭合块也不掩盖供应商失败终态：%s", async reason => {
-	const stream = await codeactStream(provider("<execute>\nchange()\n</execute>", reason))(model, context());
+	const stream = await codeactStream(provider("<execute>\nchange()\n</execute> trailing metadata", reason))(model, context());
 	for await (const _event of stream) { /* 排空流。 */ }
 	expect((await stream.result()).stopReason).toBe(reason);
 });
