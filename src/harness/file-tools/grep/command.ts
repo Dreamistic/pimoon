@@ -71,6 +71,7 @@ export class GrepTool {
 		context: GrepCommandContext,
 		contentCache: GrepContentCacheLease,
 	): Promise<ToolOutcome<GrepSuccess>> {
+		const started = performance.now();
 		const inventory = await buildScopeInventory({
 			paths: plan.paths,
 			...(plan.glob === undefined ? {} : { glob: plan.glob }),
@@ -82,6 +83,7 @@ export class GrepTool {
 			maxSearchBytes: context.limits.grep_max_search_bytes,
 		});
 		if (isFailed(inventory)) return inventory;
+		const inventoried = performance.now();
 		const preparation = prepareCodeAnalysis(inventory, context);
 		const scanned = await scanInventoryText(inventory, plan, {
 			filesystem: context.filesystem,
@@ -90,11 +92,13 @@ export class GrepTool {
 			contentCache,
 		});
 		if (isFailed(scanned)) return scanned;
+		const scannedAt = performance.now();
 		await preparation;
 		const analysisPaths = semanticParsePriority(inventory, scanned);
 		const analyzed = await analyzeSymbols(plan, inventory, scanned, analysisPaths, context,
 			(document, signal) => this.regionizer.syntax(document, context.filesystem, signal ?? context.operation.signal));
 		if (isFailed(analyzed)) return analyzed;
+		const analyzedAt = performance.now();
 		const regionized = await this.regionizer.regionize(
 			inventory,
 			scanned.hits,
@@ -109,10 +113,11 @@ export class GrepTool {
 			},
 		);
 		if (isFailed(regionized)) return regionized;
+		const regionizedAt = performance.now();
 		const scope = successfulScopeState(plan, inventory, scanned.scopeErrors, regionized.scopeErrors);
 		if (scope.failure !== undefined) return scope.failure;
 		const regions = buildRankedRegions(plan, scanned, regionized, context.limits.grep_regional_display_limit);
-		return packGrepResults({
+		const result = packGrepResults({
 			query: plan.query,
 			queryMode: plan.queryMode,
 			path: scope.paths[0] ?? ".",
@@ -135,6 +140,12 @@ export class GrepTool {
 			relatedResultLimit: context.limits.grep_related_result_limit,
 			regionalDisplayLimit: context.limits.grep_regional_display_limit,
 		}, context.tokenScope);
+		const ended = performance.now();
+		return { ...result, timing: {
+			inventory_ms: inventoried - started, scan_ms: scannedAt - inventoried,
+			analysis_ms: analyzedAt - scannedAt, regionize_ms: regionizedAt - analyzedAt,
+			rank_pack_ms: ended - regionizedAt, total_ms: ended - started,
+		} };
 	}
 }
 

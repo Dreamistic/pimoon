@@ -2,6 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { sessionTrace } from "../../pimoon/trace.ts";
 import { CODEACT_EXECUTION, isCodeActExecutionEvent } from "../../pimoon/codeact/events.ts";
 import { codeFacts } from "../../pimoon/code-facts.ts";
+import { APPROVAL_STATUS_CHANNEL, isApprovalStatusEvent } from "../approval/events.ts";
 
 import type {
 	TelemetryPi,
@@ -11,6 +12,9 @@ import type {
 
 /** 把 Pi 生命周期和上下文映射为 telemetry 的窄输入。 */
 export function attachTelemetryService(pi: TelemetryPi, service: TelemetryService): void {
+	pi.events?.on(APPROVAL_STATUS_CHANNEL, event => {
+		if (isApprovalStatusEvent(event)) service.onApprovalStatus(event);
+	});
 	pi.on("session_start", (event, ctx) => {
 		service.registerTool({ definition: { name: "codeact", description: "Python execution", parameters: {} }, result: (_params, details) => codeFacts(details) });
 		service.onSessionStart(event, sessionContext(ctx));

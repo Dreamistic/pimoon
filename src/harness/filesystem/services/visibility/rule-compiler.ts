@@ -98,7 +98,7 @@ function compileRuleLines(input: {
 			pattern: rawPattern,
 			negated: parsed.negated,
 		};
-		rules.push({ rule, matcher: ruleMatcher, directoryOnly: parsed.directoryOnly });
+		rules.push({ rule, matcher: ruleMatcher });
 	}
 
 	if (rules.length === 0) return undefined;
@@ -129,14 +129,14 @@ async function readIgnoreFile(
 	}
 }
 
-function parseRule(pattern: string): { negated: boolean; matchPattern: string; directoryOnly: boolean } | undefined {
+function parseRule(pattern: string): { negated: boolean; matchPattern: string } | undefined {
 	if (pattern.trim() === "" || pattern.startsWith("#")) return undefined;
 	if (pattern.startsWith("\\#") || pattern.startsWith("\\!")) {
-		return { negated: false, matchPattern: pattern, directoryOnly: pattern.trimEnd().endsWith("/") };
+		return { negated: false, matchPattern: pattern };
 	}
 	const negated = pattern.startsWith("!");
 	const matchPattern = negated ? pattern.slice(1) : pattern;
-	return { negated, matchPattern, directoryOnly: matchPattern.trimEnd().endsWith("/") };
+	return { negated, matchPattern };
 }
 
 function stripBom(text: string): string {

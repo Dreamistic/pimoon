@@ -25,6 +25,8 @@ import type {
 } from "./types.ts";
 import type { JsonlTelemetryWriter as TelemetryWriter } from "./writer.ts";
 import { attachTelemetryService } from "./pi-adapter.ts";
+import type { ApprovalStatusEvent } from "../approval/events.ts";
+import { CallTiming, processDuration } from "./call-timing.ts";
 
 export type TelemetryPi = Pick<ExtensionAPI, "getAllTools" | "getThinkingLevel" | "on"> & Partial<Pick<ExtensionAPI, "events">>;
 
@@ -61,6 +63,7 @@ interface PendingCall {
 	definitionHash?: string;
 	turn?: TurnContext;
 	startedAt: number;
+	timing: CallTiming;
 	rawParams: unknown;
 	params: unknown;
 	inputFacts: TelemetryFacts;
@@ -195,6 +198,7 @@ export class TelemetryService {
 			...(tool?.definitionHash === undefined ? {} : { definitionHash: tool.definitionHash }),
 			...(this.#turn === undefined ? {} : { turn: this.#turn }),
 			startedAt: new Date().getTime(),
+			timing: new CallTiming(),
 			rawParams: event.args,
 			params: event.args,
 			inputFacts: {},
@@ -208,6 +212,10 @@ export class TelemetryService {
 		this.#declaredBatches.delete(event.toolCallId);
 		this.#pending.set(event.toolCallId, pending);
 		this.#pendingByParams.set(event.args, pending);
+	}
+
+	onApprovalStatus(event: ApprovalStatusEvent): void {
+		this.#pending.get(event.toolCallId)?.timing.approval(event);
 	}
 
 	prepared(observation: RepairObservation): void {
@@ -249,7 +257,10 @@ export class TelemetryService {
 		if (call.resultProjector !== undefined && !call.resultProjected && !event.isError) {
 			throw new Error(`Telemetry result was not observed before completion: ${call.tool}`);
 		}
-		const facts = mergeFacts(call.inputFacts, call.resultFacts);
+		const processMs = processDuration(event.toolName, event.result.details);
+		const facts = mergeFacts(call.inputFacts, call.resultFacts, { fields: {
+			...call.timing.finish(), ...(processMs === undefined ? {} : { process_duration_ms: processMs }),
+		} });
 		const ended = new Date();
 		const status = classify(event.isError, facts.fields);
 		const output = outputFacts(event.result);

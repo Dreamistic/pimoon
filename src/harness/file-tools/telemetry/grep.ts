@@ -18,6 +18,12 @@ function grepResultFields(details: GrepSuccess): Fields {
 	const ranking = details.ranking;
 	return fields({
 		status: details.status,
+		inventory_ms: details.timing?.inventory_ms,
+		scan_ms: details.timing?.scan_ms,
+		analysis_ms: details.timing?.analysis_ms,
+		regionize_ms: details.timing?.regionize_ms,
+		rank_pack_ms: details.timing?.rank_pack_ms,
+		search_total_ms: details.timing?.total_ms,
 		query_mode: details.query_mode,
 		truncated: details.truncated_by.length > 0 ? true : undefined,
 		truncation_reasons: details.truncated_by,

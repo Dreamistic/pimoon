@@ -1,4 +1,5 @@
 import type { LiveTelemetryReport } from "../../../../harness/telemetry-report/live.ts";
+import { TimingReport } from "./timing-report.tsx";
 import type { AdoptionWindowStatistics, NumericSummary, RateSummary } from "../../../../harness/telemetry-report/types.ts";
 import { Bar, duration, Empty, Facts, Metrics, number, percent, ReportStamp, Section } from "./shared.tsx";
 
@@ -95,6 +96,7 @@ export function TelemetryReport({ value }: { value: LiveTelemetryReport }) {
 			</>}
 		</Section>
 		<Section title="采集详情" detail><Facts items={[["会话 ID", value.session_id ?? "未提供"], ["运行 ID", value.run_id ?? "未提供"], ["工具种类", number(report.inventory.tools)], ["已解析记录", number(report.metadata.parsed_records)], ["无效记录", number(report.metadata.invalid_lines)]]} /></Section>
+		<TimingReport value={value.timing} />
 		<ReportStamp at={report.metadata.generated_at} />
 	</div>;
 }

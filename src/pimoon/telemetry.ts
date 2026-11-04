@@ -7,6 +7,8 @@ import { applicationRunId, bindSessionTrace, clearSessionTrace, sessionTrace, ty
 import { getAssistantPerformance } from "../harness/message-performance/types.ts";
 import packageInfo from "../../package.json" with { type: "json" };
 import type { CodeActMessage } from "./codeact/transcript.ts";
+import { APPROVAL_STATUS_CHANNEL, isApprovalStatusEvent } from "../harness/approval/events.ts";
+import { CallTiming, processDuration } from "../harness/telemetry/call-timing.ts";
 
 const run = applicationRunId;
 export const telemetryDirectory = path.join(pimoonHome, "telemetry", run);
@@ -40,25 +42,35 @@ export function record(type: string, fields: Record<string, unknown> = {}): void
 	} catch { writer.reject(); writer.fail("serialization_error"); }
 	finally { enqueueMs += performance.now() - started; }
 }
-interface Span { agent: string; request?: string; start: number; requestStart: number; calls: number; first: boolean; }
+interface Span { agent: string; request?: string; requestEnded: boolean; start: number; requestStart: number; calls: number; first: boolean; }
 const spans = new Map<string, Span>();
 export const requestBindings = new Map<string, { allowed: boolean; model: string | undefined; labels: ExecutionTrace }>();
 export function labels(ctx: ExtensionContext): ExecutionTrace {
 	return sessionTrace(ctx.sessionManager.getSessionId());
 }
 export function pimoonTelemetry(pi: ExtensionAPI): void {
-	const tools = new Map<string, { started: number; trace: ExecutionTrace }>();
+	const tools = new Map<string, { timing: CallTiming; trace: ExecutionTrace }>();
+	pi.events.on(APPROVAL_STATUS_CHANNEL, event => {
+		if (!isApprovalStatusEvent(event)) return;
+		const call = tools.get(event.toolCallId);
+		if (!call) return;
+		call.timing.approval(event);
+		record(event.type === "requested" ? "approval_start" : "approval_end", {
+			...call.trace, tool_call_id: event.toolCallId,
+			...(event.type === "resolved" ? { outcome: event.outcome } : { tool: event.toolName }),
+		});
+	});
 	pi.on("session_start", (event, ctx) => record("session_start", { ...labels(ctx), reason: event.reason, workspace: fingerprint(ctx.cwd) }));
 	pi.on("before_agent_start", (event, ctx) => {
 		const session = ctx.sessionManager.getSessionId(), agent = randomUUID();
-		spans.set(session, { agent, start: performance.now(), requestStart: 0, calls: 0, first: false });
+		spans.set(session, { agent, start: performance.now(), requestStart: 0, requestEnded: true, calls: 0, first: false });
 		bindSessionTrace(session, { agent_run_id: agent });
 		record("agent_begin", { ...labels(ctx), input: fingerprint(event.messageType === "user" ? event.prompt : event.message) });
 	});
 	pi.on("before_provider_request", (event, ctx) => {
 		const span = spans.get(ctx.sessionManager.getSessionId());
 		if (span) {
-			span.request = randomUUID(); span.requestStart = performance.now(); span.calls++; span.first = false;
+			span.request = randomUUID(); span.requestStart = performance.now(); span.calls++; span.first = false; span.requestEnded = false;
 			bindSessionTrace(ctx.sessionManager.getSessionId(), { agent_run_id: span.agent, model_request_id: span.request });
 		}
 		const payload = fingerprint(event.payload);
@@ -69,7 +81,7 @@ export function pimoonTelemetry(pi: ExtensionAPI): void {
 	pi.on("after_provider_response", (event, ctx) => record("model_headers", { ...labels(ctx), status: event.status }));
 	pi.on("provider_stream_event", (_event, ctx) => {
 		const span = spans.get(ctx.sessionManager.getSessionId());
-		if (span && !span.first) { span.first = true; record("model_first_event", { ...labels(ctx), elapsed_ms: performance.now() - span.requestStart }); }
+		if (span?.request && !span.requestEnded && !span.first) { span.first = true; record("model_first_event", { ...labels(ctx), elapsed_ms: performance.now() - span.requestStart }); }
 	});
 	// 执行块闭合与执行开始分别计时，不制造工具调用事件。
 	pi.on("message_update", (event, ctx) => {
@@ -83,7 +95,10 @@ export function pimoonTelemetry(pi: ExtensionAPI): void {
 		if (event.message.role !== "assistant") return;
 		const message: CodeActMessage = event.message;
 		const span = spans.get(ctx.sessionManager.getSessionId());
-		record("model_end", { ...labels(ctx), provider: message.provider, model: message.model, elapsed_ms: span?.request ? performance.now() - span.requestStart : null,
+		const elapsed = span?.request && !span.requestEnded ? performance.now() - span.requestStart : null;
+		if (elapsed !== null && span) span.requestEnded = true;
+		// 工具取消可追加合成 assistant 错误，不把它算成同一模型请求的第二次结束。
+		record(elapsed === null ? "assistant_end" : "model_end", { ...labels(ctx), provider: message.provider, model: message.model, elapsed_ms: elapsed,
 			usage: message.usage, usage_reported: message.usage.totalTokens > 0, stop_reason: message.stopReason,
 			usage_status: message.codeactStop?.usage ?? (message.usage.totalTokens > 0 ? "complete" : "unavailable"),
 			stream_stop: message.codeactStop ? "stop_sequence" : undefined,
@@ -93,14 +108,16 @@ export function pimoonTelemetry(pi: ExtensionAPI): void {
 	pi.on("tool_execution_start", (event, ctx) => {
 		record("tool_start", { ...labels(ctx), tool_call_id: event.toolCallId, parent_tool_call_id: event.parentToolCallId, tool: event.toolName, input: fingerprint(event.args) });
 		// 计时从遥测入队之后开始，结束时间在生成结果指纹之前采集。
-		tools.set(event.toolCallId, { started: performance.now(), trace: labels(ctx) });
+		tools.set(event.toolCallId, { timing: new CallTiming(), trace: labels(ctx) });
 	});
 	pi.on("tool_execution_end", (event, ctx) => {
 		const ended = performance.now(), start = tools.get(event.toolCallId); tools.delete(event.toolCallId);
+		const timing = start?.timing.finish(ended);
 		const result: AgentToolResult<unknown> = event.result;
 		const text = result.content.filter(part => part.type === "text").map(part => part.text).join("\n");
 		record("tool_end", { ...(start?.trace ?? labels(ctx)), tool_call_id: event.toolCallId, parent_tool_call_id: event.parentToolCallId,
-			tool: event.toolName, is_error: event.isError, elapsed_ms: start === undefined ? null : ended - start.started,
+			tool: event.toolName, is_error: event.isError, elapsed_ms: timing?.wall_ms ?? null, ...timing,
+			execution_ms: event.durationMs, process_duration_ms: processDuration(event.toolName, result.details),
 			output: fingerprint(event.result.content), output_text: fingerprint(text) });
 	});
 	pi.on("agent_settled", (event, ctx) => {
@@ -110,6 +127,7 @@ export function pimoonTelemetry(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", async (event, ctx) => {
 		record("session_shutdown", { ...labels(ctx), reason: event.reason });
 		spans.delete(ctx.sessionManager.getSessionId());
+		tools.clear();
 		clearSessionTrace(ctx.sessionManager.getSessionId());
 		await flushTelemetry();
 	});

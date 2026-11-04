@@ -43,13 +43,24 @@ export class IncrementalVisibilityOperations implements VisibilityOperations {
 		if (!identity.ok) return identity;
 		const prepared = await this.prepareParentRules(ref);
 		if (!prepared.ok) return prepared;
-		const decision = this.evaluator.evaluate({
+		const input = {
 			displayPath: ref.displayPath,
 			absolutePath: identity.value.lexicalPath,
 			...(ref.workspacePath === undefined ? {} : { workspacePath: ref.workspacePath }),
 			kind: ref.kind,
 			intent,
-		});
+		};
+		let decision = this.evaluator.evaluate(input);
+		const source = decision.matchedRule?.sourceType;
+		// 剪枝前只检查当前目录的更高来源规则；不再因无关反向规则递归整个忽略子树。
+		const mayOverride = source === "builtin"
+			? this.options.policy.ignore.gitignore.enabled || this.options.policy.ignore.piignore.enabled
+			: source === "gitignore" && this.options.policy.ignore.piignore.enabled;
+		if (decision.prune && ref.kind === "directory" && mayOverride) {
+			const ownRules = await this.ensureDirectoryPrepared(ref);
+			if (!ownRules.ok) return ownRules;
+			decision = this.evaluator.evaluate(input);
+		}
 		const rule = decision.matchedRule;
 		return fsSuccess({
 			ignored: decision.ignored,

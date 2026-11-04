@@ -41,7 +41,6 @@ export interface CompiledVisibilityRuleSet {
 export interface CompiledVisibilityRule {
 	readonly rule: MatchedIgnoreRule;
 	readonly matcher: ReturnType<typeof ignoreFactory>;
-	readonly directoryOnly: boolean;
 }
 
 export interface VisibilitySourceMatch {

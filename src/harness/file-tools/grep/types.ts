@@ -102,6 +102,16 @@ export interface GrepRankingDiagnostics {
 	regions: GrepRegionRanking[];
 }
 
+/** 顺序阶段的墙钟耗时；analysis 含扫描后剩余的 LSP 预热等待，不重复计重叠区间。 */
+export interface GrepTiming {
+	inventory_ms: number;
+	scan_ms: number;
+	analysis_ms: number;
+	regionize_ms: number;
+	rank_pack_ms: number;
+	total_ms: number;
+}
+
 export interface GrepSuccess {
 	status: "success";
 	query: string;
@@ -114,6 +124,8 @@ export interface GrepSuccess {
 	returned_files: number;
 	approx_tokens: number;
 	stats: GrepStats;
+	/** 仅 details/telemetry，不占模型输出。旧记录可缺失。 */
+	timing?: GrepTiming;
 	truncated_by: TruncationReason[];
 	navigation?: SearchNavigation;
 	regions: GrepRegion[];

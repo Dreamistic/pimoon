@@ -76,7 +76,7 @@ describe("visibility rules", () => {
 		expect(await evaluate(opened, "node_modules", "search")).toMatchObject({ ignored: false });
 	});
 
-	it("区分 ignored 与 prune，并保守处理根规则 negation", async () => {
+	it("同来源反向规则不能重新包含已排除目录的后代", async () => {
 		await write(".piignore", "cache/\n!cache/keep.txt\nlogs/\n");
 		await mkdir(path.join(workspace, "cache"));
 		await mkdir(path.join(workspace, "logs"));
@@ -84,8 +84,8 @@ describe("visibility rules", () => {
 			builtinProfile: "none",
 			gitignore: { enabled: false },
 		});
-		expect(await evaluate(opened, "cache", "search")).toMatchObject({ ignored: true, prune: false });
-		expect(await evaluate(opened, "logs", "search")).toMatchObject({ ignored: true, prune: false });
+		expect(await evaluate(opened, "cache", "search")).toMatchObject({ ignored: true, prune: true });
+		expect(await evaluate(opened, "logs", "search")).toMatchObject({ ignored: true, prune: true });
 
 		await write(".piignore", "logs/\n");
 		const withoutNegation = await openVisibility({
