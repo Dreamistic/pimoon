@@ -23,7 +23,7 @@ rows = [json.loads(line) for line in Path("events.jsonl").read_text(encoding="ut
 
 内部调用需要审批时，先返回 `approval_required` 与请求 ID，不立即弹窗。AI 使用启用的 `approval(request_id, reason, scope)` 提出理由及范围，用户在统一审批条中作决定。返回的是真实范围和意见，不是执行结果；批准后只重试该调用，不重放包含已完成副作用的整块代码。拒绝、取消或上下文变化不能通过换入口重试。
 
-`once` 票据只匹配下一次相同调用；`session/persistent` 按运行时展示的规则匹配。完整语义和限制见[审批](../approval-gate/README.md)。已有自定义函数列表需手动启用 `approval`，或重新应用预设。
+`once` 票据只匹配下一次相同调用；`session/persistent` 按运行时展示的规则匹配。完整语义和限制见[审批](../approval-gate/README.md)。旧交互会话启用了受审查的操作但缺少 `approval` 时，在模型请求前按需补齐，拦截时再次核对，无需修改默认函数列表。`approval` 返回字典；宿主裁剪进程超时不会使同一操作的一次授权失配。
 
 ## 替代 Shell
 

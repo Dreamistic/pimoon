@@ -13,7 +13,7 @@ type WriteApprovalInput = Record<string, unknown> & { path: string; content: str
 type EditApprovalInput = Record<string, unknown> & { path: string; edits: ApprovalEditReplacement[] };
 type WebFetchApprovalInput = Record<string, unknown> & { url: string };
 
-export function isApprovalToolCall(event: ToolCallEvent): boolean {
+export function isApprovalToolCall(event: Pick<ToolCallEvent, "toolName">): boolean {
 	return event.toolName === "bash" || event.toolName === "write" || event.toolName === "edit" || event.toolName === "webfetch" || event.toolName === "process_run" || event.toolName === "http";
 }
 

@@ -14,7 +14,15 @@ export type { ApprovalPresenter } from "../approval/pi/proposal.ts";
 export default function approvalGateExtension(pi: ExtensionAPI, present?: ApprovalPresenter, gate = createApprovalGate()): void {
 	const pending = new PendingApprovals();
 	registerApprovalProposal(pi, gate, pending, present);
-	pi.on("before_agent_start", () => pending.clear());
+	const enableApproval = () => {
+		const active = pi.getActiveTools();
+		if (!active.includes("approval")) pi.setActiveTools([...active, "approval"]);
+		return pi.getActiveTools().includes("approval");
+	};
+	pi.on("before_agent_start", (_event, ctx) => {
+		pending.clear();
+		if (ctx.hasUI && pi.getActiveTools().some(toolName => isApprovalToolCall({ toolName }))) enableApproval();
+	});
 	pi.on("session_start", () => pending.clear());
 	pi.on("session_tree", () => pending.clear());
 	pi.on("session_shutdown", () => pending.clear());
@@ -44,10 +52,13 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 			if (!ctx.hasUI) {
 				if (config.ui.non_interactive !== "allow") return { block: true, reason: `Approval required but no interactive UI is available: ${decision.reason}` };
 			} else {
+				// 审批是被拦截操作的交互入口，不要求旧会话预先选择它，也不授予执行权限。
+				if (!enableApproval()) return { block: true, reason: "Approval entry is excluded from this session. Ask the user to enable approval; do not bypass the restriction." };
 				const item = pending.defer(request, event.input, config, binding);
-				return { block: true, reason: JSON.stringify({ status: "approval_required", request_id: item.id, tool: request.tool, cwd: request.cwd, reason: decision.reason,
-					scopes: approvalScopes(request, decision, approvalOptions(config, decision)).map(({ scope, detail }) => ({ scope, detail })),
-					next: "Call approval(request_id=..., reason=..., scope=...) with your rationale. This call did not run; earlier effects remain completed." }) };
+				return { block: true, reason: JSON.stringify({ status: "approval_required", request_id: item.id,
+					next: "Next block: approval(request_id=..., reason=..., scope=...). Not executed; do not ask the user to change permissions.",
+					scopes: approvalScopes(request, decision, approvalOptions(config, decision)).map(({ scope }) => scope),
+					reason: [...decision.reason].slice(0, 120).join("") }) };
 			}
 		}
 		if (request.tool === "webfetch" || request.tool === "http") attachPrivateNetworkGrant(event.input, createPrivateNetworkGrantFor(request.detail.origin, request.detail.addresses));

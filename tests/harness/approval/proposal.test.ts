@@ -19,9 +19,11 @@ function fixture(auditFails = false) {
 	const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
 	const audit: unknown[] = [];
 	let leaf = "original", session = "session";
+	let active = ["read", "process_run"], excluded = false;
 	const ctx = { cwd: temp.path, mode: "gui", hasUI: true, ui: dialogs.context(),
 		sessionManager: { getSessionId: () => session, getBranch: () => [{ type: "message", id: leaf }] } };
-	const extension = registerExtension(pi => approvalGate(pi, { mode: "gui", show: (_ui, ...args) => dialogs.approve(...args) }), { appendEntry: (_type: string, data: unknown) => { if (auditFails) throw new Error("audit unavailable"); audit.push(data); } });
+	const extension = registerExtension(pi => approvalGate(pi, { mode: "gui", show: (_ui, ...args) => dialogs.approve(...args) }), { getActiveTools: () => active, setActiveTools: (names: string[]) => { active = excluded ? names.filter(name => name !== "approval") : names; },
+		appendEntry: (_type: string, data: unknown) => { if (auditFails) throw new Error("audit unavailable"); audit.push(data); } });
 	const tool = extension.registered.find(tool => tool.name === "approval");
 	const handler = extension.handlers.get("tool_call");
 	if (!tool || !handler) throw new Error("missing approval extension");
@@ -38,9 +40,43 @@ function fixture(auditFails = false) {
 		const id = dialogs.list()[0]?.id; if (!id) throw new Error("missing dialog");
 		dialogs.respond(id, choice, feedback);
 	};
-	return { dialogs, audit, call, defer, propose, respond, changeBranch: () => { leaf = "other"; }, changeSession: () => { session = "other"; },
+	return { dialogs, audit, call, defer, propose, respond, active: () => active, excludeApproval: () => { excluded = true; active = active.filter(name => name !== "approval"); }, changeBranch: () => { leaf = "other"; }, changeSession: () => { session = "other"; },
 		clear: () => extension.handlers.get("before_agent_start")?.({}, ctx), resetTree: () => extension.handlers.get("session_tree")?.({}, ctx) };
 }
+
+it("旧函数列表按需获得审批入口，短结果保留续接信息而不复制完整命令", async () => {
+	const f = fixture();
+	expect(f.active()).not.toContain("approval");
+	const blocked = await f.call(processCall(["program", "large-payload".repeat(500)]));
+	expect(f.active()).toEqual(["read", "process_run", "approval"]);
+	expect(blocked?.reason?.length).toBeLessThan(600);
+	expect(blocked?.reason).toContain("Next block: approval");
+	expect(blocked?.reason).not.toContain("large-payload");
+	expect(f.dialogs.list()).toEqual([]);
+});
+
+it("模型请求前补齐审批入口，不改变实际操作选择", async () => {
+	const f = fixture();
+	await f.clear();
+	expect(f.active()).toEqual(["read", "process_run", "approval"]);
+	expect(f.dialogs.list()).toEqual([]);
+});
+
+it("明确的工具注册排除仍生效，不输出无法调用的审批指令", async () => {
+	const f = fixture(); f.excludeApproval(); await f.clear();
+	expect((await f.call(processCall()))?.reason).toContain("Approval entry is excluded");
+	expect(f.active()).not.toContain("approval");
+	expect(f.dialogs.list()).toEqual([]);
+});
+
+it("宿主裁剪超时不会使一次票据失配，改变 argv 仍需重新审批", async () => {
+	const f = fixture(), operation = processCall();
+	const id = await f.defer({ ...operation, input: { ...operation.input, timeout: 1790 } });
+	const proposed = f.propose(id); await f.respond(); await proposed;
+	expect(await f.call(processCall(["git", "reset", "--hard"]))).toMatchObject({ block: true });
+	expect(await f.call({ ...operation, input: { ...operation.input, timeout: 1780 } })).toBeUndefined();
+	expect(await f.call(operation)).toMatchObject({ block: true });
+});
 
 it("审查只返回 ID，AI 提案后才显示审批；一次票据严格绑定参数且只能消费一次", async () => {
 	const f = fixture(), operation = processCall();

@@ -59,7 +59,12 @@ export class PendingApprovals {
 	}
 }
 
-function requestKey(request: ApprovalRequest, input: unknown): string { return approvalFingerprint([request, input]); }
+function requestKey(request: ApprovalRequest, input: unknown): string {
+	// 宿主按剩余预算裁剪进程 timeout；预算变化不是新的操作，argv/cwd/env 仍严格绑定。
+	const parameters = request.tool === "process_run" && typeof input === "object" && input !== null && !Array.isArray(input)
+		? Object.fromEntries(Object.entries(input).filter(([key]) => key !== "timeout")) : input;
+	return approvalFingerprint([request, parameters]);
+}
 export function approvalFingerprint(value: unknown): string {
 	return createHash("sha256").update(JSON.stringify(value, (_key, item: unknown) => {
 		if (item instanceof RegExp) return { source: item.source, flags: item.flags };

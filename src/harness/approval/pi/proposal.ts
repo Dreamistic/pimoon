@@ -23,6 +23,7 @@ export function registerApprovalProposal(pi: ExtensionAPI, gate: ReturnType<type
 		description: "Present a blocked request; explain purpose/risk and suggest an offered scope. Returns the user's decision without executing it.",
 		parameters: Type.Object({ request_id: Type.String({ minLength: 1, maxLength: 64 }), reason: Type.String({ minLength: 1, maxLength: 800, pattern: "\\S" }),
 			scope: Type.Union([Type.Literal("once"), Type.Literal("session"), Type.Literal("persistent")]) }, { additionalProperties: false }),
+		outputSchema: Type.Object({ status: Type.String(), scope: Type.Optional(Type.String()), feedback: Type.Optional(Type.String()), reason: Type.Optional(Type.String()) }, { additionalProperties: true }),
 		async execute(toolCallId, input, signal, _update, ctx) {
 			const result = (data: JsonObject) => ({ content: [{ type: "text" as const, text: JSON.stringify(data) }], structuredContent: data, details: data });
 			const item = pending.claim(input.request_id);

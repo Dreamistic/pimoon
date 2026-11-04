@@ -31,6 +31,8 @@ async function fixture(reply: (step: number, request: unknown) => string) {
 		baseUrl: server.url, api: "openai-completions", apiKey: "fixture", models: [{ id: "test", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
 	} } }));
 	try {
+		const manager = SessionManager.inMemory(cwd);
+		manager.appendCustomEntry("codeact_functions", ["process_run", "read", "write"]);
 		const runtime = await createAgentSessionRuntime(async ({ cwd, agentDir, sessionManager }) => {
 			const codeact = new CodeAct();
 			const services = await createAgentSessionServices({ cwd, agentDir, resourceLoaderOptions: {
@@ -38,9 +40,9 @@ async function fixture(reply: (step: number, request: unknown) => string) {
 					{ name: "approval-gate", factory: pi => approvalGate(pi, { mode: "gui", show: (_ui, ...args) => dialogs.approve(...args) }) }, { name: "memory", factory: memory }],
 				noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
 			} });
-			const result = await createAgentSessionFromServices({ services, sessionManager, tools: ["process_run", "approval", "read", "write"] });
+			const result = await createAgentSessionFromServices({ services, sessionManager });
 			codeact.bind(result.session); return { ...result, services, diagnostics: services.diagnostics };
-		}, { cwd, agentDir, sessionManager: SessionManager.inMemory(cwd) });
+		}, { cwd, agentDir, sessionManager: manager });
 		await runtime.session.bindExtensions({ mode: "print", uiContext: dialogs.context(), onError: ({ error }) => { throw new Error(error); } });
 		return { cwd, root, runtime, server, dialogs, async close() { await runtime.session.abort(); await runtime.session.waitForIdle(); dialogs.cancel(); await runtime.dispose(); await server.close(); } };
 	} catch (error) { await server.close(); throw error; }
@@ -50,17 +52,22 @@ const append = `process_run(argv=${JSON.stringify([process.execPath, "-e", 'requ
 function propose(request: unknown): string {
 	const id = /request_id.{0,20}?([a-f0-9]{8}-[a-f0-9-]{27})/.exec(JSON.stringify(request))?.[1];
 	if (!id) throw new Error("Model did not receive an approval request id");
-	return execution(`approval(request_id=${JSON.stringify(id)}, reason="只在隔离目录写入测试标记", scope="once")`);
+	return execution(`decision=approval(request_id=${JSON.stringify(id)}, reason="只在隔离目录写入测试标记", scope="once")\nassert isinstance(decision,dict)\ndecision`);
 }
 
 it("真实 CodeAct 先拦截、再提案，批准不自动执行；只重试具体调用，不重放此前副作用", async () => {
-	const f = await fixture((step, request) => step === 0 ? execution(`write(path="earlier.txt",content="keep")\n${append}`)
-		: step === 1 ? propose(request) : step === 2 ? execution(`${append}\n${append}`) : "done");
+	const operation = append.replace("argv=", "timeout=1800, argv=");
+	const f = await fixture((step, request) => step === 0 ? execution(`write(path="earlier.txt",content="keep")\n${operation}`)
+		: step === 1 ? propose(request) : step === 2 ? execution(`${operation}\n${operation}`) : "done");
 	try {
+		expect(f.runtime.session.getCallableToolNames()).not.toContain("approval");
 		const running = f.runtime.session.prompt("Run the isolated approval fixture.");
 		await vi.waitFor(() => expect(f.dialogs.list()).toHaveLength(1), { timeout: 10_000 });
 		const dialog = f.dialogs.list()[0]; if (!dialog?.approval) throw new Error("missing proposal");
 		expect(f.server.requests).toHaveLength(2); expect(dialog.kind).toBe("approval");
+		expect(f.runtime.session.getCallableToolNames()).toContain("approval");
+		expect(JSON.stringify(f.server.requests[0])).toContain("Present a blocked request");
+		expect(JSON.stringify(f.server.requests[1])).toContain("Present a blocked request");
 		expect(await fs.readFile(path.join(f.cwd, "earlier.txt"), "utf8")).toBe("keep");
 		await expect(fs.access(path.join(f.cwd, "effect.txt"))).rejects.toThrow();
 		f.dialogs.respond(dialog.id, "Allow once", "仅本次，不代表今后允许");
@@ -71,6 +78,26 @@ it("真实 CodeAct 先拦截、再提案，批准不自动执行；只重试具�
 		expect(JSON.stringify(f.server.requests[2])).toContain("仅本次，不代表今后允许");
 		expect(JSON.stringify(f.server.requests[3])).toContain("approval_required");
 		expect(f.dialogs.list()).toEqual([]);
+	} finally { await f.close(); }
+});
+
+it("旧会话批量检查 Git、ADB 和 APK 后仍能发现审批入口并提交提案", async () => {
+	const jobs = [{ argv: ["git", "status", "--short", "--branch"] }, { argv: ["adb", "devices", "-l"] },
+		{ argv: ["rg", "--files", "--hidden", "-g", "*.apk", "-g", "!node_modules", "-g", "!.git"] }];
+	const f = await fixture((step, request) => step === 0 ? execution(`results=batch("process_run",${JSON.stringify(jobs)})\nfor i,row in enumerate(results):\n    print(i,row)`)
+		: step === 1 ? propose(request) : "done");
+	try {
+		const running = f.runtime.session.prompt("Check the fixture commands; request approval when blocked.");
+		await vi.waitFor(() => expect(f.dialogs.list()).toHaveLength(1), { timeout: 10_000 });
+		const request = JSON.stringify(f.server.requests[1]);
+		expect(request).toContain("Present a blocked request");
+		expect(new Set([...request.matchAll(/request_id.{0,20}?([a-f0-9]{8}-[a-f0-9-]{27})/g)].map(match => match[1])).size).toBe(3);
+		expect(request).toContain("Next block: approval");
+		const dialog = f.dialogs.list()[0]; if (!dialog) throw new Error("missing batch proposal");
+		f.dialogs.respond(dialog.id, "Deny", "这是隔离回归，不运行外部程序");
+		await running;
+		expect(f.server.requests).toHaveLength(3);
+		expect(JSON.stringify(f.server.requests[2])).toContain("这是隔离回归，不运行外部程序");
 	} finally { await f.close(); }
 });
 

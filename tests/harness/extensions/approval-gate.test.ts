@@ -529,6 +529,7 @@ function captureExtensionHandler(
 ): (event: ToolCallEvent, ctx: TestContext) => Promise<ToolCallEventResult | void> {
 	const { handlers, registered } = registerExtension((pi) => approvalGateExtension(pi, presentation.approvalGate), {
 		appendEntry() {},
+		getActiveTools: () => ["approval"],
 		events: {
 			emit(channel: string, data: unknown) { emitted.push({ channel, data }); },
 			on() { return () => {}; },
