@@ -67,7 +67,7 @@ export function codeactStream(provider: StreamFn, instructions: () => string = (
 						else if (chunk.type === "open") {
 							closeText();
 							codeIndex = message.content.length;
-							message.codeact = { id: randomUUID(), index: codeIndex, complete: false };
+							message.codeact = { id: randomUUID(), index: codeIndex, complete: false, ...chunk.metadata };
 							message.content.push({ type: "text", text: "" });
 							output.push({ type: "text_start", contentIndex: codeIndex, partial: message });
 						} else if (codeIndex !== undefined) {

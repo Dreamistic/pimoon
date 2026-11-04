@@ -5,6 +5,8 @@ import type { GuiSnapshot } from "../../../../../../src/gui/shared/protocol/stat
 import { ToolSelection } from "../../../../../../src/gui/frontend/features/chat/tools/tool-selection.tsx";
 import { ToolActivity } from "../../../../../../src/gui/frontend/features/chat/tools/tool-activity.tsx";
 import type { ToolActivity as Activity } from "../../../../../../src/gui/frontend/features/chat/tools/activity.ts";
+import { activityCounts } from "../../../../../../src/gui/frontend/features/chat/tools/activity.ts";
+import { CodeActConfirmationBar } from "../../../../../../src/gui/frontend/features/chat/tools/codeact-confirmation.tsx";
 import { renderWithMemory } from "../../../../helpers/render.ts";
 
 const tools: GuiSnapshot["tools"] = [
@@ -46,14 +48,50 @@ describe("固定 CodeAct 与函数权限", () => {
 	});
 });
 
+describe("CodeAct 目的、结果与确认", () => {
+	it("desc 是标题但不决定成败，真实异常优先于旧的内部失败", () => {
+		const doc = renderTool({ ...tool, state: "failed", args: { desc: "检查配置 <script>not html</script>", code: "missing" },
+			output: { kind: "inline", value: { content: [{ type: "text", text: "error\nTraceback (most recent call last):\nNameError: missing is not defined" }] } },
+			nestedCalls: { complete: true, calls: [{ id: "old-error", name: "read", status: "error", error: "earlier handled failure" }] } });
+		expect(doc.querySelector(".activity-label")?.textContent).toBe("检查配置 <script>not html</script>");
+		expect(doc.querySelector("script")).toBeNull();
+		expect(doc.querySelector('[role="alert"]')?.textContent).toBe("NameError: missing is not defined");
+		expect(doc.querySelector(".codeact-activity")?.getAttribute("data-state")).toBe("failed");
+	});
+	it("生成代码、等待确认与拒绝未执行使用不同状态，纯计算结果可直接看到", () => {
+		const preparing = renderTool({ ...tool, state: "preparing", nestedCalls: { complete: true, calls: [] } });
+		expect(preparing.querySelector(".activity-summary")?.textContent).toContain("生成代码");
+		expect(preparing.querySelector("pre")?.textContent).toContain('read(path="a.ts")');
+		const waiting = renderTool({ ...tool, state: "pending", args: { desc: "请求变更", confirmationPending: true } });
+		expect(waiting.querySelector(".activity-summary")?.textContent).toContain("等待确认");
+		const rejected = renderTool({ ...tool, state: "stopped", durationMs: 0, output: { kind: "inline", value: { content: [], details: { metrics: { outcome: "confirmation_rejected", executed: false } } } } });
+		expect(rejected.querySelector(".activity-summary")?.textContent).toContain("已拒绝 · 未执行");
+		const completed = renderTool({ ...tool, state: "completed", output: { kind: "inline", value: { content: [{ type: "text", text: "ok\n42" }] } } });
+		expect(completed.querySelector(".codeact-overview")?.textContent).toContain("42");
+	});
+	it("执行数和内部函数数分开计数", () => {
+		expect(activityCounts([tool])).toEqual(["1 次执行", "2 次函数调用"]);
+	});
+	it("确认条展示目的和真实确认原因，不把待执行源码当 HTML，也不渲染模态弹窗", () => {
+		const doc = parseHTML(renderWithMemory(createElement(CodeActConfirmationBar, { disabled: false, send: async () => true,
+			dialog: { id: "confirm-1", kind: "codeact", title: "检查配置", message: "确认？", options: [], initial: "", deadline: null,
+				codeact: { id: "execution-1", cwd: "D:/fixture", code: 'print("<script>not html</script>")', reason: "允许写入 <b>配置</b>？" } } }))).document;
+		expect(doc.querySelector("section")?.getAttribute("data-execution-id")).toBe("execution-1");
+		expect(doc.querySelector("section")?.textContent).toContain("等待确认 · 尚未执行");
+		expect(doc.querySelector(".codeact-confirmation-reason")?.textContent).toBe("允许写入 <b>配置</b>？");
+		expect(doc.querySelector("b,script,[role=dialog]")).toBeNull();
+		expect(doc.querySelectorAll("button:not([disabled])").length).toBeGreaterThanOrEqual(3);
+	});
+});
+
 describe("CodeAct 执行容器", () => {
-	it("根据实际调用显示操作、目标和批量状态，不猜测源码", () => {
+	it("根据实际调用显示操作、目标和次数，不把顺序调用推断为并发", () => {
 		const single = renderTool({ ...tool, nestedCalls: { complete: true, calls: [{ id: "read-1", name: "read", status: "ok", arguments: { path: "App.css" } }] } });
 		expect(single.querySelector(".activity-label")?.textContent).toBe("读取"); expect(single.querySelector(".activity-target")?.textContent).toBe("App.css");
 		const pure = renderTool({ ...tool, args: { code: 'print("read(path=foo)")' }, nestedCalls: { complete: true, calls: [] } });
 		expect(pure.querySelector(".activity-label")?.textContent).toBe("代码执行");
 		const batch = renderTool({ ...tool, nestedCalls: { complete: true, calls: ["a", "b"].map(id => ({ id, name: "read", status: "ok" })) } });
-		expect(batch.querySelector(".activity-label")?.textContent).toBe("批量读取");
+		expect(batch.querySelector(".activity-label")?.textContent).toBe("读取 · 2 次");
 	});
 	it("父容器优先显示实际失败原因", () => {
 		const doc = renderTool({ ...tool, state: "failed", nestedCalls: { complete: true, calls: [{ id: "edit", name: "edit", status: "error", error: "CRLF 换行不匹配" }] } });

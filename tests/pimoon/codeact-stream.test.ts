@@ -149,6 +149,24 @@ it.each([false, true])("独立文本块的行首执行标记不被前面的说�
 	]);
 });
 
+it("标题和确认元数据跨流式生成与历史保留，回放保留供应商原始文本", async () => {
+	const text = '<execute desc="检查&amp;修改" confirm="覆盖文件？">\n42\n</execute>';
+	const { result, events } = await drain(provider(text));
+	expect(result.codeact).toMatchObject({ desc: "检查&修改", confirm: "覆盖文件？", complete: true });
+	expect(codeactSource(result)).toBe("42\n");
+	expect(events.some(event => event.type === "text_start" && (event.partial as CodeActMessage).codeact?.desc === "检查&修改")).toBe(true);
+	const history = context(); history.messages.push(result);
+	const replay = codeactTranscript(history).messages.at(-1);
+	expect(replay?.role === "assistant" && replay.content.some(part => part.type === "text" && part.text === text)).toBe(true);
+	expect(replay).not.toHaveProperty("codeact");
+});
+
+it("损坏确认属性不能变成可执行元数据", async () => {
+	const { result } = await drain(provider('<execute confirm="">\nwrite()\n</execute>'));
+	expect(result.stopReason).toBe("error");
+	expect(result.codeact?.complete).not.toBe(true);
+});
+
 it("不兼容旧原生工具历史，明确要求新建会话", () => {
 	const original = context(), assistant = message();
 	assistant.content = [{ type: "toolCall", id: "fixture", name: "read", arguments: { path: "fixture" } }];

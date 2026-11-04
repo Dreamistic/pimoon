@@ -39,7 +39,7 @@ export async function createGuiRuntime(
 	const agentDir = getAgentDir();
 	const trust = new ProjectTrustStore(agentDir);
 	const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
-		const codeact = new CodeAct();
+		const codeact = new CodeAct((request, signal) => dialogs.confirmCodeAct(request, signal));
 		const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: false });
 		const services = await createAgentSessionServices({
 			cwd,

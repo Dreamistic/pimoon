@@ -106,6 +106,9 @@
 .mcp-shared-tools { margin-block-start: 1em; padding-inline: var(--mcp-row-inset); }
 .mcp-shared-tools > h4 { color: var(--muted-foreground); font-size: var(--text-caption); }
 .codeact-body { padding-top: 0; }
+.codeact-title { flex: 1 1 12em; min-inline-size: 0; overflow-wrap: anywhere; color: var(--foreground); }
+.codeact-overview { margin: 0 0 0.5em 1.8125rem; color: var(--muted-foreground); font-size: var(--text-caption); overflow-wrap: anywhere; white-space: pre-wrap; }
+.codeact-activity .nested-tool-call > .activity-summary { padding-block: 0.4em; }
 .nested-failures { color: var(--destructive); }
 .nested-call-details { min-width: 0; }
 .nested-call-duration { margin-left: 1.8125rem; }

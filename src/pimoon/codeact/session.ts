@@ -12,9 +12,11 @@ import { codeactInstructions } from "./prompt.ts";
 import { codeactStream } from "./stream.ts";
 import { CODEACT_RESULT, codeactSource, isCodeActResult, type CodeActMessage, type CodeActResult } from "./types.ts";
 
-type ExecutionEvent = Extract<AgentSessionEvent, { type: "tool_execution_start" | "tool_execution_end" }>;
+type ExecutionEvent = Extract<AgentSessionEvent, { type: "tool_execution_start" | "tool_execution_update" | "tool_execution_end" }>;
 import { CODEACT_EXECUTION, type CodeActExecutionEvent } from "./events.ts";
 import { isCodeActFunction } from "./functions.ts";
+import type { ConfirmCodeAct } from "./confirmation.ts";
+import type { CodeActMetadata } from "./metadata.ts";
 
 /** 执行块直接在轮次边界运行；内部 I/O 沿用校验与审批，不注册执行工具。 */
 export class CodeAct {
@@ -28,6 +30,8 @@ export class CodeAct {
 	private callStarted = new Map<string, number>();
 
 	readonly extension: InlineExtension = { name: "codeact", builtin: true, factory: pi => this.register(pi) };
+
+	constructor(private readonly confirm?: ConfirmCodeAct) {}
 
 	bind(session: AgentSession, publish?: (event: ExecutionEvent) => void): void {
 		if (this.session) throw new Error("CodeAct 已绑定会话。");
@@ -120,22 +124,53 @@ export class CodeAct {
 			if (!message.codeact?.complete) return;
 			const source = codeactSource(message);
 			if (source === undefined || !this.session) return;
-			const id = message.codeact.id, started = performance.now();
+			const { id, desc, confirm } = message.codeact;
+			const args = { code: source, desc, confirm };
 			this.calls = []; this.callsComplete = true; this.callStarted.clear();
-			pi.events.emit(CODEACT_EXECUTION, { phase: "start", id, trace: labels(ctx) } satisfies CodeActExecutionEvent);
-			this.publish({ type: "tool_execution_start", toolCallId: id, toolName: "codeact", args: { code: source } });
-			const result = await this.execute(source, id, ctx);
-			const durationMs = performance.now() - started;
-			const details: CodeActResult = { id, isError: result.isError === true, durationMs,
-				metrics: this.runtime?.lastMetrics ?? { outcome: "startup_error", metrics_complete: false },
+			this.publish({ type: "tool_execution_start", toolCallId: id, toolName: "codeact", args: { ...args, confirmationPending: Boolean(confirm) } });
+			const blocked = await this.confirmExecution(source, id, { desc, confirm }, ctx);
+			let result: AgentToolResult<unknown>, durationMs = 0;
+			if (blocked) result = blocked;
+			else {
+				if (confirm) this.publish({ type: "tool_execution_update", toolCallId: id, toolName: "codeact", args,
+					partialResult: { content: [] } });
+				const started = performance.now();
+				pi.events.emit(CODEACT_EXECUTION, { phase: "start", id, trace: labels(ctx) } satisfies CodeActExecutionEvent);
+				result = await this.execute(source, id, ctx);
+				durationMs = performance.now() - started;
+			}
+			const metrics = resultMetrics(result);
+			const details: CodeActResult = { id, isError: result.isError === true, durationMs, metrics,
 				nestedCalls: { complete: this.callsComplete, calls: this.calls },
 			};
 			this.calls = undefined; this.callStarted.clear();
-			const output = { ...result, details: { metrics: details.metrics } };
-			pi.events.emit(CODEACT_EXECUTION, { phase: "end", id, result: output, isError: details.isError, durationMs } satisfies CodeActExecutionEvent);
+			const output = { ...result, details: { metrics } };
+			if (!blocked) pi.events.emit(CODEACT_EXECUTION, { phase: "end", id, result: output, isError: details.isError, durationMs } satisfies CodeActExecutionEvent);
 			this.publish({ type: "tool_execution_end", toolCallId: id, toolName: "codeact", result: output, isError: details.isError, durationMs });
 			return { entries: [{ type: "custom_message", customType: CODEACT_RESULT, content: result.content, display: false, details }], continue: !ctx.signal?.aborted };
 		});
+	}
+
+	/** 整块确认只表达用户意图；真正执行时仍逐项检查函数权限与审批。 */
+	private async confirmExecution(code: string, id: string, metadata: CodeActMetadata, ctx: ExtensionContext): Promise<AgentToolResult<unknown> | undefined> {
+		const skipped = (outcome: string, text: string): AgentToolResult<unknown> => ({ isError: true,
+			content: [{ type: "text", text }], details: { metrics: { outcome, executed: false, metrics_complete: true } } });
+		if (ctx.signal?.aborted) return skipped("cancelled", "Cancelled before execution. Code did not run.");
+		if (!metadata.confirm) return;
+		if (!this.confirm) return skipped("confirmation_unavailable", "Confirmation requires an interactive UI. Code did not run; do not retry without user approval.");
+		// 自动命名、书签和用量记录不改变执行上下文，不能让后台更新使用户确认失效。
+		const branch = () => ctx.sessionManager.getBranch().findLast(entry => !["session_info", "label", "usage"].includes(entry.type))?.id;
+		const session = ctx.sessionManager.getSessionId(), leaf = branch(), runtime = this.runtime, cwd = ctx.cwd;
+		try {
+			const decision = await this.confirm({ id, cwd, code, desc: metadata.desc, reason: metadata.confirm }, ctx.signal);
+			if (ctx.signal?.aborted || decision.kind === "cancelled") return skipped("cancelled", "Confirmation cancelled. Code did not run.");
+			if (decision.kind === "rejected") return skipped("confirmation_rejected", `User rejected this execution. Code did not run. Do not retry without approval.${decision.feedback?.trim() ? `\nUser feedback:\n${decision.feedback.trim()}` : ""}`);
+			if (ctx.sessionManager.getSessionId() !== session || branch() !== leaf || path.resolve(ctx.sessionManager.getCwd()) !== path.resolve(cwd) || this.runtime !== runtime || runtime?.dead)
+				return skipped("confirmation_invalidated", "Execution context changed while awaiting confirmation. Code did not run; request a new confirmation.");
+		} catch {
+			return skipped("confirmation_unavailable", "Confirmation failed. Code did not run; do not retry without user approval.");
+		}
+		return;
 	}
 
 	private async execute(code: string, id: string, ctx: ExtensionContext): Promise<AgentToolResult<unknown>> {
@@ -177,6 +212,13 @@ export class CodeAct {
 		record("runtime_closed", { runtime_id: this.runtimeId, reason, had_state: this.runtime.hasState, python_pid: this.runtime.workerInfo?.pid, state_restored: false });
 		this.runtime.close(); this.runtime = undefined; this.runtimeSession = undefined;
 	}
+}
+
+function resultMetrics(result: AgentToolResult<unknown>): Record<string, unknown> {
+	const details = result.details;
+	if (typeof details === "object" && details !== null && "metrics" in details && typeof details.metrics === "object" && details.metrics !== null)
+		return { ...details.metrics };
+	return { outcome: "startup_error", metrics_complete: false };
 }
 
 function containsCredentials(cwd: string): boolean {

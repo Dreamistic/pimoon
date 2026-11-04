@@ -7,6 +7,7 @@ import { StreamingText } from "@/ui/content/markdown.tsx";
 import { Message } from "../messages/message.tsx";
 import { MessageIdentity, ReplyMetrics } from "../messages/message-meta.tsx";
 import { ToolActivity } from "../tools/tool-activity.tsx";
+import { activityCounts } from "../tools/activity.ts";
 import { skillCount } from "./skill-summary.tsx";
 import { ReplyStatusLabel } from "./reply-status-label.tsx";
 import { sameTranscriptItem, type TranscriptItem } from "./transcript-items.ts";
@@ -82,9 +83,11 @@ const Activity = memo(function Activity({ id, items, entryIds, tracking }: Secti
 	const counts = [
 		thoughts ? `${thoughts} 段思考` : "",
 		skills ? `${skills} 个技能` : "",
-		tools.length ? `${tools.length} 次工具调用` : "",
+		...activityCounts(tools.map(item => item.tool)),
 		failures ? `${failures} 次失败` : "",
 	].filter(Boolean).join(" · ");
+	// CodeAct 已提供执行卡片，不再套一层“思考与工具”折叠。
+	if (tools.some(item => item.tool.name === "codeact")) return <div className="reply-process-content">{items.map(item => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}</div>;
 	return <Disclosure className="reply-process reply-activity" open={open} onOpenChange={setOpen} summary={<>
 		<ReplyStatusLabel className={`pruned-text${pruned ? " pruned-text-active" : ""}`} active={tracking}>思考与工具</ReplyStatusLabel>
 		<span className={`reply-counts pruned-text${pruned ? " pruned-text-active" : ""}`}>{counts}</span>

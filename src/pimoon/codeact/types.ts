@@ -1,10 +1,11 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { CodeActMetadata } from "./metadata.ts";
 
 export const CODEACT_RESULT = "codeact_result";
 
 export interface CodeActMessage extends AssistantMessage {
-	codeact?: { id: string; index: number; complete: boolean };
+	codeact?: CodeActMetadata & { id: string; index: number; complete: boolean };
 	codeactContent?: AssistantMessage["content"];
 	codeactStop?: { sequence: "</execute>"; usage: "complete" | "partial" | "unavailable" };
 }

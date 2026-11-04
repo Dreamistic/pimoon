@@ -5,10 +5,13 @@ import type { GuiEvent } from "../../shared/protocol/events.ts";
 import type { ApprovalInteractionPort } from "../../../harness/approval/runtime/interaction.ts";
 import { approvalText, formatApprovalPrompt } from "../../../harness/approval/presentation.ts";
 import { plainTheme } from "./theme.ts";
+import type { CodeActConfirmation, CodeActConfirmationDecision } from "../../../pimoon/codeact/confirmation.ts";
+
+interface DialogResponse { value: string | undefined; feedback?: string | undefined }
 
 /** 对话框属于会话，不随浏览器连接销毁。响应只能消费一次。 */
 export class GuiDialogs {
-	private pending = new Map<string, { dialog: GuiDialog; finish: (value: string | undefined) => void }>();
+	private pending = new Map<string, { dialog: GuiDialog; finish: (value: string | undefined, feedback?: string) => void }>();
 	readonly notices: GuiNotice[] = [];
 	readonly status: Record<string, string> = {};
 	constructor(private readonly emit: (event: GuiEvent) => void, private readonly tail: () => number,
@@ -28,6 +31,13 @@ export class GuiDialogs {
 		return this.ask("select", bash ? "执行 Bash 命令" : formatApprovalPrompt(request, decision), "", [...options], "", opts, bash);
 	}
 
+	async confirmCodeAct(request: CodeActConfirmation, signal?: AbortSignal): Promise<CodeActConfirmationDecision> {
+		const response = await this.request({ kind: "codeact", title: request.desc ?? "代码执行", message: request.reason,
+			options: [], initial: "", codeact: { ...request } }, signal ? { signal } : undefined);
+		if (signal?.aborted || response.value === undefined) return { kind: "cancelled" };
+		return response.value === "yes" ? { kind: "approved" } : { kind: "rejected", feedback: response.feedback };
+	}
+
 	ask(
 		kind: GuiDialog["kind"],
 		title: string,
@@ -37,29 +47,25 @@ export class GuiDialogs {
 		opts?: ExtensionUIDialogOptions,
 		bash?: GuiBashApproval,
 	): Promise<string | undefined> {
-		if (opts?.signal?.aborted) return Promise.resolve(undefined);
+		return this.request({ kind, title, message, options, initial, ...(bash ? { bash } : {}) }, opts).then(response => response.value);
+	}
+
+	private request(dialog: Omit<GuiDialog, "id" | "deadline">, opts?: ExtensionUIDialogOptions): Promise<DialogResponse> {
+		if (opts?.signal?.aborted) return Promise.resolve({ value: undefined });
 		const id = randomUUID();
 		return new Promise((resolve) => {
 			let timeout: ReturnType<typeof setTimeout> | undefined;
 			const abort = () => finish(undefined);
-			const finish = (value: string | undefined) => {
+			const finish = (value: string | undefined, feedback?: string) => {
+				if (!this.pending.has(id)) return;
 				clearTimeout(timeout);
 				opts?.signal?.removeEventListener("abort", abort);
 				this.pending.delete(id);
 				this.emit({ type: "dialogs", value: this.list() });
-				resolve(value);
+				resolve({ value, feedback });
 			};
 			this.pending.set(id, {
-				dialog: {
-					id,
-					kind,
-					title,
-					message,
-					options,
-					initial,
-					deadline: opts?.timeout ? Date.now() + opts.timeout : null,
-					...(bash ? { bash } : {}),
-				},
+				dialog: { ...dialog, id, deadline: opts?.timeout ? Date.now() + opts.timeout : null },
 				finish,
 			});
 			opts?.signal?.addEventListener("abort", abort, { once: true });
@@ -68,13 +74,15 @@ export class GuiDialogs {
 		});
 	}
 
-	respond(id: string, value: string | null): void {
+	respond(id: string, value: string | null, feedback?: string): void {
 		const pending = this.pending.get(id);
 		if (!pending) throw new Error("对话框已结束，请刷新当前状态。");
 		if (value !== null && pending.dialog.kind === "select" && !pending.dialog.options.includes(value))
 			throw new Error("无效选项。");
 		if (value !== null && pending.dialog.kind === "confirm" && value !== "yes") throw new Error("无效确认。");
-		pending.finish(value ?? undefined);
+		if (pending.dialog.kind === "codeact" && value !== null && value !== "yes" && value !== "no") throw new Error("无效执行确认。");
+		if (feedback !== undefined && (pending.dialog.kind !== "codeact" || value !== "no" || feedback.length > 2000)) throw new Error("无效拒绝意见。");
+		pending.finish(value ?? undefined, feedback?.trim());
 	}
 
 	cancel(): void {

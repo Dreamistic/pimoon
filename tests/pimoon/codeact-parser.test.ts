@@ -65,9 +65,39 @@ it.each(["```python", "<thinking>"])("正文块边界保留示例保护状态：
 	expect(parser.closed).toBe(false);
 });
 
-it("Markdown 围栏和嵌套 thinking 内的示例不执行；缩进与属性不是执行协议", () => {
-	const examples = "```python\n<execute>\nexample()\n</execute>\n```\n<thinking>\n<thinking>\n</thinking>\n<execute>\nignored()\n</execute>\n</thinking>\n <execute>\n<execute desc=\"example\">\n";
+it("Markdown 围栏和嵌套 thinking 内的属性示例不执行；缩进不是执行协议", () => {
+	const examples = "```python\n<execute desc=\"example\" confirm=\"no\">\nexample()\n</execute>\n```\n<thinking>\n<thinking>\n</thinking>\n<execute desc=\"ignored\">\nignored()\n</execute>\n</thinking>\n <execute>\n";
 	const result = parse([...examples + "<execute>\nactual()\n</execute>"]);
 	expect(result.text).toBe(examples);
 	expect(result.code).toBe("actual()\n");
+});
+
+it("desc/confirm 在所有分片边界保留 Unicode 和实体，属性不进入源码", () => {
+	const source = '<execute desc="检查 &quot;配置&quot; &amp; 路径😀" confirm=\'确认&#xFF1F;\'>\r\nvalue=42\r\n</execute> ignored';
+	for (let split = 0; split <= source.length; split++) {
+		const result = parse([source.slice(0, split), source.slice(split)]);
+		expect(result.text).toBe("");
+		expect(result.code).toBe("value=42\r\n");
+		expect(result.chunks.find(chunk => chunk.type === "open")).toEqual({ type: "open", metadata: { desc: '检查 "配置" & 路径😀', confirm: "确认？" } });
+		expect(result.parser.consumed).toBe(source.indexOf(" ignored"));
+	}
+	expect(parse([...source]).parser.closed).toBe(true);
+});
+
+it.each([
+	'<execute confirm="">', '<execute confirm="  ">', '<execute confirm="a" confirm="b">',
+	'<execute desc="a" desc="b">', '<execute language="bash">', '<execute confirm=no>',
+	'<execute confirm="missing>', '<execute confirm="x">suffix', '<execute desc="a<b">',
+	'<execute confirm="&#10;">', '<execute desc="&#xD800;">', '<execute confirm="' + "x".repeat(1001) + '">',
+	'<execute desc="' + "x".repeat(161) + '">',
+])("无效属性拒绝整块，不能退化为无确认执行：%s", tag => {
+	expect(() => parse([...`${tag}\nwrite()\n</execute>`])).toThrow("代码未执行");
+});
+
+it("未闭合开始标记和超长属性在执行前失败，普通文本仍立即流出", () => {
+	expect(() => parse(['<execute confirm="未闭合'])).toThrow("代码未执行");
+	expect(() => parse(['<execute desc="' + "x".repeat(4096)])).toThrow("过长");
+	const parser = new CodeActParser();
+	expect(join(parser.feed("普通正文😀"), "text")).toBe("普通正文😀");
+	expect(join(parser.feed('\n<execute desc="尚未完整'), "text")).toBe("\n");
 });

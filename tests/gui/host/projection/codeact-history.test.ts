@@ -5,6 +5,7 @@ import { GuiPayloads } from "../../../../src/gui/host/projection/payloads.ts";
 import { NESTED_MUTATION_ENTRY } from "../../../../src/gui/host/projection/nested-mutations.ts";
 import { CODEACT_RESULT, type CodeActMessage } from "../../../../src/pimoon/codeact/types.ts";
 import { assistant, source } from "../../helpers/transcript-fixtures.ts";
+import { GuiLiveTools } from "../../../../src/gui/host/projection/live-tools.ts";
 import { transcriptReplies } from "../../../../src/gui/frontend/features/chat/transcript/transcript-replies.ts";
 
 it("自定义 CodeAct 结果恢复真实 diff、图片引用与大输出，不生成工具消息", () => {
@@ -34,4 +35,22 @@ it.each(["cancelled", "python_error"])("Python 执行阶段的 %s 不因模型�
 	] }));
 	const reply = rows.find(row => row.kind === "reply");
 	expect(reply?.kind === "reply" && reply.state).toBe(outcome === "cancelled" ? "stopped" : "failed");
+});
+
+it("生成、待确认、执行和拒绝历史始终投影为同一个执行卡片", () => {
+	const payloads = new GuiPayloads(), live = new GuiLiveTools(payloads);
+	const message: CodeActMessage = { ...assistant([{ type: "text", text: "write()" }], "stop"), codeact: { id: "confirmed-1", index: 0, complete: true, desc: "检查配置", confirm: "允许修改？" } };
+	const input = () => source({ messages: [{ role: "user", content: "test", timestamp: 1 }, message], liveTools: live.project(), streaming: true });
+	const tool = () => transcriptReplies(input()).flatMap(row => row.kind === "reply" ? row.process : []).filter(item => item.kind === "tool");
+	live.accept({ type: "tool_execution_start", toolCallId: "confirmed-1", toolName: "codeact", args: { code: "write()", desc: "检查配置", confirm: "允许修改？", confirmationPending: true } });
+	expect(tool()).toHaveLength(1); expect(tool()[0]?.tool.state).toBe("pending");
+	live.accept({ type: "tool_execution_update", toolCallId: "confirmed-1", toolName: "codeact", args: { code: "write()", desc: "检查配置" }, partialResult: { content: [] } });
+	expect(tool()[0]?.tool.state).toBe("running");
+	const manager = SessionManager.inMemory(); manager.appendMessage(message);
+	manager.appendCustomMessageEntry(CODEACT_RESULT, [{ type: "text", text: "User rejected. Code did not run." }], false,
+		{ id: "confirmed-1", isError: true, durationMs: 0, metrics: { outcome: "confirmation_rejected", executed: false }, nestedCalls: { complete: true, calls: [] } });
+	const messages = new GuiHistory(payloads).project(manager).entries.flatMap(entry => entry.messages);
+	const history = transcriptReplies({ ...input(), messages, liveTools: [], streaming: false }).flatMap(row => row.kind === "reply" ? row.process : []).filter(item => item.kind === "tool");
+	expect(history).toHaveLength(1);
+	expect(history[0]?.tool).toMatchObject({ id: "confirmed-1", state: "stopped", args: { desc: "检查配置", confirm: "允许修改？" }, durationMs: 0 });
 });

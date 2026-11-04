@@ -19,7 +19,7 @@ import { SendButton } from "./send-button.tsx";
 import type { Ref, RefObject } from "react";
 import type { GuiPreferences } from "../../../../shared/config/preferences.ts";
 import type { Send } from "@/connection/connection.ts";
-import type { GuiPanel, GuiSnapshot } from "../../../../shared/protocol/state.ts";
+import type { GuiDialog, GuiPanel, GuiSnapshot } from "../../../../shared/protocol/state.ts";
 import type { Query } from "../../../../shared/protocol/queries.ts";
 import { hasContextMessages } from "../transcript/transcript-location.ts";
 import type { SessionViews, SessionViewState } from "@/features/sessions/session-views.ts";
@@ -33,6 +33,7 @@ import { useComposerQueries } from "./use-composer-queries.ts";
 import { useFileDrop } from "./use-file-drop.ts";
 import { fileReference } from "../../../../shared/file-reference.ts";
 import { ImagePreviewButton } from "@/ui/media/image-preview.tsx";
+import { CodeActConfirmationBar } from "../tools/codeact-confirmation.tsx";
 
 // 跨组件挂载保持唯一，局域网 HTTP 不依赖 randomUUID 安全上下文。
 let nextAttachmentId = 0;
@@ -48,9 +49,9 @@ interface ComposerControls {
 	editor: RefObject<HTMLTextAreaElement | null>;
 	views: SessionViews;
 }
-export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmit, referenceVersion = 0 }: {
+export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmit, referenceVersion = 0, confirmation }: {
 	ref: Ref<HTMLElement>; style: MotionStyle; gui: ComposerControls; view: SessionViewState; snapshot: GuiSnapshot;
-	preferences: GuiPreferences | undefined; onSubmit: () => void; referenceVersion?: number;
+	preferences: GuiPreferences | undefined; onSubmit: () => void; referenceVersion?: number; confirmation?: GuiDialog | undefined;
 }) {
 	const { draft, setDraft, images, setImages, behavior, setBehavior } = useSessionDraft(view, gui.views);
 	const initialReferenceVersion = useRef(referenceVersion);
@@ -162,6 +163,7 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 			: [];
 	return (
 		<motion.footer className="composer" ref={ref} style={style}>
+			{confirmation && <CodeActConfirmationBar key={confirmation.id} dialog={confirmation} send={send} disabled={!connected} />}
 			<AnimatePresence initial={false}>
 			{setup && hasContextMessages(snapshot) && <Reveal><div className="flex flex-wrap items-center justify-center gap-2 pb-2 text-sm text-muted-foreground" role="status">
 				<span>{setup.kind === "auth" ? "发送消息前，请先配置模型服务。" : "发送消息前，请先选择可用模型。"}</span>

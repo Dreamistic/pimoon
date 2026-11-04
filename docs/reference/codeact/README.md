@@ -2,6 +2,8 @@
 
 Windows 桌面与其无界面子代理只使用文本 CodeAct。没有 `codemode` 工具，也没有模型原生工具声明；`<execute>` 代码块直接进入持久 CPython。函数目录由启用能力的真实 schema 生成。
 
+执行开始行可写 `<execute desc="简短目的" confirm="确认原因">`。GUI 以目的作为执行卡片标题，真实状态和结果单独展示；`confirm` 在整块运行前等待用户，可拒绝并附带意见，不替代内部函数审批。无交互入口不执行需要确认的块。格式与边界见[文本 CodeAct 协议](../../codeact-protocol.md)。
+
 ## Python 与函数
 
 普通数据处理使用标准库或已安装的项目函数，不启动另一个 Python：

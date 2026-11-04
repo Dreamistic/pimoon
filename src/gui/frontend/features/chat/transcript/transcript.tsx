@@ -4,6 +4,7 @@ import { fade } from "@/ui/motion/transitions.ts";
 import { Fade, Reveal } from "@/ui/motion/animated.tsx";
 import { Disclosure } from "@/ui/disclosure.tsx";
 import { Message } from "../messages/message.tsx";
+import { activityCounts } from "../tools/activity.ts";
 import { skillCount } from "./skill-summary.tsx";
 import { MessageIdentity, ReplyMetrics } from "../messages/message-meta.tsx";
 import { ReplyItems, useAutoFold } from "./transcript-sections.tsx";
@@ -74,7 +75,7 @@ const Reply = memo(function Reply({ reply, entryIds }: { reply: TranscriptReply;
 	const counts = [
 		thoughts > 0 ? `${thoughts} 段思考` : "",
 		skills > 0 ? `${skills} 个技能` : "",
-		tools.length > 0 ? `${tools.length} 次工具调用` : "",
+		...activityCounts(tools.map(item => item.tool)),
 		failures > 0 ? `${failures} 次失败` : "",
 	].filter(Boolean).join(" · ");
 	const hasAnswer = reply.answer.length > 0;

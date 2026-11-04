@@ -9,6 +9,7 @@ import type { ApprovalUnit } from "../../../harness/approval/types.ts";
 import type { GuiEntry, GuiMessage, GuiNestedCalls, GuiToolOutput } from "../messages/types.ts";
 import type { GuiToolSelectionItem } from "../config/mcp.ts";
 import type { ToolPreset } from "../../../harness/tool-defaults/types.ts";
+import type { CodeActConfirmation } from "../../../pimoon/codeact/confirmation.ts";
 
 export const queueModes = ["one-at-a-time", "all"] as const;
 
@@ -21,13 +22,14 @@ export interface GuiBashApproval {
 }
 export interface GuiDialog {
 	id: string;
-	kind: "select" | "confirm" | "input" | "editor" | "secret";
+	kind: "select" | "confirm" | "input" | "editor" | "secret" | "codeact";
 	title: string;
 	message: string;
 	options: string[];
 	initial: string;
 	deadline: number | null;
 	bash?: GuiBashApproval;
+	codeact?: CodeActConfirmation;
 }
 export interface GuiNotice {
 	id: string;

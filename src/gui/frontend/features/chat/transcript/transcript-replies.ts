@@ -70,14 +70,16 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 		const completion = result ?? detail ?? event?.completion;
 		const details = outputPreview(output)?.details;
 		const nestedCalls = result?.nestedCalls ?? execution?.nestedCalls ?? event?.nestedCalls;
-		const stopped = detail?.metrics.outcome === "cancelled" || isRecord(details) && (details.status === "aborted" || details.status === "cancelled" || isRecord(details.metrics) && details.metrics.outcome === "cancelled");
+		const metrics = detail?.metrics ?? (isRecord(details) && isRecord(details.metrics) ? details.metrics : undefined);
+		const stopped = metrics?.outcome === "cancelled" || metrics?.executed === false || isRecord(details) && (details.status === "aborted" || details.status === "cancelled");
+		const liveArgs = name === "codeact" && isRecord(event?.args) ? event.args : undefined;
 		const state = completion
 			? stopped ? "stopped" : completion.isError ? "failed" : "completed"
-			: event ? "running" : idle;
+			: event ? liveArgs?.confirmationPending === true ? "pending" : "running" : idle;
 		return {
 			key: `tool:${id}`, kind: "tool", messageIndex, pruned: prunedToolCallIds.has(id),
 			tool: {
-				id, name, args, state,
+				id, name, args: liveArgs ?? args, state,
 				output,
 				...(completion?.durationMs === undefined ? {} : { durationMs: completion.durationMs }),
 				...(nestedCalls === undefined ? {} : { nestedCalls }),
@@ -120,7 +122,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 				const blockKey = `${key}:${blockIndex}`;
 				if (execution && blockIndex === execution.index && block.type === "text") {
 					const idle = message.stopReason === "aborted" ? "stopped" : streaming ? "preparing" : source.streaming && index === lastAssistant ? "pending" : "unavailable";
-					reply.items.push(activity(execution.id, "codeact", { code: block.text }, idle, messageIndex));
+					reply.items.push(activity(execution.id, "codeact", { code: block.text, desc: execution.desc, confirm: execution.confirm }, idle, messageIndex));
 				} else if (block.type === "toolCall") {
 					const idle = message.stopReason === "aborted" ? "stopped" : streaming ? "preparing"
 						: source.streaming && index === lastAssistant ? "pending" : "unavailable";

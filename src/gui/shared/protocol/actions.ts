@@ -95,7 +95,7 @@ export const actionSchema = Type.Union([
 	object({ action: Type.Literal("tool"), name: short, enabled: Type.Boolean() }),
 	object({ action: Type.Literal("toolPreset"), preset: Type.Enum(TOOL_PRESETS) }),
 	object({ action: Type.Literal("mcpServers"), names: Type.Array(short, { minItems: 1, maxItems: 1000, uniqueItems: true }), enabled: Type.Boolean() }),
-	object({ action: Type.Literal("dialog"), id: short, value: Type.Union([text, Type.Null()]) }),
+	object({ action: Type.Literal("dialog"), id: short, value: Type.Union([text, Type.Null()]), feedback: Type.Optional(Type.String({ maxLength: 2000 })) }),
 	object({ action: Type.Literal("clearNotices"), ids: Type.Array(short, { maxItems: 100, uniqueItems: true }) }),
 	object({ action: Type.Literal("draft"), text }),
 	object({ action: Type.Literal("removeStorage"), ids: Type.Array(short, { minItems: 1, maxItems: 1000, uniqueItems: true }) }),

@@ -25,7 +25,7 @@ import type { ModelsConfig } from "../../../harness/model-services/schema.ts";
 import { lspManager, registerLspCommands } from "../../../harness/lsp/index.ts";
 
 export interface GuiExtensionBindings {
-	codeactEvent(event: Extract<AgentSessionEvent, { type: "tool_execution_start" | "tool_execution_end" }>): void;
+	codeactEvent(event: Extract<AgentSessionEvent, { type: "tool_execution_start" | "tool_execution_update" | "tool_execution_end" }>): void;
 	dialogs: GuiDialogs;
 	approvalStores: ApprovalStores;
 	approvalRules: SessionApprovalRules;

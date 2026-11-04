@@ -53,6 +53,8 @@ function useDelayed(value: boolean, delay: number): boolean {
 export function App() {
 	const gui = useGui();
 	const { snapshot, dialogs, status, error, panel, auth, authUrl, deviceCode, send } = gui;
+	const currentDialog = dialogs[0];
+	const confirmation = currentDialog?.kind === "codeact" ? currentDialog : undefined;
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const [collapsed, setCollapsed] = useState(false);
 	const toggleSidebar = useCallback(() => setCollapsed((value) => !value), []);
@@ -192,7 +194,7 @@ export function App() {
 						</Button></Fade>}
 						</AnimatePresence>
 						</div>
-						{snapshot && gui.view && <RegionBoundary scope="composer" key={snapshot.sessionId}><Composer {...startup.composer} gui={gui} view={gui.view} snapshot={snapshot} preferences={gui.guiConfig?.state === "ready" ? gui.guiConfig.value : undefined} onSubmit={transcript.followLatest} referenceVersion={gui.referenceVersion} /></RegionBoundary>}
+						{snapshot && gui.view && <RegionBoundary scope="composer" key={snapshot.sessionId}><Composer {...startup.composer} gui={gui} view={gui.view} snapshot={snapshot} preferences={gui.guiConfig?.state === "ready" ? gui.guiConfig.value : undefined} onSubmit={transcript.followLatest} referenceVersion={gui.referenceVersion} confirmation={confirmation} /></RegionBoundary>}
 						</div>
 					</main>
 					<ResizeHandle label="调整右侧栏宽度" className="info-resize" value={gui.layout.values.right} change={(value, persist) => gui.layout.set("right", value, persist)} measure={() => {
@@ -227,7 +229,7 @@ export function App() {
 			)}
 			</AnimatePresence>
 			<AnimatePresence mode="wait">
-			{dialogs[0] && <RegionBoundary scope="dialog" inline={false} key={dialogs[0].id}><Dialog restoreFocus={restoreFocus} dialog={dialogs[0]} send={send} /></RegionBoundary>}
+			{currentDialog && !confirmation && <RegionBoundary scope="dialog" inline={false} key={currentDialog.id}><Dialog restoreFocus={restoreFocus} dialog={currentDialog} send={send} /></RegionBoundary>}
 			</AnimatePresence>
 			</StartupEntranceContext></ImagePreviewProvider>
 		</TooltipProvider></GuiQueryContext>

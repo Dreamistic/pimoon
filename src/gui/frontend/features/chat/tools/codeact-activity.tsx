@@ -6,7 +6,7 @@ import { useDisclosureMemory } from "@/ui/disclosure-memory.ts";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/ui/collapsible.tsx";
 import { Disclosure } from "@/ui/disclosure.tsx";
 import { CodeBlock } from "@/ui/content/code-block.tsx";
-import { record } from "@/ui/content/format.ts";
+import { clean, record } from "@/ui/content/format.ts";
 import { ParameterValue } from "./tool-parameters.tsx";
 import { RawToolContent } from "./tool-results.tsx";
 import { ToolBody } from "./tool-body.tsx";
@@ -14,6 +14,7 @@ import { ToolSummary } from "./tool-summary.tsx";
 import { toolTarget } from "./tool-target.ts";
 import { useToolOutput } from "./use-tool-output.ts";
 import type { ToolActivity } from "./activity.ts";
+import { codeActOutcome, codeActOutputSummary, codeActStateLabel } from "./codeact-summary.ts";
 
 export function CodeActActivity({ tool }: { tool: ToolActivity }) {
 	const [expanded, setExpanded] = useDisclosureMemory(`tool:${tool.id}`, null);
@@ -25,21 +26,30 @@ export function CodeActActivity({ tool }: { tool: ToolActivity }) {
 	const sameTool = first && calls.every(call => call.name === first.name);
 	const display = sameTool ? toolDisplay(first.name) : undefined;
 	const Icon = display?.icon ?? CodeXml;
-	const label = display ? `${calls.length > 1 ? "批量" : ""}${display.label}` : calls.length ? "工具编排" : "代码执行";
-	const target = calls.length === 1 && first ? toolTarget(first.name, first.arguments) : "";
+	const args = record(tool.args) ? tool.args : {};
+	const desc = typeof args.desc === "string" ? clean(args.desc) : "";
+	const label = desc || (display ? `${display.label}${calls.length > 1 ? ` · ${calls.length} 次` : ""}` : "代码执行");
+	const target = !desc && calls.length === 1 && first ? toolTarget(first.name, first.arguments) : "";
 	const failedCall = calls.find(call => call.status === "error");
-	const error = tool.state === "failed" ? (failedCall && errorSummary(failedCall)) || errorSummary(tool) : "";
+	const outcome = codeActOutcome(tool.output);
+	const waiting = tool.state === "pending" && args.confirmationPending === true;
+	const error = tool.state === "failed" ? codeActOutputSummary(tool.output, true) || (failedCall && errorSummary(failedCall)) || errorSummary(tool) : "";
+	const summary = !active && tool.state === "completed" ? codeActOutputSummary(tool.output) : "";
+	const operations = new Map<string, number>();
+	for (const call of calls) operations.set(call.name, (operations.get(call.name) ?? 0) + 1);
+	const facts = [...operations].map(([name, count]) => `${toolDisplay(name).label} ${count} 次`).join(" · ");
 	return <section className="tool-activity codeact-activity" data-state={tool.state} data-tool="codeact" data-tool-call-id={tool.id}>
 		<Collapsible open={open} onOpenChange={setExpanded}>
 			<CollapsibleTrigger className="activity-summary">
-				<Icon className="activity-icon" aria-hidden="true" /><span className="activity-label">{label}</span>
+				<Icon className="activity-icon" aria-hidden="true" /><span className="activity-label codeact-title">{label}</span>
 				{target && <code className="activity-target">{target}</code>}
 				<span className="activity-tail">
-					<ActivityState state={tool.state} label={tool.state === "completed" ? "脚本完成" : undefined} durationMs={tool.durationMs}
-						facts={<>CodeAct{calls.length > 0 ? ` · ${calls.length} 次调用` : ""}{failures > 0 && <span className="nested-failures"> · {failures} 次失败</span>}</>} />
+					<ActivityState state={tool.state} label={codeActStateLabel(tool.state, outcome, waiting)} durationMs={tool.durationMs}
+						facts={<>Python{calls.length > 0 ? ` · ${calls.length} 次函数调用` : ""}{failures > 0 && <span className="nested-failures"> · {failures} 次失败</span>}</>} />
 					<ChevronRight className={`activity-chevron${open ? " expanded" : ""}`} aria-hidden="true" />
 				</span>
 			</CollapsibleTrigger>
+			{(facts || summary) && <p className="codeact-overview">{[facts, summary].filter(Boolean).join(" · ")}</p>}
 			<ActivityError>{error}</ActivityError>
 			<CollapsibleContent lazy>
 				<div className="activity-body codeact-body">
@@ -47,10 +57,13 @@ export function CodeActActivity({ tool }: { tool: ToolActivity }) {
 						{calls.map((call) => <NestedCallRow key={call.id} call={call} active={active} stopped={tool.state === "stopped"} />)}
 					</div>
 					{!active && tool.nestedCalls?.complete === false && <p className="tool-note">调用记录不完整，部分参数、调用或完成状态未保留。</p>}
-					{record(tool.args) && typeof tool.args.code === "string" && <Disclosure className="tool-parameters" summary="代码 · Python" lazy>
-						<CodeBlock label="Python" language="python" text={tool.args.code} />
-					</Disclosure>}
-					{!active && tool.output && <Disclosure className="tool-parameters codeact-output" summary="输出给模型" lazy>
+					{typeof args.confirm === "string" && <p className="tool-note">确认原因：{clean(args.confirm)}</p>}
+					{typeof args.code === "string" && (tool.state === "preparing"
+						? <CodeBlock label="正在生成 · Python" language="python" text={args.code} />
+						: <Disclosure className="tool-parameters" summary="源码 · Python" lazy>
+							<CodeBlock label="Python" language="python" text={args.code} />
+						</Disclosure>)}
+					{!active && tool.output && <Disclosure className="tool-parameters codeact-output" summary="返回给模型的输出" lazy>
 						<CodeActOutput tool={tool} />
 					</Disclosure>}
 				</div>

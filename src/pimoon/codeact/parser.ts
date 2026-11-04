@@ -1,5 +1,7 @@
+import { executeMetadata, possibleExecuteStart, MAX_EXECUTE_TAG_LENGTH, type CodeActMetadata } from "./metadata.ts";
+
 /** 开始标记独占一行，行首结束标记提交；围栏与文本 thinking 中的示例不执行。 */
-export type CodeActChunk = { type: "text" | "code"; text: string } | { type: "open" | "close" };
+export type CodeActChunk = { type: "text" | "code"; text: string } | { type: "open"; metadata: CodeActMetadata } | { type: "close" };
 
 export class CodeActParser {
 	private mode: "text" | "code" | "closed" = "text";
@@ -47,13 +49,15 @@ export class CodeActParser {
 		const marker = this.mode === "code" ? "</execute>" : "<execute>";
 		const eligible = this.mode === "code" || !this.fence && this.thinking === 0;
 		const closing = this.mode === "code" && line.startsWith(marker);
-		if (closing || eligible && complete && line === marker) {
+		const opening = this.mode === "text" && eligible && possibleExecuteStart(line);
+		if (opening && line.length > MAX_EXECUTE_TAG_LENGTH) throw new Error("CodeAct 开始标记过长，代码未执行。");
+		if (closing || opening && complete && line.startsWith("<execute")) {
 			if (this.mode === "code" && this.codeChars === 0) throw new Error("CodeAct 执行块为空，代码未执行。");
 			// 提交点精确到结束标签；同一行的后缀和换行都不能进入源码或重放文本。
 			if (closing) this.consumedChars -= this.line.length - marker.length + Number(newline);
-			chunks.push({ type: this.mode === "code" ? "close" : "open" });
+			chunks.push(this.mode === "code" ? { type: "close" } : { type: "open", metadata: executeMetadata(line) });
 			this.mode = this.mode === "code" ? "closed" : "code";
-		} else if (complete || !eligible || !marker.startsWith(line)) {
+		} else if (complete || !eligible || !(this.mode === "code" ? marker.startsWith(line) : opening)) {
 			const text = this.line.slice(this.emitted) + (newline ? "\n" : "");
 			if (text) {
 				if (this.mode === "code") {
