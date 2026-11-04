@@ -47,6 +47,24 @@ it("正文立即流出，保留可能的分片标记；未闭合、空块和超�
 	expect(() => parse(["<execute>\n" + "x".repeat(1024 * 1024 + 1)])).toThrow("超过");
 });
 
+it("正文块边界不合成换行、不打断源码；提交偏移只统计原文", () => {
+	const parser = new CodeActParser();
+	const chunks = parser.feed("说明无换行");
+	chunks.push(...parser.textBoundary(), ...parser.feed("<execute>\nx="));
+	chunks.push(...parser.textBoundary(), ...parser.feed("42\nx\n</execute> suffix"));
+	expect(join(chunks, "text")).toBe("说明无换行");
+	expect(join(chunks, "code")).toBe("x=42\nx\n");
+	expect(parser.consumed).toBe("说明无换行<execute>\nx=42\nx\n</execute>".length);
+});
+
+it.each(["```python", "<thinking>"])("正文块边界保留示例保护状态：%s", example => {
+	const parser = new CodeActParser();
+	const chunks = parser.feed(example);
+	chunks.push(...parser.textBoundary(), ...parser.feed("<execute>\nignored()\n</execute>"), ...parser.finish());
+	expect(join(chunks, "code")).toBe("");
+	expect(parser.closed).toBe(false);
+});
+
 it("Markdown 围栏和嵌套 thinking 内的示例不执行；缩进与属性不是执行协议", () => {
 	const examples = "```python\n<execute>\nexample()\n</execute>\n```\n<thinking>\n<thinking>\n</thinking>\n<execute>\nignored()\n</execute>\n</thinking>\n <execute>\n<execute desc=\"example\">\n";
 	const result = parse([...examples + "<execute>\nactual()\n</execute>"]);

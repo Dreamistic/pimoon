@@ -43,7 +43,10 @@ function parameterNotes(properties: Record<string, unknown>, prefix = ""): strin
 	return Object.entries(properties).flatMap(([name, value]) => {
 		if (!isRecord(value)) return [];
 		const key = `${prefix}${name}`;
-		const notes = typeof value.description === "string" ? [`  ${key}: ${value.description}`] : [];
+		const description = typeof value.description === "string" ? value.description : "";
+		const minimum = typeof value.minLength === "number" && value.minLength > 0 ? `minLength=${value.minLength}` : "";
+		const note = [description, minimum].filter(Boolean).join(" ");
+		const notes = note ? [`  ${key}: ${note}`] : [];
 		const nested = value.type === "array" && isRecord(value.items) ? value.items : value;
 		return isRecord(nested.properties) ? [...notes, ...parameterNotes(nested.properties, `${key}${value.type === "array" ? "[]" : ""}.`)] : notes;
 	});

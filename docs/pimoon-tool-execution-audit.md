@@ -2,6 +2,8 @@
 
 2026-11-03，Windows x64，Node 24.18.0、Python 3.12.9。
 
+2026-11-04 的真实 Codex / Terra 对测及当前结论见 [Terra 真实工具调用对测](terra-tool-comparison.md)。下文仅保留历史离线数据。
+
 > 本文性能数据对应历史的“直调 + 可选 CodeAct”方案，不代表当前架构。现已收敛为 CodeAct 唯一执行入口，见 README 与 VALIDATION.md。基准脚本也已改为让 pimoon 全部操作经过 CodeAct，不能将新结果冒充原来的直接文件工具对测。
 
 ## 结论

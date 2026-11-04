@@ -119,6 +119,36 @@ it("text_end 可补齐正文；更改已流式发送的源码则拒绝执行", a
 		else expect(codeactSource(result)).toBe("42\n");
 	}
 });
+it.each([false, true])("独立文本块的行首执行标记不被前面的说明吞掉，thinking=%s", async withThinking => {
+	const source: StreamFn = () => {
+		const stream = createAssistantMessageEventStream(), partial = message();
+		stream.push({ type: "start", partial });
+		const texts = ["先检查文件。", "<execute>\nread(path='note.txt')\n</execute> ignored"];
+		for (const [index, text] of texts.entries()) {
+			if (index && withThinking) {
+				const contentIndex = partial.content.length;
+				partial.content.push({ type: "thinking", thinking: "fixture" });
+				stream.push({ type: "thinking_start", contentIndex, partial });
+				stream.push({ type: "thinking_end", contentIndex, content: "fixture", partial });
+			}
+			const contentIndex = partial.content.length;
+			partial.content.push({ type: "text", text, textSignature: `fixture-${index}` });
+			stream.push({ type: "text_start", contentIndex, partial });
+			for (const delta of text) stream.push({ type: "text_delta", contentIndex, delta, partial });
+			stream.push({ type: "text_end", contentIndex, content: text, partial });
+		}
+		stream.push({ type: "done", reason: "stop", message: partial }); stream.end(); return stream;
+	};
+	const { result } = await drain(source);
+	expect(result.stopReason).toBe("stop");
+	expect(codeactSource(result)).toBe("read(path='note.txt')\n");
+	expect(result.codeact?.complete).toBe(true);
+	expect(result.codeactContent?.filter(part => part.type === "text")).toEqual([
+		{ type: "text", text: "先检查文件。", textSignature: "fixture-0" },
+		{ type: "text", text: "<execute>\nread(path='note.txt')\n</execute>", textSignature: "fixture-1" },
+	]);
+});
+
 it("不兼容旧原生工具历史，明确要求新建会话", () => {
 	const original = context(), assistant = message();
 	assistant.content = [{ type: "toolCall", id: "fixture", name: "read", arguments: { path: "fixture" } }];

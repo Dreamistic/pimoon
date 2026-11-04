@@ -28,6 +28,13 @@ export class CodeActParser {
 		return chunks;
 	}
 
+	/** 独立正文块有自己的行首；不向原文或源码插入换行。 */
+	textBoundary(): CodeActChunk[] {
+		const chunks: CodeActChunk[] = [];
+		if (this.mode === "text") this.consume(true, false, chunks);
+		return chunks;
+	}
+
 	finish(): CodeActChunk[] {
 		const chunks: CodeActChunk[] = [];
 		if (!this.closed) this.consume(true, false, chunks);

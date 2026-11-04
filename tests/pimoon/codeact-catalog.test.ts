@@ -8,6 +8,13 @@ it("函数目录来自真实 schema，保留可选参数、嵌套结构和返回
 	expect(catalog).toContain("edit(path: str, edits: list[{old: str, new: str, replace_all?: bool}]) -> {changed: int}");
 	expect(catalog).not.toContain('"properties"');
 });
+it("保留字符串最小长度，避免模型把空查询当成枚举接口", () => {
+	const catalog = functionCatalog([{ name: "find", description: "Find paths.", parameters: Type.Object({ query: Type.String({ minLength: 1, description: "fzf query." }), glob: Type.Optional(Type.String({ minLength: 1 })), note: Type.Optional(Type.String()) }) }]);
+	expect(catalog).toContain("  query: fzf query. minLength=1");
+	expect(catalog).toContain("  glob: minLength=1");
+	expect(catalog).not.toContain("  note:");
+});
+
 it("不再硬编码旧工具白名单；插件函数可进入目录，Shell 包装除外", () => {
 	expect(isCodeActFunction("custom_function")).toBe(true);
 	expect(isCodeActFunction("mcp__demo__read")).toBe(true);

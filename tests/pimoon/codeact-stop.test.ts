@@ -84,7 +84,7 @@ it("不响应截流的宿主收尾超时后拒绝执行", async () => {
 	expect(await finished).toMatchObject({ stopReason: "error", errorMessage: expect.stringContaining("停止模型流未能完成") });
 });
 
-it.each(["absent", "completed", "incomplete"] as const)("真实 Codex SSE 截流与同批次原生终态：%s", async terminalStatus => {
+it.each(["absent", "completed", "incomplete"] as const)("真实 Codex SSE 独立说明块后的截流与同批次终态：%s", async terminalStatus => {
 	let requests = 0, cancelled = 0, executed = 0;
 	const payloads: unknown[] = [];
 	const event = (value: unknown) => new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`);
@@ -95,11 +95,17 @@ it.each(["absent", "completed", "incomplete"] as const)("真实 Codex SSE 截流
 				const packets: Uint8Array[] = [];
 				const send = (value: unknown) => packets.push(event(value));
 				send({ type: "response.created", response: { id: `response-${current}` } });
-				send({ type: "response.output_item.added", output_index: 0, item: { type: "message", id: `message-${current}`, role: "assistant", phase: "commentary", content: [] } });
+				if (current === 1) {
+					send({ type: "response.output_item.added", output_index: 0, item: { type: "message", id: "preamble", role: "assistant", phase: "commentary", content: [] } });
+					send({ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: "先检查文件。" });
+					send({ type: "response.output_item.done", output_index: 0, item: { type: "message", id: "preamble", role: "assistant", phase: "commentary", content: [{ type: "output_text", text: "先检查文件。" }] } });
+				}
+				const outputIndex = current === 1 ? 1 : 0;
+				send({ type: "response.output_item.added", output_index: outputIndex, item: { type: "message", id: `message-${current}`, role: "assistant", phase: "commentary", content: [] } });
 				const text = current === 1 ? block : "done";
-				send({ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: text });
+				send({ type: "response.output_text.delta", output_index: outputIndex, content_index: 0, delta: text });
 				if (current === 1 && terminalStatus === "absent") { controller.enqueue(Buffer.concat(packets)); return; }
-				send({ type: "response.output_item.done", output_index: 0, item: { type: "message", id: `message-${current}`, role: "assistant", phase: "final_answer", content: [{ type: "output_text", text }] } });
+				send({ type: "response.output_item.done", output_index: outputIndex, item: { type: "message", id: `message-${current}`, role: "assistant", phase: "final_answer", content: [{ type: "output_text", text }] } });
 				const incomplete = current === 1 && terminalStatus === "incomplete";
 				send({ type: incomplete ? "response.incomplete" : "response.completed", response: { id: `response-${current}`, status: incomplete ? "incomplete" : "completed", incomplete_details: incomplete ? { reason: "max_output_tokens" } : undefined, output: [], usage: { input_tokens: 12, output_tokens: 2, total_tokens: 14 } } });
 				controller.enqueue(Buffer.concat(packets));

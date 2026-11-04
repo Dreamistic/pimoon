@@ -42,6 +42,7 @@ export function codeactStream(provider: StreamFn, instructions: () => string = (
 				const thinking = new Map<number, number>();
 				const textReceived = new Map<number, string>();
 				let receivedText = "";
+				let sourceTextIndex: number | undefined;
 				let textIndex: number | undefined, codeIndex: number | undefined;
 				const closeText = () => {
 					const part = textIndex === undefined ? undefined : message.content[textIndex];
@@ -84,6 +85,11 @@ export function codeactStream(provider: StreamFn, instructions: () => string = (
 					}
 				};
 				const acceptText = (index: number, delta: string) => {
+					if (sourceTextIndex !== index) {
+						accept(parser.textBoundary());
+						closeText();
+						sourceTextIndex = index;
+					}
 					textReceived.set(index, (textReceived.get(index) ?? "") + delta);
 					receivedText += delta;
 					accept(parser.feed(delta));
