@@ -74,7 +74,7 @@ export function pimoonTelemetry(pi: ExtensionAPI): void {
 			bindSessionTrace(ctx.sessionManager.getSessionId(), { agent_run_id: span.agent, model_request_id: span.request });
 		}
 		const payload = fingerprint(event.payload);
-		requestBindings.set(payload.sha256, { labels: labels(ctx), model: ctx.model?.id, allowed: Boolean(span && span.calls <= 20 && ctx.model?.provider === "openai-codex") });
+		requestBindings.set(payload.sha256, { labels: labels(ctx), model: ctx.model?.id, allowed: Boolean(span && ctx.model?.provider === "openai-codex") });
 		if (requestBindings.size > 200) { const first = requestBindings.keys().next().value; if (first) requestBindings.delete(first); }
 		record("model_request", { ...labels(ctx), provider: ctx.model?.provider, model: ctx.model?.id, payload });
 	});
@@ -134,4 +134,4 @@ export function pimoonTelemetry(pi: ExtensionAPI): void {
 }
 record("backend_start", { author: "Dream", app_version: packageInfo.version, privacy: "local_metadata_only", jev: false, node: process.versions.node,
 	platform: process.platform, arch: process.arch, output_limit_chars: 40_000, retention_limit_chars: 1024 * 1024,
-	request_budget: 20, code_timeout_ms: 1_800_000, batch_max_jobs: 256, batch_max_concurrency: 16 });
+	code_timeout_ms: 1_800_000, batch_max_jobs: 256, batch_max_concurrency: 16 });

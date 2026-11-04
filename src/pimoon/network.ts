@@ -45,7 +45,7 @@ export function installModelBoundary(): void {
 			throw new Error("模型请求不是有效 JSON。");
 		}
 		requestBindings.delete(payload.sha256);
-		if (!binding?.allowed) { record("transport_denied", { ...binding?.labels, reason: "unbound_or_budget", payload }); throw new Error("模型请求未绑定到允许的会话，或本轮超过20次请求。不会自动重试。"); }
+		if (!binding?.allowed) { record("transport_denied", { ...binding?.labels, reason: "unbound_session", payload }); throw new Error("模型请求未绑定到允许的 Codex 会话；已阻止发送，不会自动重试。"); }
 		if (typeof parsed !== "object" || parsed === null || !("model" in parsed) || typeof parsed.model !== "string" || !parsed.model || parsed.model !== binding?.model) {
 			record("transport_denied", { ...binding?.labels, reason: "model_mismatch", payload });
 			throw new Error("请求模型与当前会话选择不一致；已阻止自动切换模型。");

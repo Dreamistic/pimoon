@@ -3,11 +3,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { zstdCompressSync } from "node:zlib";
 import { installModelBoundary } from "../../src/pimoon/network.ts";
-import { fingerprint, flushTelemetry, requestBindings, telemetryDirectory } from "../../src/pimoon/telemetry.ts";
+import { fingerprint, flushTelemetry, pimoonTelemetry, requestBindings, telemetryDirectory } from "../../src/pimoon/telemetry.ts";
 import { userAgentConfigPath, userAgentPath } from "../../src/harness/config-loader.ts";
 import { telemetryRunsDirectory, userHistoryPath, resourceCacheDirectory } from "../../src/harness/storage/paths.ts";
 import { agentHome, pimoonHome } from "../../src/pimoon/profile.ts";
 import { checkReadablePath, checkWritablePath } from "../../src/pimoon/paths.ts";
+import { registerExtension } from "../helpers/extension.ts";
 
 const endpoint = "https://chatgpt.com/backend-api/codex/responses";
 const payload = JSON.stringify({ model: "gpt-6-astra", input: "SYNTHETIC_PROMPT_SENTINEL_7b20" });
@@ -53,10 +54,38 @@ describe("模型请求边界", () => {
 		await expect(fetch(endpoint, { method: "POST", body })).rejects.toThrow("切换模型");
 		expect(transport).not.toHaveBeenCalled();
 	});
-	it("超预算绑定不可发送", async () => {
+	it("未获许可的绑定不可发送，不再误报请求次数", async () => {
 		requestBindings.set(fingerprint(payload).sha256, { allowed: false, model: "gpt-6-astra", labels: {} });
-		await expect(fetch(endpoint, { method: "POST", body: payload })).rejects.toThrow("超过20次");
+		await expect(fetch(endpoint, { method: "POST", body: payload })).rejects.toThrow("未绑定到允许的 Codex 会话");
 		expect(transport).not.toHaveBeenCalled();
+	});
+	it("同轮超过20次请求仍可发送，逐次绑定与禁止重放保持生效", async () => {
+		const { handlers } = registerExtension(pimoonTelemetry);
+		const ctx = { cwd: process.cwd(), model: { id: "gpt-6.1-sol", provider: "openai-codex" },
+			sessionManager: { getSessionId: () => "long-sol-run" } };
+		await handlers.get("before_agent_start")?.({ messageType: "user", prompt: "长任务回归" }, ctx);
+		try {
+			for (let index = 0; index < 25; index++) {
+				const request = { model: "gpt-6.1-sol", input: `step-${index}` };
+				await handlers.get("before_provider_request")?.({ payload: request }, ctx);
+				await fetch(endpoint, { method: "POST", body: JSON.stringify(request) });
+			}
+			expect(transport).toHaveBeenCalledTimes(25);
+			await expect(fetch(endpoint, { method: "POST", body: JSON.stringify({ model: "gpt-6.1-sol", input: "step-24" }) })).rejects.toThrow("未绑定");
+			expect(transport).toHaveBeenCalledTimes(25);
+		} finally { await handlers.get("session_shutdown")?.({ reason: "test" }, ctx); }
+	});
+	it.each(["missing-run", "other-provider"])("%s 不因移除次数限制而获得许可", async condition => {
+		const { handlers } = registerExtension(pimoonTelemetry);
+		const ctx = { cwd: process.cwd(), model: { id: "gpt-6.1-sol", provider: condition === "other-provider" ? "other" : "openai-codex" },
+			sessionManager: { getSessionId: () => condition } };
+		if (condition === "other-provider") await handlers.get("before_agent_start")?.({ messageType: "user", prompt: "test" }, ctx);
+		try {
+			const request = { model: "gpt-6.1-sol", input: condition };
+			await handlers.get("before_provider_request")?.({ payload: request }, ctx);
+			await expect(fetch(endpoint, { method: "POST", body: JSON.stringify(request) })).rejects.toThrow("未绑定");
+			expect(transport).not.toHaveBeenCalled();
+		} finally { await handlers.get("session_shutdown")?.({ reason: "test" }, ctx); }
 	});
 	it("压缩解码也受16MiB上限约束", async () => {
 		await expect(fetch(endpoint, { method: "POST", body: new Uint8Array(zstdCompressSync("x".repeat(16 * 1024 * 1024 + 1))), headers: { "content-encoding": "zstd" } })).rejects.toThrow();
