@@ -5,7 +5,7 @@ import path from 'node:path';
 import {once} from 'node:events';
 const base=path.resolve('.tmp/tests/pimoon-runtime');await fs.mkdir(base,{recursive:true});
 const resources=await fs.mkdtemp(path.join(base,'resources-'));await fs.mkdir(path.join(resources,'pimoon'));
-for(const file of ['worker.py','execution.py','observations.py','worker_hooks.py'])await fs.copyFile(path.join('src/pimoon',file),path.join(resources,'pimoon',file));
+for(const file of ['worker.py','execution.py','feedback.py','observations.py','worker_hooks.py'])await fs.copyFile(path.join('src/pimoon',file),path.join(resources,'pimoon',file));
 await fs.copyFile('assets/runtime/pimoon-runtime.exe',path.join(resources,'pimoon/pimoon-runtime.exe'));
 process.env.PIMOON_RESOURCE_DIR=resources;
 const {Runtime,Decoder}=await import('../../src/pimoon/runtime.mjs');
@@ -54,6 +54,40 @@ print(total(rows))`;
   const write=await runtime.run('Path("summary.json").write_text(json.dumps({"total":total(rows)}))',context);assert.equal(write.isError,false,write.content[0].text);
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(cwd,'summary.json'),'utf8')),{total:42});
  },[],false,{transport,protectedPaths:[protectedDir]});
+});
+
+test('连续调用无需 print：自动预览前项、完整展示末项，所有调用只执行一次',async()=>{
+ const tool={name:'send',parameters:{type:'object',properties:{text:{type:'string'}}}};let calls=0;
+ await runTest(async runtime=>{
+  const ctx={tools:[tool],executeTool:async(_name,args)=>({isError:false,result:{content:[{type:'text',text:`sent-${++calls}:${args.text}`}]}})};
+  const result=await runtime.run('send(text="first")\nsend(text="second")',ctx);
+  assert.equal(result.isError,false);assert.equal(calls,2);assert.match(result.content[0].text,/0: sent-1:first/);assert.match(result.content[0].text,/sent-2:second/);
+  assert.equal(result.details.metrics.auto_results,1);
+  const next=await runtime.run('assert _results==["sent-1:first","sent-2:second"]',context);
+  assert.equal(next.isError,false,next.content[0].text);
+  const retained=await runtime.run('assert _=="sent-2:second"',context);assert.equal(retained.isError,false);
+ },[tool],false);
+});
+
+test('循环自动反馈有界、完整值可在同一单元格读取，显式 print 不重复',async()=>{
+ const tool={name:'read',parameters:{type:'object',properties:{path:{type:'string'}}}};let calls=0;
+ await runTest(async runtime=>{
+  const ctx={tools:[tool],executeTool:async(_name,args)=>{calls++;return{isError:false,result:{content:[{type:'text',text:args.path+":"+"x".repeat(5000)}]}};}};
+  const result=await runtime.run('for i in range(12):\n read(path=str(i))\nassert len(_results)==8\nassert _results[0].startswith("4:")\nsaved_results=list(_results)',ctx);
+  assert.equal(result.isError,false,result.content[0].text);assert.equal(calls,12);assert.equal(result.details.metrics.auto_results,12);
+  assert.match(result.content[0].text,/omitted=4/);assert.ok(result.content[0].text.length<5000);
+  const kept=await runtime.run('len(saved_results[-1])',context);assert.equal(kept.content[0].text,'ok\n5003\n');
+  const printed=await runtime.run('print(read(path="printed"))',ctx);assert.equal(printed.details.metrics.auto_results,0);assert.equal(printed.content[0].text,'ok\nprinted:'+"x".repeat(5000)+'\n');
+  const assigned=await runtime.run('unshown=read(path="assigned")',ctx);assert.equal(assigned.content[0].text,'ok\ncalls: read=1');
+ },[tool],false);
+});
+
+test('后项失败仍返回前项反馈，不执行剩余操作也不重放',async()=>{
+ const tool={name:'write',parameters:{type:'object',properties:{path:{type:'string'}}}};const calls=[];
+ await runTest(async runtime=>{
+  const result=await runtime.run('write(path="first")\nwrite(path="fail")\nwrite(path="unreachable")',{tools:[tool],executeTool:async(_name,args)=>{calls.push(args.path);return{isError:args.path==='fail',result:{content:[{type:'text',text:args.path==='fail'?'failed fixture':'completed first'}]}};}});
+  assert.equal(result.isError,true);assert.deepEqual(calls,['first','fail']);assert.match(result.content[0].text,/completed first/);assert.match(result.content[0].text,/failed fixture/);
+ },[tool],false);
 });
 
 test('无需 print 的数据处理与跨轮复用；赋值和 None 不回灌',()=>runTest(async runtime=>{

@@ -21,6 +21,7 @@ import {
 import { createGuiExtensions, type GuiExtensionBindings } from "./extensions.ts";
 import type { GuiModelScope } from "./models.ts";
 import type { GuiModel } from "../../shared/protocol/state.ts";
+import { codeactStream } from "../../../pimoon/codeact/stream.ts";
 
 EventEmitter.defaultMaxListeners = 20;
 
@@ -106,6 +107,7 @@ export async function createGuiRuntime(
 			...(sessionStartEvent ? { sessionStartEvent } : {}),
 			scopedModels: scope.scopedModels,
 		});
+		result.session.agent.streamFunction = codeactStream(result.session.agent.streamFunction);
 		for (const diagnostic of services.diagnostics)
 			dialogs.notify(diagnostic.message, diagnostic.type === "error" ? "error" : "warning");
 		for (const error of services.resourceLoader.getExtensions().errors)

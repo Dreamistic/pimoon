@@ -113,7 +113,7 @@ export class Runtime {
     if(this.dead)throw Error('Runtime unavailable; state lost');
     this.busy=true;this.refs(true);
     const emit=(type,fields)=>{try{onEvent(type,fields);}catch{/* 遥测不能改变执行结果。 */}};
-    const start=performance.now();let request,stopReason;const structuredFailures=[],images=[];
+    const start=performance.now();let request,stopReason;const structuredFailures=[],images=[],callCounts=new Map();
     const toolController=new AbortController();
     let internalCalls=0,internalFailures=0,internalOutputChars=0,batches=0,stateLossObserved=false;
     const stateLost=(reason)=>{
@@ -154,6 +154,7 @@ export class Runtime {
         if(failed)throw Error(text||`Tool ${name} failed`);return text;
       }finally{
         if(failed)internalFailures++;
+        const count=callCounts.get(name)??{calls:0,errors:0};count.calls++;if(failed)count.errors++;callCounts.set(name,count);
         internalOutputChars+=chars;
         emit('bridge_tool_end',{...tags,tool_call_id:toolId,outcome:failed?'tool_error':'success',output_text_chars:chars,elapsed_ms:performance.now()-started});
       }
@@ -177,7 +178,8 @@ export class Runtime {
         if(frame.op===OP.METRICS){Object.assign(this.lastMetrics,JSON.parse(frame.data));continue;}
         if(frame.op===OP.DONE){
           const result=JSON.parse(frame.data);result.tool_failures.push(...structuredFailures);
-          const text=`${result.ok?'ok':'error'}${result.output?'\n'+result.output:''}${result.error?'\n'+result.error:''}${result.tool_failures.length?'\ntool_failures: '+JSON.stringify(result.tool_failures):''}${!result.output_complete?'\nOutput retention incomplete.':''}`;
+          const summary=!result.output&&internalCalls?'\ncalls: '+[...callCounts].map(([name,count])=>`${name}=${count.calls}${count.errors?`(errors=${count.errors})`:''}`).join(' '):'';
+          const text=`${result.ok?'ok':'error'}${result.output?'\n'+result.output:summary}${result.error?'\n'+result.error:''}${result.tool_failures.length?'\ntool_failures: '+JSON.stringify(result.tool_failures):''}${!result.output_complete?'\nOutput retention incomplete.':''}`;
           Object.assign(this.lastMetrics,result.metrics,{ok:result.ok,outcome:result.ok?(result.tool_failures.length?'tool_partial_failure':'success'):'python_error',metrics_complete:true,
             output_complete:result.output_complete,output_chars:result.output_chars,model_returned_text_chars:text.length,tool_failure_count:result.tool_failures.length});
           return {content:[{type:'text',text},...images],isError:!result.ok,details:{runtime:this.transport,metrics:this.lastMetrics}};

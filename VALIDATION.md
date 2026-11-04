@@ -2,6 +2,27 @@
 
 2026-11-03，Windows x64。
 
+## 桌面文本 CodeAct 与无 print 反馈（2026-11-04）
+
+- 只读参考 Agent 的流式检测器、执行器、提示词及 100 个会话文件；未执行历史代码，未保存私人正文和参数。设计及预算见 [文本 CodeAct 与自动反馈](docs/codeact-protocol.md)。
+- 桌面模型 API 不再接收原生工具声明及 tool-call/tool-result；文本块转换为 SDK 内部 `codemode` 事件，继续沿用审批、文件检查、取消与持久化。保留原始文本分块、message id/phase、终态补齐的推理签名及供应商用量；最终正文与流式源码不一致时拒绝执行。
+- 自动反馈覆盖未赋值调用（含循环/条件中的调用），每次副作用只执行一次；最多八个短预览，完整值保留在 `_results`，末尾表达式仍完整展示。赋值结果保持静默，无输出的宿主操作给计数；失败和已完成的前项结果仍报告。工作区模块可直接导入，标准库与运行时模块优先。
+- 本次暂存内容单独导出到隔离快照，排除原有性能草稿后验证通过：17 个定向 Vitest 文件、98 项测试；32 项真实 Python/Rust 执行器测试；全项目 TypeScript 类型检查。集成测试覆盖一个代码块内八次读取、四次条件修改，导入项目函数和标准库、跨块变量复用、禁用能力及未闭合块不执行。
+- 覆盖任意分片、CRLF/Unicode、围栏/thinking 示例、仅终态补齐正文、未请求原生调用、签名补齐、取消、输出超限、正文不一致、自动反馈预算、显式 print 不重复及部分失败不重放。首次混合流程测试发现项目模块不在 Python 搜索路径，已补充路径并重跑通过。
+- 完整桌面构建与封装通过：`dist/pimoon/pimoon.exe` 及 `dist/pimoon-codeact/pimoon.exe`。封装前确认没有运行中的 pimoon 进程；原启动脚本现在可启动新版。产物检查确认两份后端相同、新资源与当前源码一致，并用成品执行器完成十二次无 print 调用、模块导入及结果复用。成品采用当前工作树，原有紧凑 JSON/流式计时草稿仍另行保留，未夹带本次提交。
+- 本地 token 估算只比较合成源码/协议片段，不是供应商账单或端到端性能结论。未启动桌面窗口，未调用付费模型；真实 Codex 的协议遵循、GUI 重启及费用/耗时对测尚未验证。
+- 尚未启用提前执行：闭合块仍等待供应商正式终态；断流、取消及输出超限时不启动代码。既有 45 秒单块、20 次模型请求和 batch 资源预算未取消；不是无限制执行环境。
+
+定向命令（将所有用户目录与 TEMP/TMP 隔离到 `.tmp/tests`）：
+
+```powershell
+node node_modules/vitest/vitest.mjs run --no-cache tests/pimoon tests/harness/extensions/system-prompt.test.ts tests/harness/extensions/system-prompt-session.test.ts tests/gui/frontend/features/chat/tools/codemode-ui.test.ts tests/gui/frontend/features/chat/tools/tool-presets-ui.test.tsx
+node --test tests/pimoon/runtime.test.mjs
+node node_modules/typescript/bin/tsc --noEmit
+bun scripts/build.mjs desktop --dir
+node scripts/build-pimoon-portable.mjs
+```
+
 ## 跨工作区访问与独立新版封装（2026-11-04）
 
 - 确认正在运行的 `dist/pimoon` 仍是旧包；源码此前已允许普通文件跨工作区读取，新建会话不会更新已加载的后端。本次未覆盖运行中的目录。

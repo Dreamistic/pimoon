@@ -5,7 +5,22 @@ import json
 import sys
 
 RESULT_NAME = "__pimoon_cell_result__"
+CAPTURE_NAME = "__pimoon_capture_result__"
 PLAIN_PRINT = builtins.print
+
+
+class _CaptureCalls(ast.NodeTransformer):
+    # 函数内部表达式属于函数实现，不当成单元格的反馈。
+    def visit_FunctionDef(self, node):
+        return node
+
+    visit_AsyncFunctionDef = visit_ClassDef = visit_FunctionDef
+
+    def visit_Expr(self, node):
+        if isinstance(node.value, ast.Call):
+            return ast.copy_location(ast.Expr(value=ast.Call(
+                func=ast.Name(id=CAPTURE_NAME, ctx=ast.Load()), args=[node.value], keywords=[])), node)
+        return node
 
 
 def compile_cell(source):
@@ -15,7 +30,8 @@ def compile_cell(source):
         expression = tree.body[-1]
         tree.body[-1] = ast.copy_location(ast.Assign(
             targets=[ast.Name(id=RESULT_NAME, ctx=ast.Store())], value=expression.value), expression)
-        ast.fix_missing_locations(tree)
+    tree = _CaptureCalls().visit(tree)
+    ast.fix_missing_locations(tree)
     return compile(tree, "<agent>", "exec"), has_result
 
 

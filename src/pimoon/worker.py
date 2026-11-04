@@ -12,13 +12,17 @@ from time import perf_counter
 import traceback
 import types
 from observations import Observations
-from execution import RESULT_NAME, compile_cell, display_result
+from execution import CAPTURE_NAME, RESULT_NAME, compile_cell, display_result
+from feedback import CellFeedback
 import worker_hooks as hooks
 
 HEADER = struct.Struct('<4sBIII')
 MAX_FRAME = 8 * 1024 * 1024
 INPUT, OUTPUT = sys.stdin.buffer, sys.stdout.buffer
 ROOT = Path.cwd().resolve()
+# 支持直接导入项目函数；运行时与标准库优先，避免项目文件遮蔽宿主模块。
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
 INIT, EXEC, REPLY, CANCEL, CLOSE, PING, NATIVE = range(1, 8)
 READY, DONE, CALL, NATIVE_RESULT, PONG, ERROR = 101, 102, 103, 107, 108, 109
 SESSION = REQUEST = 0
@@ -183,6 +187,13 @@ while True:
     hooks.begin()
     failures = []; stream = Capture(); error = None; error_type = None; cache_hit = False; expression_results = 0
     namespace.pop(RESULT_NAME, None)
+    feedback = CellFeedback()
+    def capture_value(value):
+        feedback.capture(value)
+        if feedback.values:
+            namespace['_results'] = feedback.values
+    namespace[CAPTURE_NAME] = capture_value
+    value = None
     with contextlib.redirect_stdout(hooks.TaggedStream(stream)), contextlib.redirect_stderr(hooks.TaggedStream(stream, stderr=True)):
         try:
             code = payload.decode('utf-8')
@@ -198,18 +209,25 @@ while True:
                         cache.popitem(last=False)
             compile_ms = (perf_counter() - compile_start) * 1000
             bytecode, has_result = compiled
-            exec(bytecode, namespace)
-            if has_result:
-                value = namespace.pop(RESULT_NAME, None)
-                if value is not None:
-                    namespace['_'] = value
-                    expression_results = 1
+            try:
+                exec(bytecode, namespace)
+                if has_result:
+                    value = namespace.pop(RESULT_NAME, None)
+                    if value is not None:
+                        expression_results = 1
+            finally:
+                feedback.show(value)
+                if feedback.values:
+                    namespace['_results'] = feedback.values
+                    namespace['_'] = feedback.values[-1]
+                if expression_results:
                     display_result(value)
         except BaseException as failure:
             error_type = type(failure).__name__
             error = traceback.format_exc(limit=6)
         finally:
             namespace.pop(RESULT_NAME, None)
+            namespace.pop(CAPTURE_NAME, None)
     output = stream.getvalue()
     retained_chars = len(output)
     complete = stream.total <= 1024 * 1024
@@ -218,7 +236,7 @@ while True:
         output = output[:20000] + '\n[truncated; retained portion in _last_output; complete=' + str(complete) + ']\n' + output[-20000:]
     send(DONE, {'ok': error is None, 'output': output, 'error': error, 'tool_failures': failures,
                 'output_complete': complete, 'output_chars': stream.total,
-                'metrics': {**hooks.snapshot(), 'expression_results': expression_results, 'error_type': error_type, 'compile_cache_hit': cache_hit,
+                'metrics': {**hooks.snapshot(), 'expression_results': expression_results, 'auto_results': feedback.total, 'error_type': error_type, 'compile_cache_hit': cache_hit,
                             'retained_output_chars': retained_chars, 'displayed_output_chars': len(output),
                             'display_truncated': retained_chars > 40000,
                             'observation_input_rows': observer.input_rows, 'observation_shown_rows': observer.shown_rows,

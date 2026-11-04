@@ -12,7 +12,7 @@ export async function buildDesktop({ root, ui, platform, output, directoryOnly }
 	await collectAssets(root, path.join(appDir, "resources"), { target: "node", platform });
 	const workerDir = path.join(appDir, "resources", "pimoon");
 	await mkdir(workerDir, { recursive: true });
-	for (const file of ["worker.py", "execution.py", "observations.py", "worker_hooks.py"]) await cp(path.join(root, "src/pimoon", file), path.join(workerDir, file));
+	for (const file of ["worker.py", "execution.py", "feedback.py", "observations.py", "worker_hooks.py"]) await cp(path.join(root, "src/pimoon", file), path.join(workerDir, file));
 	await cp(path.join(root, "assets/runtime/pimoon-runtime.exe"), path.join(workerDir, "pimoon-runtime.exe"));
 	const sdkPackageFile = path.join(appDir, "resources/pi/package.json");
 	const sdkPackage = JSON.parse(await readFile(sdkPackageFile, "utf8"));
