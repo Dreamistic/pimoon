@@ -3,7 +3,8 @@ import { loadApprovalGateConfig } from "../approval/config.ts";
 import { createApprovalGate, blockForDenyRule } from "../approval/runtime/gate.ts";
 import { approvalFingerprint } from "../approval/runtime/pending.ts";
 import { approvalBinding, type ApprovalPresenter } from "../approval/pi/proposal.ts";
-import { adviseApproval, type ApprovalExperience } from "../approval/advisor.ts";
+import { adviseApproval } from "../approval/advisor.ts";
+import { ApprovalExperiences, type ApprovalExperience } from "../approval/experience.ts";
 import { buildApprovalRequest, isApprovalToolCall } from "../approval/pi/request.ts";
 import { buildBashApprovalRequest } from "../approval/request/bash/parse.ts";
 import { formatBashPolicyEvaluation } from "../approval/rules/bash-facts.ts";
@@ -41,6 +42,7 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 		if (!config.enabled) return;
 		const request = await buildApprovalRequest(event, ctx.cwd);
 		if (!request) return;
+		const experiences = new ApprovalExperiences(config.remember.persistent_store);
 		const currentPolicy = approvalFingerprint(config);
 		if (closedPolicy !== currentPolicy) { closed.clear(); closedPolicy = currentPolicy; }
 		const key = approvalFingerprint(request);
@@ -72,8 +74,10 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 								const timeout = new AbortController(), advisorSignal = AbortSignal.any([signal, timeout.signal]);
 								const timer = setTimeout(() => timeout.abort(), config.advisor.timeout_ms);
 								try {
+									const stored = await experiences.relevant(current).catch(() => []);
+									const previous = stored.filter(entry => !history.some(item => item.requestHash === entry.requestHash));
 									const pending = adviseApproval(current, asked, options, config.advisor, ctx,
-										{ task, requestHash: key, history: [...history], signal: advisorSignal, discussion });
+										{ task, requestHash: key, history: [...previous, ...history].slice(-12), signal: advisorSignal, discussion });
 									card = await Promise.race([pending, new Promise<never>((_resolve, reject) => {
 										if (advisorSignal.aborted) reject(new Error("Advisor cancelled."));
 										else advisorSignal.addEventListener("abort", () => reject(new Error("Advisor cancelled.")), { once: true });
@@ -105,6 +109,10 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 					const experience: ApprovalExperience = { requestHash: key, tool: request.tool, decision: receipt.decision, summary: approvalSummary(request),
 						...(receipt.scope ? { scope: receipt.scope } : {}), ...(receipt.feedback ? { feedback: receipt.feedback } : {}) };
 					history.push(experience); if (history.length > 24) history.shift();
+					if (config.advisor?.enabled) {
+						try { await experiences.remember(request, receipt); }
+						catch { ctx.ui.notify("审批已处理，但经验未保存；授权结果不变。", "warning"); }
+					}
 					const { feedback: note, ...audit } = receipt;
 					try { pi.appendEntry("approval_decision", { request_hash: key, tool: request.tool, ...audit, has_feedback: Boolean(note) }); }
 					catch { ctx.ui.notify("审批已处理，但审计记录未保存。", "warning"); }

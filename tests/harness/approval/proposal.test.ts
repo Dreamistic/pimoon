@@ -174,3 +174,14 @@ it("交流后顾问失败回退普通审批，不把提问当成同意", async (
 	expect(f.dialogs.list()[0]?.approval?.discuss).toBeUndefined();
 	await f.respond("Deny"); expect(await running).toMatchObject({ block: true });
 });
+
+it("重建扩展后只恢复审批经验，不恢复一次许可", async () => {
+	await writeFile(process.env.PI_APPROVAL_GATE_CONFIG ?? "", '{"advisor":{"enabled":true}}');
+	advise.mockResolvedValue({ title: "检查", explanation: "查看状态", recommendation: "Allow once",
+		recommendationReason: "仅本次", feedbackPlaceholder: "你的要求", actions: [] });
+	const first = fixture(), running = first.call();
+	await first.respond("Allow once"); expect(await running).toBeUndefined();
+	const second = fixture(), next = second.call(operation(["git", "status", "--short"]));
+	await second.respond("Deny"); expect(await next).toMatchObject({ block: true });
+	expect(advise.mock.calls[1]?.[5].history).toMatchObject([{ decision: "approved", scope: "once", sameFamily: true, count: 1 }]);
+});
