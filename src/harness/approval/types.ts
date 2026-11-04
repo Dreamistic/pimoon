@@ -41,17 +41,19 @@ export type ApprovalRequest = {
 	units: ApprovalUnit[];
 } & (
 	| { tool: "bash"; detail: { command: string } }
+	| { tool: "process_run"; detail: { argv: string[]; env: Record<string, string> } }
 	| { tool: "write"; detail: { path: string; content: string } }
 	| { tool: "edit"; detail: { path: string; edits: ApprovalEditReplacement[] } }
-	| {
-		tool: "webfetch";
-		detail: {
-			url: string;
-			origin: string;
-			addresses: import("../web-tools/network/network-policy.ts").ResolvedAddresses;
-		};
-	}
+	| { tool: "webfetch"; detail: WebApprovalDetail }
+	| { tool: "http"; detail: WebApprovalDetail }
 );
+
+interface WebApprovalDetail {
+	url: string;
+	origin: string;
+	addresses: import("../web-tools/network/network-policy.ts").ResolvedAddresses;
+	path?: string;
+}
 
 export type BashApprovalRequest = Extract<ApprovalRequest, { tool: "bash" }>;
 
@@ -115,6 +117,8 @@ export interface ApprovalGateConfig {
 		write: { default_action: ApprovalDefaultAction };
 		edit: { default_action: ApprovalDefaultAction };
 		webfetch: { default_action: ApprovalDefaultAction };
+		process_run?: { default_action: ApprovalDefaultAction };
+		http?: { default_action: ApprovalDefaultAction };
 	};
 	ask_rules: ApprovalRule[];
 	deny_rules: ApprovalRule[];

@@ -85,7 +85,7 @@ describe("遥测报告业务流程", () => {
 	});
 
 	it("嵌套搜索计入执行次数，不冒充模型看到的候选", () => {
-		const value = report([call(0, "codemode"), { ...search(1), parent_call_id: "call-0" }, read(2)]);
+		const value = report([call(0, "codeact"), { ...search(1), parent_call_id: "call-0" }, read(2)]);
 		expect(value.inventory.calls).toBe(3);
 		expect(value.execution).toMatchObject({ direct_calls: 2, nested_calls: 1, by_tool: { find: { direct: 0, nested: 1 } }, codeact: { calls: 1, metrics_samples: 0, outcomes: { unknown: 1 } } });
 		expect(value.candidate_ranking.producer_calls).toBe(0);

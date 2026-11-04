@@ -1,13 +1,13 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { Agent, type StreamFn } from "@earendil-works/pi-agent-core";
-import { Type, createAssistantMessageEventStream, normalizeContext, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, normalizeContext, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
 import { stream as codexStream } from "../../node_modules/@earendil-works/pi-ai/dist/api/openai-codex-responses.js";
 import { codeactStream } from "../../src/pimoon/codeact/stream.ts";
+import { codeactSource } from "../../src/pimoon/codeact/types.ts";
 import { codeactTranscript, type CodeActMessage } from "../../src/pimoon/codeact/transcript.ts";
 
 const model: Model<"openai-codex-responses"> = { id: "fixture", name: "Fixture", api: "openai-codex-responses", provider: "openai-codex", baseUrl: "https://codex.invalid", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
-const entry = { name: "codemode", description: "Python fixture", parameters: Type.Object({ code: Type.String() }) };
-const context = () => normalizeContext({ messages: [{ role: "system", content: "fixture", toolsAdded: [entry], timestamp: 0 }] });
+const context = () => normalizeContext({ messages: [{ role: "system", content: "fixture", timestamp: 0 }] });
 const code = "value=42\nvalue\n";
 const block = `<execute>\n${code}</execute>`;
 function message(): AssistantMessage {
@@ -51,14 +51,14 @@ it.each([0, 12])("完整块关闭后主动截流，不冒充用户取消；用�
 	const result: CodeActMessage = await drain(stream);
 	expect(aborted).toBe(1);
 	expect(parent.signal.aborted).toBe(false);
-	expect(result.stopReason).toBe("toolUse");
+	expect(result.stopReason).toBe("stop");
 	expect(result.errorMessage).toBeUndefined();
 	expect(result.responseId).toBeUndefined();
 	expect(result.codeactStop).toEqual({ sequence: "</execute>", usage: tokens ? "partial" : "unavailable" });
 	expect(result.usage.totalTokens).toBe(tokens);
-	expect(result.content.find(part => part.type === "toolCall")).toMatchObject({ arguments: { code } });
+	expect(codeactSource(result)).toBe(code);
 	const history = context(); history.messages.push(result);
-	const replay = codeactTranscript(history).context.messages.at(-1);
+	const replay = codeactTranscript(history).messages.at(-1);
 	if (replay?.role !== "assistant") throw new Error("fixture");
 	expect(replay.content.some(part => part.type === "thinking")).toBe(false);
 	expect(JSON.stringify(replay)).not.toContain("codeactStop");
@@ -113,9 +113,13 @@ it.each(["absent", "completed", "incomplete"] as const)("真实 Codex SSE 截流
 		...options, transport: "sse", apiKey: `synthetic.${fakePayload}.synthetic`, fetch: fetchFixture, maxRetries: 0,
 		onPayload(payload) { payloads.push(payload); },
 	});
-	const agent = new Agent({ initialState: { model, tools: [{ ...entry, label: "fixture", async execute(_id, args) {
-		executed++; expect(args).toEqual({ code }); return { content: [{ type: "text", text: "completed once" }], details: {} };
-	} }] }, streamFn: codeactStream(provider) });
+	const agent = new Agent({ initialState: { model, tools: [] }, streamFn: codeactStream(provider), finishTurn(turn) {
+		const message: CodeActMessage = turn.message;
+		if (message.stopReason !== "stop" || !message.codeact?.complete) return;
+		executed++; expect(codeactSource(message)).toBe(code);
+		agent.followUp({ role: "user", content: "<execute_result>completed once</execute_result>", timestamp: Date.now() });
+		return { action: "continue" };
+	} });
 	await agent.prompt("Run the synthetic fixture once.");
 	expect(cancelled).toBe(terminalStatus === "absent" ? 1 : 0);
 	expect(executed).toBe(terminalStatus === "incomplete" ? 0 : 1);
@@ -131,9 +135,9 @@ it.each(["absent", "completed", "incomplete"] as const)("真实 Codex SSE 截流
 	}
 	expect(requests).toBe(2);
 	if (terminalStatus === "completed") {
-		expect(responses[0]).toMatchObject({ stopReason: "toolUse", usage: { totalTokens: 14 } });
+		expect(responses[0]).toMatchObject({ stopReason: "stop", usage: { totalTokens: 14 } });
 		const first: CodeActMessage | undefined = responses[0];
 		expect(first?.codeactStop?.usage ?? "complete").toBe("complete");
-	} else expect(responses[0]).toMatchObject({ stopReason: "toolUse", codeactStop: { usage: "unavailable" } });
+	} else expect(responses[0]).toMatchObject({ stopReason: "stop", codeactStop: { usage: "unavailable" } });
 	expect(responses[1]).toMatchObject({ stopReason: "stop", usage: { totalTokens: 14 } });
 });

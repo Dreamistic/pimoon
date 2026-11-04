@@ -71,6 +71,14 @@ export function pimoonTelemetry(pi: ExtensionAPI): void {
 		const span = spans.get(ctx.sessionManager.getSessionId());
 		if (span && !span.first) { span.first = true; record("model_first_event", { ...labels(ctx), elapsed_ms: performance.now() - span.requestStart }); }
 	});
+	// 执行块闭合与执行开始分别计时，不制造工具调用事件。
+	pi.on("message_update", (event, ctx) => {
+		const update = event.assistantMessageEvent;
+		if (event.message.role !== "assistant") return;
+		const message: CodeActMessage = event.message;
+		if (update.type !== "text_end" || !message.codeact?.complete || update.contentIndex !== message.codeact.index) return;
+		record("code_stream_end", { ...labels(ctx), tool_call_id: message.codeact.id });
+	});
 	pi.on("message_end", (event, ctx) => {
 		if (event.message.role !== "assistant") return;
 		const message: CodeActMessage = event.message;
@@ -108,4 +116,4 @@ export function pimoonTelemetry(pi: ExtensionAPI): void {
 }
 record("backend_start", { author: "Dream", app_version: packageInfo.version, privacy: "local_metadata_only", jev: false, node: process.versions.node,
 	platform: process.platform, arch: process.arch, output_limit_chars: 40_000, retention_limit_chars: 1024 * 1024,
-	request_budget: 20, code_timeout_ms: 45_000, batch_max_jobs: 256, batch_max_concurrency: 16 });
+	request_budget: 20, code_timeout_ms: 1_800_000, batch_max_jobs: 256, batch_max_concurrency: 16 });

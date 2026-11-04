@@ -3,7 +3,9 @@ import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { SessionManager, createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices } from "@earendil-works/pi-coding-agent";
 import fileTools from "../../src/harness/extensions/file-tools.ts";
-import { codeactStream } from "../../src/pimoon/codeact/stream.ts";
+import processFunctions from "../../src/harness/extensions/codeact-functions.ts";
+import { CodeAct } from "../../src/pimoon/codeact/session.ts";
+import { CODEACT_RESULT, isCodeActResult, isCodeActResultMessage } from "../../src/pimoon/codeact/types.ts";
 import { startModelServer, type ModelResponse } from "../cli/model-server.ts";
 import { createRuntimeResources } from "./runtime-resources.ts";
 
@@ -17,7 +19,6 @@ it("API 不声明工具；一个文本 CodeAct 用外部函数、条件和循环
 	for (let index = 0; index < 8; index++) await fs.writeFile(path.join(cwd, `${index}.txt`), `value-${index}`);
 	await fs.writeFile(path.join(cwd, "analysis_lib.py"), 'def choose(paths, rows):\n return [p for p,r in zip(paths,rows) if r["ok"] and int(p.split(".")[0])%2==0]\n');
 	vi.stubEnv("PIMOON_RESOURCE_DIR", await createRuntimeResources(folder));
-	const { default: codemode } = await import("../../src/harness/extensions/codemode.ts");
 	const code = `from analysis_lib import choose
 from statistics import mean
 paths=[f"{i}.txt" for i in range(8)]
@@ -40,12 +41,13 @@ for p in selected:
 	} } }));
 	try {
 		const runtime = await createAgentSessionRuntime(async ({ cwd, agentDir, sessionManager }) => {
+			const codeact = new CodeAct();
 			const services = await createAgentSessionServices({ cwd, agentDir, resourceLoaderOptions: {
-				extensionFactories: [{ name: "codemode", builtin: true, factory: codemode }, { name: "file-tools", factory: fileTools }],
+				extensionFactories: [codeact.extension, { name: "file-tools", factory: fileTools }, { name: "process", factory: processFunctions }],
 				noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
 			} });
-			const result = await createAgentSessionFromServices({ services, sessionManager, tools: ["codemode", "read", "edit"] });
-			result.session.agent.streamFunction = codeactStream(result.session.agent.streamFunction);
+			const result = await createAgentSessionFromServices({ services, sessionManager, tools: ["read", "edit", "process_run"] });
+			codeact.bind(result.session);
 			return { ...result, services, diagnostics: services.diagnostics };
 		}, { cwd, agentDir, sessionManager: SessionManager.inMemory(cwd) });
 		try {
@@ -57,9 +59,11 @@ for p in selected:
 				expect(request.messages.some(message => message.role === "tool" || message.tool_call_id)).toBe(false);
 				expect(JSON.stringify(request)).not.toContain('"tool_calls"');
 			}
-			const results = runtime.session.messages.filter(message => message.role === "toolResult");
+			const results = runtime.session.messages.filter(isCodeActResultMessage);
+			expect(runtime.session.getAllTools().some(fn => fn.name === "codemode")).toBe(false);
+			expect(runtime.session.messages.some(message => message.role === "toolResult" || message.role === "assistant" && message.content.some(part => part.type === "toolCall"))).toBe(false);
 			expect(results).toHaveLength(2);
-			expect(results.map(message => message.isError), JSON.stringify(results.map(message => message.content))).toEqual([false, false]);
+			expect(results.map(message => isCodeActResult(message.details) ? message.details.isError : true), JSON.stringify(results.map(message => message.content))).toEqual([false, false]);
 			expect(results[0]?.details).toMatchObject({ metrics: { internal_tool_calls: 12, internal_tool_failures: 0, auto_results: 4 } });
 			expect(JSON.stringify(results[0]?.content)).not.toContain("value-1");
 			expect(JSON.stringify(results[1]?.content)).toContain("previous_mean");
@@ -75,8 +79,15 @@ for p in selected:
 			runtime.session.setActiveToolsByName([]);
 			replies.push({ text: unsafe + "\n</execute>" });
 			await runtime.session.prompt("Disabled fixture; must not execute.");
-			expect(runtime.session.messages.filter(message => message.role === "toolResult")).toHaveLength(2);
+			expect(runtime.session.messages.filter(message => message.role === "custom" && message.customType === CODEACT_RESULT)).toHaveLength(3);
 			expect(await fs.readFile(path.join(cwd, "0.txt"), "utf8")).toBe("changed-0");
+			runtime.session.setActiveToolsByName(["process_run"]);
+			expect(runtime.session.getCallableToolNames()).toContain("process_run");
+			replies.push({ text: `<execute>\nprocess_run(argv=[${JSON.stringify(process.execPath)},"-e","process.exit(7)"])\nprocess_run(argv=[${JSON.stringify(process.execPath)},"-e","require('node:fs').writeFileSync('must-not-run','bad')"])\n</execute>` }, { text: "done" });
+			await runtime.session.prompt("Failed process must stop dependent steps without shell orchestration.");
+			const finalResult = runtime.session.messages.findLast(message => message.role === "custom" && message.customType === CODEACT_RESULT);
+			expect(finalResult?.role === "custom" && finalResult.details, JSON.stringify(finalResult)).toMatchObject({ isError: true, metrics: { internal_tool_calls: 1 } });
+			await expect(fs.access(path.join(cwd, "must-not-run"))).rejects.toThrow();
 		} finally { await runtime.dispose(); }
 	} finally { await server.close(); }
 });

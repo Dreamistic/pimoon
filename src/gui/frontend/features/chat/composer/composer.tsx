@@ -7,7 +7,7 @@ import { FeedbackHighlight } from "@/ui/feedback-highlight.tsx";
 import { AnimatedNumber } from "@/ui/motion/animated-number.tsx";
 import { AnimatedBackground } from "@/ui/motion/animated-background.tsx";
 import { Paperclip, Terminal, X } from "lucide-react";
-import { Blocks, CodeXml, CornerUpRight, ListEnd, Wrench } from "lucide";
+import { CodeXml, CornerUpRight, ListEnd } from "lucide";
 import { MorphIcon } from "morphicons/react";
 import { QueuedMessages } from "./queued-messages.tsx";
 import { Hint } from "@/ui/tooltip.tsx";
@@ -59,11 +59,9 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 	const running = snapshot.running;
 	const commandMode = draft.startsWith("!");
 	const commandLabel = draft.startsWith("!!") ? "执行命令且不加入模型上下文" : "执行命令";
-	const codemode = snapshot.modelTools.includes("codemode");
-	const toolCount = codemode ? snapshot.tools.filter((tool) => tool.name !== "codemode"
-		&& (tool.callable || tool.exposure === "model-only" && tool.enabled)).length : snapshot.modelTools.length;
+	const toolCount = snapshot.tools.filter((tool) => tool.callable).length;
 	const mcpEnabled = snapshot.tools.some((tool) => tool.mcp && tool.enabled);
-	const toolIcon = codemode ? CodeXml : mcpEnabled ? Blocks : Wrench;
+	const toolIcon = CodeXml;
 	const {
 		connected,
 		query,
@@ -333,11 +331,11 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 							}}
 						/>
 						<InputHistory history={snapshot.history} select={setDraft} focusEditor={() => editor.current?.focus()} />
-						<Hint content={`工具 · ${codemode ? "codemode" : "普通模式"}${mcpEnabled ? " · MCP 已启用" : ""}`}><Button
+						<Hint content={`CodeAct 函数${mcpEnabled ? " · MCP 已启用" : ""}`}><Button
 							variant="ghost"
 							size="sm"
 							className="tool-count"
-							aria-label={`工具：可用 ${toolCount} 个${codemode ? "，codemode 模式" : ""}${mcpEnabled ? "，MCP 已启用" : ""}`}
+							aria-label={`CodeAct：可用 ${toolCount} 个函数${mcpEnabled ? "，MCP 已启用" : ""}`}
 							disabled={!gui.canSubmit}
 							onClick={() => gui.setPanel({ kind: "tools" })}
 						>

@@ -189,8 +189,8 @@ async function buildLaunch(input: ProcessRunInput): Promise<{ args: string[]; cw
 }
 
 function buildChildEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-	const allowed = new Set(["ELECTRON_RUN_AS_NODE", "PATH", "PATHEXT", "HOME", "USERPROFILE", "SystemRoot", "TEMP", "TMP", "TERM", "COLORTERM", "LANG", "LC_ALL"]);
-	const prefixes = ["OPENAI_", "ANTHROPIC_", "OLLAMA_", "PI_", "NO_PROXY", "HTTP_PROXY", "HTTPS_PROXY"];
+	const allowed = new Set(["ELECTRON_RUN_AS_NODE", "PATH", "PATHEXT", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SystemRoot", "TEMP", "TMP", "TERM", "COLORTERM", "LANG", "LC_ALL"]);
+	const prefixes = ["OPENAI_", "ANTHROPIC_", "OLLAMA_", "PI_", "PIMOON_", "NO_PROXY", "HTTP_PROXY", "HTTPS_PROXY"];
 	const env: NodeJS.ProcessEnv = {};
 	for (const [key, value] of Object.entries(source)) {
 		if (value === undefined) continue;

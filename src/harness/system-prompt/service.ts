@@ -65,8 +65,8 @@ function subagentRole(options: BuildSystemPromptOptions): string {
 
 function formatToolPolicy(options: BuildSystemPromptOptions): string {
 	const rules = [
-		"Use the narrowest suitable tool.",
-		...(options.selectedTools?.includes("codemode") ? [] : ["Parallelize independent tool calls. Sequence dependent calls."]),
+		"Use the narrowest suitable function.",
+		"Parallelize independent calls. Sequence dependent calls.",
 		"Retrieve again only if context is incomplete or stale.",
 		...(options.selectedTools ?? []).flatMap((name) => options.toolGuidelines?.[name] ?? []),
 		...(options.promptGuidelines ?? []),

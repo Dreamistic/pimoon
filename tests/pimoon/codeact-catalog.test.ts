@@ -1,42 +1,18 @@
 import { expect, it } from "vitest";
 import { Type } from "typebox";
-import { codemodeCatalog } from "../../src/harness/codemode/catalog.ts";
-import { codemodeHiddenDeclarations, codemodeSelection } from "../../src/harness/codemode/loadout.ts";
+import { functionCatalog } from "../../src/pimoon/codeact/catalog.ts";
+import { isCodeActFunction } from "../../src/pimoon/codeact/functions.ts";
 
-it("目录从参数 schema 生成可区分可选参数和嵌套对象的紧凑签名", () => {
-	const parameters = Type.Object({
-		path: Type.String({ description: "Workspace path." }),
-		mode: Type.Optional(Type.Union([Type.Literal("regex"), Type.Literal("literal")])),
-		jobs: Type.Array(Type.Object({ old: Type.String(), new: Type.String(), replace_all: Type.Optional(Type.Boolean({ description: "Replace all matches." })) })),
-	});
-	const catalog = codemodeCatalog([
-		{ name: "read", description: "Read fixture.", parameters },
-		{ name: "codemode", description: "Entry.", parameters: Type.Object({}) },
-		{ name: "unsupported", description: "Hidden.", parameters: Type.Object({}) },
-	]);
-	expect(catalog).toContain('read(path: str, mode?: "regex"|"literal", jobs: list[{old: str, new: str, replace_all?: bool}])');
-	expect(catalog).toContain("path: Workspace path.");
-	expect(catalog).toContain("jobs[].replace_all: Replace all matches.");
-	expect(catalog).not.toContain("unsupported");
+it("函数目录来自真实 schema，保留可选参数、嵌套结构和返回类型", () => {
+	const catalog = functionCatalog([{ name: "edit", description: "Edit fixture.", parameters: Type.Object({ path: Type.String(), edits: Type.Array(Type.Object({ old: Type.String(), new: Type.String(), replace_all: Type.Optional(Type.Boolean()) })) }), outputSchema: Type.Object({ changed: Type.Integer() }) }]);
+	expect(catalog).toContain("edit(path: str, edits: list[{old: str, new: str, replace_all?: bool}]) -> {changed: int}");
 	expect(catalog).not.toContain('"properties"');
 });
-
-it("声明来自真实输出 schema 的字段，未声明结构化输出时返回文本", () => {
-	const catalog = codemodeCatalog([
-		{ name: "bash", description: "Run.", parameters: Type.Object({ command: Type.String() }),
-			outputSchema: Type.Object({ output: Type.String(), exit_code: Type.Union([Type.Integer(), Type.Null()]), truncated: Type.Boolean() }) },
-		{ name: "find", description: "Find.", parameters: Type.Object({}),
-			outputSchema: Type.Object({ matches: Type.Array(Type.Object({ path: Type.String() })) }) },
-		{ name: "ls", description: "List.", parameters: Type.Object({}) },
-	]);
-	expect(catalog).toContain("bash(command: str) -> {output: str, exit_code: int|None, truncated: bool}");
-	expect(catalog).toContain("find() -> {matches: list[{path: str}]}");
-	expect(catalog).toContain("ls() -> str");
-});
-
-it("只隐藏执行声明，不丢失底层能力选择或显式无工具状态", () => {
-	expect(codemodeHiddenDeclarations(["codemode", "read", "bash", "other"].map(name => ({ name })))).toEqual(["read", "bash", "other"]);
-	expect(codemodeSelection(["read", "bash"])).toEqual(["read", "bash", "codemode"]);
-	expect(codemodeSelection(["read", "codemode"])).toEqual(["read", "codemode"]);
-	expect(codemodeSelection([])).toEqual([]);
+it("不再硬编码旧工具白名单；插件函数可进入目录，Shell 包装除外", () => {
+	expect(isCodeActFunction("custom_function")).toBe(true);
+	expect(isCodeActFunction("mcp__demo__read")).toBe(true);
+	expect(isCodeActFunction("bash")).toBe(false); expect(isCodeActFunction("powershell")).toBe(false);
+	const catalog = functionCatalog([{ name: "custom_function", description: "Fixture", parameters: Type.Object({}) }]);
+	expect(catalog).toBe("custom_function() -> str: Fixture");
+	for (const name of ["custom-function", "class", "中文函数"]) expect(functionCatalog([{ name, description: "Fixture", parameters: Type.Object({}) }])).toContain(`getattr(functions,${JSON.stringify(name)})()`);
 });

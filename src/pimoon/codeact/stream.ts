@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
-import { createAssistantMessageEventStream, type AssistantMessage, type ToolCall } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
 import { CodeActParser, type CodeActChunk } from "./parser.ts";
 import { codeactTranscript, type CodeActMessage } from "./transcript.ts";
 
@@ -17,7 +17,7 @@ async function stoppedResult(result: Promise<AssistantMessage>): Promise<Assista
 }
 
 /** 替换模型传输协议，不改 SDK 内部的审批、工具事件、取消和会话持久化。 */
-export function codeactStream(provider: StreamFn): StreamFn {
+export function codeactStream(provider: StreamFn, instructions: () => string = () => ""): StreamFn {
 	return (model, context, options) => {
 		const output = createAssistantMessageEventStream();
 		void (async () => {
@@ -32,8 +32,8 @@ export function codeactStream(provider: StreamFn): StreamFn {
 			if (options?.signal?.aborted) abort();
 			let settled = false;
 			try {
-				const request = codeactTranscript(context);
-				const source = await provider(model, request.context, { ...options, signal: controller.signal });
+				const request = codeactTranscript(context, instructions());
+				const source = await provider(model, request, { ...options, signal: controller.signal });
 				let providerFinished = false, locallyStopped = false;
 				const result = source.result().then(final => { providerFinished = true; return final; });
 				// 解析提前失败时也会取消源流；其终态拒绝不能变成未处理的 Promise。
@@ -42,8 +42,7 @@ export function codeactStream(provider: StreamFn): StreamFn {
 				const thinking = new Map<number, number>();
 				const textReceived = new Map<number, string>();
 				let receivedText = "";
-				let textIndex: number | undefined, callIndex: number | undefined;
-				let call: ToolCall | undefined;
+				let textIndex: number | undefined, codeIndex: number | undefined;
 				const closeText = () => {
 					const part = textIndex === undefined ? undefined : message.content[textIndex];
 					if (part?.type === "text" && textIndex !== undefined) output.push({ type: "text_end", contentIndex: textIndex, content: part.text, partial: message });
@@ -66,26 +65,28 @@ export function codeactStream(provider: StreamFn): StreamFn {
 						if (chunk.type === "text") appendText(chunk.text);
 						else if (chunk.type === "open") {
 							closeText();
-							callIndex = message.content.length;
-							call = { type: "toolCall", id: randomUUID(), name: "codemode", arguments: { code: "" } };
-							message.content.push(call);
-							output.push({ type: "toolcall_start", contentIndex: callIndex, partial: message });
-							output.push({ type: "toolcall_delta", contentIndex: callIndex, delta: '{"code":"', partial: message });
-						} else if (call && callIndex !== undefined && chunk.type === "code") {
-							call.arguments.code = String(call.arguments.code) + chunk.text;
-							output.push({ type: "toolcall_delta", contentIndex: callIndex, delta: JSON.stringify(chunk.text).slice(1, -1), partial: message });
-						} else if (call && callIndex !== undefined && chunk.type === "close") {
-							if (!String(call.arguments.code).trim()) throw new Error("CodeAct 执行块为空，代码未执行。");
-							output.push({ type: "toolcall_delta", contentIndex: callIndex, delta: '"}', partial: message });
-							output.push({ type: "toolcall_end", contentIndex: callIndex, toolCall: call, partial: message });
+							codeIndex = message.content.length;
+							message.codeact = { id: randomUUID(), index: codeIndex, complete: false };
+							message.content.push({ type: "text", text: "" });
+							output.push({ type: "text_start", contentIndex: codeIndex, partial: message });
+						} else if (codeIndex !== undefined) {
+							const block = message.content[codeIndex];
+							if (block?.type !== "text") throw new Error("CodeAct 源码状态无效。");
+							if (chunk.type === "code") {
+								block.text += chunk.text;
+								output.push({ type: "text_delta", contentIndex: codeIndex, delta: chunk.text, partial: message });
+							} else if (chunk.type === "close" && message.codeact) {
+								if (!block.text.trim()) throw new Error("CodeAct 执行块为空，代码未执行。");
+								message.codeact.complete = true;
+								output.push({ type: "text_end", contentIndex: codeIndex, content: block.text, partial: message });
+							}
 						}
 					}
 				};
 				const acceptText = (index: number, delta: string) => {
 					textReceived.set(index, (textReceived.get(index) ?? "") + delta);
 					receivedText += delta;
-					if (request.enabled) accept(parser.feed(delta));
-					else appendText(delta);
+					accept(parser.feed(delta));
 				};
 				for await (const event of source) {
 					if (event.type === "start") {
@@ -164,7 +165,7 @@ export function codeactStream(provider: StreamFn): StreamFn {
 						if (incompleteStop) delete message.responseId;
 						message.rawStopReason = "codeact_stop_sequence";
 					}
-					if (request.enabled && (final.stopReason !== "length" || parser.closed)) accept(parser.finish());
+					if (final.stopReason !== "length" || parser.closed) accept(parser.finish());
 					closeText();
 					let remaining = parser.closed ? parser.consumed : Infinity;
 					message.codeactContent = final.content.flatMap((part): CodeActMessage["content"] => {
@@ -178,8 +179,7 @@ export function codeactStream(provider: StreamFn): StreamFn {
 					});
 					// 保留供应商终态与用量；length 即使已闭合也交由 SDK 拒绝执行。
 					if (final.stopReason === "pending") throw new Error("模型响应尚未完成，代码未执行。");
-					if (sequenceStopped) message.stopReason = "toolUse";
-					else message.stopReason = call && final.stopReason === "stop" ? "toolUse" : final.stopReason;
+					message.stopReason = sequenceStopped ? "stop" : final.stopReason;
 					if (message.stopReason === "aborted") throw new Error("模型响应尚未完成，代码未执行。");
 					output.push({ type: "done", reason: message.stopReason, message });
 				}

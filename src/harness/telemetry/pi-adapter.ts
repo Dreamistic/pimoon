@@ -1,5 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { sessionTrace } from "../../pimoon/trace.ts";
+import { CODEACT_EXECUTION, isCodeActExecutionEvent } from "../../pimoon/codeact/events.ts";
 import { codeFacts } from "../../pimoon/code-facts.ts";
 
 import type {
@@ -11,10 +12,16 @@ import type {
 /** 把 Pi 生命周期和上下文映射为 telemetry 的窄输入。 */
 export function attachTelemetryService(pi: TelemetryPi, service: TelemetryService): void {
 	pi.on("session_start", (event, ctx) => {
-		const code = pi.getAllTools().find(tool => tool.name === "codemode");
-		if (code) service.registerTool({ definition: { name: code.name, description: code.description, parameters: code.parameters,
-			...(code.promptGuidelines === undefined ? {} : { promptGuidelines: code.promptGuidelines }) }, result: (_params, details) => codeFacts(details) });
+		service.registerTool({ definition: { name: "codeact", description: "Python execution", parameters: {} }, result: (_params, details) => codeFacts(details) });
 		service.onSessionStart(event, sessionContext(ctx));
+	});
+	pi.events?.on(CODEACT_EXECUTION, event => {
+		if (!isCodeActExecutionEvent(event)) return;
+		if (event.phase === "start") service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: event.id, toolName: "codeact", args: {} }, event.trace);
+		else {
+			service.onToolResult({ type: "tool_result", toolCallId: event.id, toolName: "codeact", input: {}, ...event.result, isError: event.isError });
+			service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: event.id, toolName: "codeact", result: event.result, isError: event.isError, durationMs: event.durationMs });
+		}
 	});
 	pi.on("turn_start", (event, ctx) => service.onTurnStart(event, {
 		...(ctx.model === undefined ? {} : { model: { provider: ctx.model.provider, id: ctx.model.id } }),

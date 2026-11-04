@@ -21,7 +21,7 @@ import {
 import { createGuiExtensions, type GuiExtensionBindings } from "./extensions.ts";
 import type { GuiModelScope } from "./models.ts";
 import type { GuiModel } from "../../shared/protocol/state.ts";
-import { codeactStream } from "../../../pimoon/codeact/stream.ts";
+import { CodeAct } from "../../../pimoon/codeact/session.ts";
 
 EventEmitter.defaultMaxListeners = 20;
 
@@ -39,12 +39,13 @@ export async function createGuiRuntime(
 	const agentDir = getAgentDir();
 	const trust = new ProjectTrustStore(agentDir);
 	const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
+		const codeact = new CodeAct();
 		const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: false });
 		const services = await createAgentSessionServices({
 			cwd,
 			agentDir,
 			settingsManager,
-			resourceLoaderOptions: { extensionFactories: createGuiExtensions(bindings) },
+			resourceLoaderOptions: { extensionFactories: createGuiExtensions(bindings, codeact) },
 			resourceLoaderReloadOptions: {
 				resolveProjectTrust: async ({ extensionsResult }) => {
 					const cached = decisions.get(cwd);
@@ -107,7 +108,7 @@ export async function createGuiRuntime(
 			...(sessionStartEvent ? { sessionStartEvent } : {}),
 			scopedModels: scope.scopedModels,
 		});
-		result.session.agent.streamFunction = codeactStream(result.session.agent.streamFunction);
+		codeact.bind(result.session, bindings.codeactEvent);
 		for (const diagnostic of services.diagnostics)
 			dialogs.notify(diagnostic.message, diagnostic.type === "error" ? "error" : "warning");
 		for (const error of services.resourceLoader.getExtensions().errors)

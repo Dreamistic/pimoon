@@ -165,8 +165,20 @@ agent_print = config.get('observe', False)
 namespace = {'__builtins__': builtins, 'json': json, 'native_read': native_read,
              'batch': lambda name, jobs, limit=6: bridge('batch', name=name, jobs=jobs, limit=limit),
              'observe': observer.observe, 'get_observation': observer.get}
-proxies = {s['name']: tool(s['name'], list(s['parameters'].get('properties', {}))) for s in config['tools']}
-namespace.update(proxies); namespace['tools'] = types.SimpleNamespace(**proxies)
+function_names = set()
+
+
+def bind_functions(functions):
+    global function_names
+    proxies = {s['name']: tool(s['name'], list(s['parameters'].get('properties', {}))) for s in functions}
+    for name in function_names - proxies.keys():
+        namespace.pop(name, None)
+    namespace.update(proxies)
+    namespace['functions'] = types.SimpleNamespace(**proxies)
+    function_names = set(proxies)
+
+
+bind_functions(config['tools'])
 if agent_print:
     builtins.print = observer.print
 cache = OrderedDict()
@@ -196,7 +208,9 @@ while True:
     value = None
     with contextlib.redirect_stdout(hooks.TaggedStream(stream)), contextlib.redirect_stderr(hooks.TaggedStream(stream, stderr=True)):
         try:
-            code = payload.decode('utf-8')
+            cell = json.loads(payload)
+            bind_functions(cell['tools'])
+            code = cell['code']
             compile_start = perf_counter()
             compiled = cache.get(code)
             cache_hit = compiled is not None

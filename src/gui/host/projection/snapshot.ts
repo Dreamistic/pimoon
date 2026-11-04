@@ -1,7 +1,6 @@
 import { type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import type { ToolSelectionController } from "../../../harness/tool-defaults/controller.ts";
 import type { GuiToolSelectionItem } from "../../shared/config/mcp.ts";
-import { codemodeHiddenDeclarations } from "../../../harness/codemode/loadout.ts";
 import { getCodexSpeed } from "../../../harness/codex-speed/state.ts";
 import type { GuiSnapshot } from "../../shared/protocol/state.ts";
 import { guiModel } from "../session/runtime.ts";
@@ -27,7 +26,6 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 	const mcpNames = new Set(mcpTools.map((tool) => tool.name));
 	const ordinaryTools = selection.listTools(allTools, activeTools).filter((tool) => !mcpNames.has(tool.name));
 	const callableTools = new Set(session.getCallableToolNames());
-	const hidden = new Set(activeTools.includes("codemode") ? codemodeHiddenDeclarations(allTools) : []);
 	const commands = new Map<string, { name: string; description: string }>();
 	for (const command of [
 		...session.extensionRunner
@@ -79,7 +77,7 @@ export function collectGuiSnapshot(runtime: AgentSessionRuntime, presentation: P
 		commands: [...commands.values()],
 		// 启用工具展示 loadout 处理后的声明，未启用工具保留注册描述。
 		tools: [...ordinaryTools, ...mcpTools].map((tool) => ({ ...tool, description: descriptions.get(tool.name) ?? tool.description, callable: callableTools.has(tool.name) })),
-		modelTools: activeTools.filter((name) => !hidden.has(name)),
+		modelTools: [],
 		toolDefaultsChanged: selection.hasUserDefaultChanges(defaults.defaultTools),
 		toolPreset: matchingToolPreset(session, ordinaryTools),
 		providers: services.modelRuntime

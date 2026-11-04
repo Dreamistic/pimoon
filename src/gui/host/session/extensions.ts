@@ -1,3 +1,5 @@
+import type { CodeAct } from "../../../pimoon/codeact/session.ts";
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 import llamaExtension from "../../../../node_modules/@earendil-works/pi-coding-agent/dist/extensions/llama/index.js";
 import { createGuiMcpExtension, type GuiMcpTools } from "./mcp-tools.ts";
@@ -23,6 +25,7 @@ import type { ModelsConfig } from "../../../harness/model-services/schema.ts";
 import { lspManager, registerLspCommands } from "../../../harness/lsp/index.ts";
 
 export interface GuiExtensionBindings {
+	codeactEvent(event: Extract<AgentSessionEvent, { type: "tool_execution_start" | "tool_execution_end" }>): void;
 	dialogs: GuiDialogs;
 	approvalStores: ApprovalStores;
 	approvalRules: SessionApprovalRules;
@@ -38,7 +41,7 @@ export interface GuiExtensionBindings {
 	usageService: UsageService;
 }
 
-export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, bindModelServices, toolsChanged, commandSignal, reports, usageService, approvalStores, approvalRules, signal, titleGenerationChanged }: GuiExtensionBindings): InlineExtension[] {
+export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, bindModelServices, toolsChanged, commandSignal, reports, usageService, approvalStores, approvalRules, signal, titleGenerationChanged }: GuiExtensionBindings, codeact: CodeAct): InlineExtension[] {
 	const views: InlineExtension[] = [
 		{ name: "model-services", factory: (pi) => modelServices(pi, bindModelServices) },
 		{ name: "mcp", builtin: true, factory: createGuiMcpExtension({
@@ -84,6 +87,7 @@ export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, bindMod
 		},
 	];
 	const extensions = createHarnessExtensions({
+		codeact,
 		subagent: createSubagentExtension(undefined, {
 			signal: commandSignal,
 			onProgress: ({ result }) => emit({ type: "panel", panel: { kind: "subagents", details: result.details } }),

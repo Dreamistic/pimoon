@@ -70,7 +70,7 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 					: undefined,
 			);
 			if (outcome.kind === "blocked") return { block: true, reason: outcome.reason };
-			if (request.tool === "webfetch") {
+			if (request.tool === "webfetch" || request.tool === "http") {
 				attachPrivateNetworkGrant(
 					event.input,
 					createPrivateNetworkGrantFor(request.detail.origin, request.detail.addresses),

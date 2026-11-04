@@ -9,8 +9,7 @@ export function isSearchableTool(tool: Pick<ToolInfo, "exposure">): boolean {
 
 /** 搜索入口由模式和已注册候选派生，不保存独立开关或 MCP 连接状态。 */
 export function toolSearchEnabled(tools: readonly Tool[], active: readonly string[]): boolean {
-	return !active.includes("codemode")
-		&& tools.some((tool) => tool.name === "tool_search" && tool.exposure !== "hidden")
+	return tools.some((tool) => tool.name === "tool_search" && tool.exposure !== "hidden")
 		&& tools.some((tool) => isSearchableTool(tool) && !active.includes(tool.name));
 }
 

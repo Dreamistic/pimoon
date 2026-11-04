@@ -105,7 +105,7 @@
 .tool-choice-exposure { display: block; margin-block: 0.125em; }
 .mcp-shared-tools { margin-block-start: 1em; padding-inline: var(--mcp-row-inset); }
 .mcp-shared-tools > h4 { color: var(--muted-foreground); font-size: var(--text-caption); }
-.codemode-body { padding-top: 0; }
+.codeact-body { padding-top: 0; }
 .nested-failures { color: var(--destructive); }
 .nested-call-details { min-width: 0; }
 .nested-call-duration { margin-left: 1.8125rem; }

@@ -25,5 +25,5 @@ execFileSync(path.resolve('node_modules/electron-winstaller/vendor/rcedit.exe'),
  '--set-version-string','CompanyName','Dream','--set-version-string','OriginalFilename','pimoon.exe',
  '--set-version-string','LegalCopyright','pimoon modifications by Dream; upstream notices in resources',
  '--set-file-version','0.1.0','--set-product-version','0.1.0',
-]);
+],{windowsHide:true});
 console.log('独立应用已封装：'+path.join(output,'pimoon.exe'));

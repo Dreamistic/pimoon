@@ -21,7 +21,7 @@ export interface GuiNestedCalls {
 }
 
 type ContentMessage = Extract<AgentMessage, { role: "user" | "custom" }>;
-type WithContent<T> = T extends ContentMessage ? Omit<T, "content"> & { content: GuiContent } : never;
+type WithContent<T> = T extends ContentMessage ? Omit<T, "content"> & { content: GuiContent; output?: GuiToolOutput; nestedCalls?: GuiNestedCalls } : never;
 export type GuiMessage =
 	| Exclude<AgentMessage, { role: "user" | "custom" | "toolResult" }>
 	| WithContent<ContentMessage>

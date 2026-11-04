@@ -61,7 +61,7 @@ function decide(
 		if (rule !== undefined) ask(unit, rule.reason);
 		else if (request.tool !== "bash") {
 			// 非 Bash 默认动作只处理尚未被路径规则、临时范围和记忆规则覆盖的单元。
-			const action = config.tools[request.tool].default_action;
+			const action = config.tools[request.tool]?.default_action ?? "ask";
 			const reason = `default ${request.tool} approval policy`;
 			if (action === "deny") return { kind: "deny", reason };
 			if (action === "ask") ask(unit, reason);

@@ -1,3 +1,4 @@
+import { CODEACT_RESULT, isCodeActResult } from "../../../pimoon/codeact/types.ts";
 import { sessionEntryToContextMessages, type SessionEntry, type SessionManager } from "@earendil-works/pi-coding-agent";
 import { PRUNE_STATE, parsePruneState } from "../../../harness/prune/prune.ts";
 import type { GuiEntry, GuiNestedCalls } from "../../shared/messages/types.ts";
@@ -30,6 +31,8 @@ export class GuiHistory {
 		const source = manager.getEntries();
 		const targets = new Map<string, GuiNestedCalls>();
 		for (const entry of source) {
+			if (!this.cache.has(entry) && entry.type === "custom_message" && entry.customType === CODEACT_RESULT && isCodeActResult(entry.details) && entry.details.nestedCalls)
+				targets.set(entry.id, entry.details.nestedCalls);
 			if (!this.cache.has(entry) && entry.type === "message" && entry.message.role === "toolResult" && entry.message.nestedCalls)
 				targets.set(entry.id, entry.message.nestedCalls);
 		}
@@ -44,7 +47,7 @@ export class GuiHistory {
 						const projected = this.payloads.message(message);
 						if (message.role === "toolResult") this.payloads.releaseResult(message.toolCallId);
 						const nestedCalls = nested.get(entry.id);
-						return projected.role === "toolResult" && nestedCalls ? { ...projected, nestedCalls } : projected;
+						return (projected.role === "toolResult" || projected.role === "custom") && nestedCalls ? { ...projected, nestedCalls } : projected;
 					}),
 					...(pruned ? { prunedToolCallIds: pruned.toolCallIds } : {}),
 				};

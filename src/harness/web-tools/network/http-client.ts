@@ -252,7 +252,10 @@ function createDeadline(durationMs: number): { signal: AbortSignal; dispose: () 
 }
 
 function waitForAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-	if (signal.aborted) return Promise.reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+	if (signal.aborted) {
+		void promise.catch(() => {});
+		return Promise.reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+	}
 	return new Promise((resolve, reject) => {
 		const onAbort = () => reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
 		const cleanup = () => signal.removeEventListener("abort", onAbort);

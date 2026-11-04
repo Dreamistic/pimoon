@@ -100,14 +100,14 @@ describe("报告数据呈现", () => {
 		if (!run) throw new Error("缺少运行头");
 		const base = { type: "call" as const, run_id: run.run_id, at: run.at, started_at: run.at, ended_at: run.at, status: "success" as const };
 		const value = createLiveTelemetryReport({ enabled: true, pending_calls: 0, records: [run,
-			{ ...base, call_id: "code", call_index: 0, tool: "codemode", fields: { metrics_complete: true, outcome: "tool_partial_failure", internal_tool_calls: 4, internal_output_text_chars: 1000, model_returned_text_chars: 80, batch_calls: 1, display_truncated: true, output_complete: true } },
+			{ ...base, call_id: "code", call_index: 0, tool: "codeact", fields: { metrics_complete: true, outcome: "tool_partial_failure", internal_tool_calls: 4, internal_output_text_chars: 1000, model_returned_text_chars: 80, batch_calls: 1, display_truncated: true, output_complete: true } },
 			{ ...base, call_id: "code/1", parent_call_id: "code", call_index: 1, tool: "read" },
-			{ ...base, call_id: "unknown", call_index: 2, tool: "codemode" },
+			{ ...base, call_id: "unknown", call_index: 2, tool: "codeact" },
 		] });
 		expect(value.report.execution.codeact).toMatchObject({ calls: 2, metrics_samples: 1, outcomes: { unknown: 1, tool_partial_failure: 1 }, returned_chars: { samples: 1, mean: 80 } });
 		const doc = documentOf(createElement(TelemetryReport, { value }));
-		expect(doc.textContent).toContain("CodeAct 执行与输出");
-		expect(doc.textContent).toContain("内部结果不等于模型曝光");
+		expect(doc.querySelector(".report-dashboard")?.textContent).toContain("CodeAct 执行与输出");
+		expect(value.report.execution.nested_calls).toBe(1);
 	});
 
 	it("停用且没有调用时不显示虚构的成功率", () => {

@@ -1,18 +1,19 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { codemodeAllowedTools } from "./loadout.ts";
 
-type CatalogTool = Pick<AgentTool, "name" | "description" | "parameters" | "outputSchema">;
+type FunctionInfo = Pick<AgentTool, "name" | "description" | "parameters" | "outputSchema">;
+const keywords = new Set("False None True and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield".split(" "));
+const callableName = (name: string) => /^[A-Za-z_]\w*$/u.test(name) && !keywords.has(name) ? name : `getattr(functions,${JSON.stringify(name)})`;
 
-/** 从真实 schema 生成 Python 调用目录，不重复暴露 JSON 工具声明。 */
-export function codemodeCatalog(tools: readonly CatalogTool[]): string {
-	return tools.filter(tool => tool.name !== "codemode" && codemodeAllowedTools.has(tool.name)).map(tool => {
-		const schema: unknown = tool.parameters;
-		const output = tool.outputSchema === undefined ? "str" : pythonType(tool.outputSchema);
-		if (!isRecord(schema)) return `${tool.name}() -> ${output} - ${tool.description}`;
+/** 从 schema 提取 Python 签名和必要参数语义，不发送 JSON 工具声明。 */
+export function functionCatalog(functions: readonly FunctionInfo[]): string {
+	return functions.map(fn => {
+		const schema: unknown = fn.parameters;
+		const output = fn.outputSchema === undefined ? "str" : pythonType(fn.outputSchema);
+		if (!isRecord(schema)) return `${callableName(fn.name)}() -> ${output}: ${fn.description}`;
 		const required = new Set(Array.isArray(schema.required) ? schema.required : []);
 		const properties = isRecord(schema.properties) ? schema.properties : {};
-		const args = Object.entries(properties).map(([name, value]) => `${name}${required.has(name) ? "" : "?"}: ${pythonType(value)}`);
-		return [`${tool.name}(${args.join(", ")}) -> ${output} - ${tool.description}`, ...parameterNotes(properties)].join("\n");
+		const signature = `${callableName(fn.name)}(${Object.entries(properties).map(([name, value]) => `${name}${required.has(name) ? "" : "?"}: ${pythonType(value)}`).join(", ")}) -> ${output}: ${fn.description}`;
+		return [signature, ...parameterNotes(properties)].join("\n");
 	}).join("\n");
 }
 
@@ -44,8 +45,7 @@ function parameterNotes(properties: Record<string, unknown>, prefix = ""): strin
 		const key = `${prefix}${name}`;
 		const notes = typeof value.description === "string" ? [`  ${key}: ${value.description}`] : [];
 		const nested = value.type === "array" && isRecord(value.items) ? value.items : value;
-		if (isRecord(nested.properties)) notes.push(...parameterNotes(nested.properties, `${key}${value.type === "array" ? "[]" : ""}.`));
-		return notes;
+		return isRecord(nested.properties) ? [...notes, ...parameterNotes(nested.properties, `${key}${value.type === "array" ? "[]" : ""}.`)] : notes;
 	});
 }
 

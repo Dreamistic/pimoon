@@ -8,12 +8,12 @@ import { expect, it } from "vitest";
 const execute = promisify(execFile);
 
 it.each([
-	{ name: "首次启动", original: undefined, expected: ["read", "write", "edit", "find", "grep", "ls", "bash", "websearch", "webfetch", "codemode"] },
+	{ name: "首次启动", original: undefined, expected: ["read", "write", "edit", "find", "grep", "ls", "process_run", "http", "websearch", "webfetch"] },
 	{ name: "旧版原始默认列表", original: '// keep comment\n{"defaultTools":["read","write","edit","find","grep","ls","codemode"],"defaultModel":"custom",}', expected: ["read", "write", "edit", "find", "grep", "ls", "codemode"] },
-	{ name: "缺失入口的旧版桌面列表", original: '{"defaultTools":["read","bash","edit","write","grep","find","ls"]}', expected: ["read", "bash", "edit", "write", "grep", "find", "ls", "codemode"] },
-	{ name: "自定义文件能力补齐入口但不启用网络或进程", original: '{"defaultTools":["read"]}', expected: ["read", "codemode"] },
+	{ name: "缺失入口的旧版桌面列表", original: '{"defaultTools":["read","bash","edit","write","grep","find","ls"]}', expected: ["read", "bash", "edit", "write", "grep", "find", "ls"] },
+	{ name: "自定义能力原样保留，不补执行入口", original: '{"defaultTools":["read"]}', expected: ["read"] },
 	{ name: "已有入口", original: '{"defaultTools":["read","codemode"]}', expected: ["read", "codemode"] },
-	{ name: "纯 Python", original: '{"defaultTools":["codemode"]}', expected: ["codemode"] },
+	{ name: "废弃工具名不自动迁移", original: '{"defaultTools":["codemode"]}', expected: ["codemode"] },
 	{ name: "显式关闭工具", original: '{"defaultTools":[]}', expected: [] },
 ])("$name 的工具默认值", async ({ original, expected }) => {
 	const base = path.resolve(".tmp/tests/pimoon-profile");

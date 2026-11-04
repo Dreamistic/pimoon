@@ -170,6 +170,24 @@ export default function webTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySink
 		telemetry: webFetchTelemetry,
 	});
 
+	pi.registerTool({
+		name: "http", label: "HTTP", defaultActive: true,
+		description: "GET raw HTTP(S) without curl. mode text (UTF-8), probe (discard body), download (save to path). Returns status/url/content_type/bytes/headers_ms/total_ms/speed_bytes_per_second. timeout seconds; proxy follows app settings. No DNS/TLS phase metrics. Download path stays in workspace.",
+		parameters: Type.Object({
+			url: Type.String({ minLength: 1, maxLength: 8192 }),
+			mode: Type.Optional(StringEnum(["text", "probe", "download"] as const)),
+			path: Type.Optional(Type.String({ minLength: 1 })),
+			timeout: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 1800 })),
+		}, { additionalProperties: false }),
+		outputSchema: Type.Object({ status: Type.Integer(), url: Type.String(), content_type: Type.Union([Type.String(), Type.Null()]), bytes: Type.Integer(),
+			headers_ms: Type.Number(), total_ms: Type.Number(), speed_bytes_per_second: Type.Number(), body: Type.Optional(Type.String()), path: Type.Optional(Type.String()) }),
+		async execute(toolCallId, params, signal, _update, ctx) {
+			const grant = readPrivateNetworkGrant(params);
+			const result = await (await getRuntime()).http(params, { toolCallId, ...(signal ? { signal } : {}), ...(grant ? { privateNetworkGrant: grant } : {}) }, ctx.cwd);
+			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result, structuredContent: { ...result } };
+		},
+	});
+
 	pi.on("session_shutdown", async () => {
 		shuttingDown = true;
 		const pending = runtimePromise;

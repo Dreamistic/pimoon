@@ -1,3 +1,5 @@
+import { CODEACT_RESULT, isCodeActResult, type CodeActMessage } from "../../../../../pimoon/codeact/types.ts";
+import type { GuiMessage } from "../../../../shared/messages/types.ts";
 import { outputPreview } from "../../../../shared/messages/output.ts";
 import { replyMetrics } from "../messages/metrics.ts";
 import { getAssistantPerformance } from "../../../../../harness/message-performance/types.ts";
@@ -42,9 +44,15 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 	const messages = source.streamingMessage ? [...source.messages, source.streamingMessage] : source.messages;
 	const lastAssistant = messages.findLastIndex((message) => message.role === "assistant");
 	const results = new Map(messages.flatMap((message) => message.role === "toolResult" ? [[message.toolCallId, message] as const] : []));
+	const executions = new Map<string, Extract<GuiMessage, { role: "custom" }>>();
+	for (const message of messages) if (message.role === "custom" && message.customType === CODEACT_RESULT && isCodeActResult(message.details)) executions.set(message.details.id, message);
 	const live = new Map(source.liveTools.map((event) => [event.toolCallId, event]));
 	const calls = new Set(messages.flatMap((message) => message.role === "assistant"
 		? message.content.flatMap((block) => block.type === "toolCall" ? [block.id] : []) : []));
+	for (const message of messages) if (message.role === "assistant") {
+		const execution = (message as CodeActMessage).codeact;
+		if (execution) calls.add(execution.id);
+	}
 	const models = new Map(source.models.map((model) => [`${model.provider}/${model.id}`, model]));
 	const rows: (Extract<TranscriptItem, { kind: "message" }> | ReplyDraft)[] = [];
 	let current: ReplyDraft | undefined;
@@ -55,13 +63,16 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 	};
 	function activity(id: string, name: string, args: unknown, idle: ToolState, messageIndex: number): TranscriptItem {
 		const result = results.get(id);
+		const execution = executions.get(id);
+		const detail = execution && isCodeActResult(execution.details) ? execution.details : undefined;
 		const event = live.get(id);
-		const output = result?.output ?? event?.output;
-		const completion = result ?? event?.completion;
+		const output = result?.output ?? execution?.output ?? event?.output;
+		const completion = result ?? detail ?? event?.completion;
 		const details = outputPreview(output)?.details;
-		const nestedCalls = result?.nestedCalls ?? event?.nestedCalls;
+		const nestedCalls = result?.nestedCalls ?? execution?.nestedCalls ?? event?.nestedCalls;
+		const stopped = detail?.metrics.outcome === "cancelled" || isRecord(details) && (details.status === "aborted" || details.status === "cancelled" || isRecord(details.metrics) && details.metrics.outcome === "cancelled");
 		const state = completion
-			? isRecord(details) && details.status === "aborted" ? "stopped" : completion.isError ? "failed" : "completed"
+			? stopped ? "stopped" : completion.isError ? "failed" : "completed"
 			: event ? "running" : idle;
 		return {
 			key: `tool:${id}`, kind: "tool", messageIndex, pruned: prunedToolCallIds.has(id),
@@ -104,9 +115,13 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 			reply.lastAssistant = { message, index: messageIndex, identity };
 			const metrics = replyMetrics([message]);
 			const bodyTps = getAssistantPerformance(message)?.bodyTps;
+			const execution = (message as CodeActMessage).codeact;
 			message.content.forEach((block, blockIndex) => {
 				const blockKey = `${key}:${blockIndex}`;
-				if (block.type === "toolCall") {
+				if (execution && blockIndex === execution.index && block.type === "text") {
+					const idle = message.stopReason === "aborted" ? "stopped" : streaming ? "preparing" : source.streaming && index === lastAssistant ? "pending" : "unavailable";
+					reply.items.push(activity(execution.id, "codeact", { code: block.text }, idle, messageIndex));
+				} else if (block.type === "toolCall") {
 					const idle = message.stopReason === "aborted" ? "stopped" : streaming ? "preparing"
 						: source.streaming && index === lastAssistant ? "pending" : "unavailable";
 					reply.items.push(activity(block.id, block.name, block.arguments, idle, messageIndex));
@@ -120,7 +135,7 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 					speed: bodyTps?.[blockIndex] ?? null });
 			});
 			if (message.errorMessage) reply.items.push({ key: `${key}:error`, messageIndex, kind: "error", text: message.errorMessage });
-		} else if (message.role !== "custom" || message.display !== false) reply.items.push(standalone);
+		} else if (message.role !== "custom" || message.display !== false && message.customType !== CODEACT_RESULT) reply.items.push(standalone);
 	});
 	for (const event of source.liveTools) {
 		if (!calls.has(event.toolCallId) && !results.has(event.toolCallId))
@@ -151,9 +166,11 @@ function finishReply(draft: ReplyDraft, source: TranscriptSource, active: boolea
 		&& message.content.length > 0
 		&& process.every((item) => item.kind !== "tool" || item.messageIndex !== last?.index
 			|| item.tool.state === "completed" || item.tool.state === "failed");
+	const execution = process.findLast(item => item.kind === "tool" && item.tool.name === "codeact" && item.messageIndex === last?.index);
+	const executionState = execution?.kind === "tool" ? execution.tool.state : undefined;
 	const state: ReplyState = active ? "running"
-		: message?.stopReason === "aborted" ? "stopped"
-		: message?.stopReason === "error" ? "failed"
+		: message?.stopReason === "aborted" || executionState === "stopped" ? "stopped"
+		: message?.stopReason === "error" || executionState === "failed" ? "failed"
 		: message?.stopReason === "stop" && answer.length > 0 ? "completed"
 		: continued ? "continued" : "incomplete";
 	const identity = last?.identity;
@@ -161,7 +178,8 @@ function finishReply(draft: ReplyDraft, source: TranscriptSource, active: boolea
 	return { kind: "reply", identity, metrics, key: draft.key, messageIndices: draft.messageIndices, state, retrying, compacting: active && source.compacting, process, answer, error };
 }
 
-function answerBlocks(message: AssistantMessage): Set<number> {
+function answerBlocks(message: CodeActMessage): Set<number> {
+	if (message.codeact) return new Set();
 	if (message.content.some((block) => block.type === "toolCall") || message.stopReason === "toolUse" || message.stopReason === "deferred")
 		return new Set();
 	const phases = message.content.map((block) => block.type === "text" ? textPhase(block.textSignature) : undefined);

@@ -1,3 +1,4 @@
+import { CODEACT_RESULT, isCodeActResult } from "../../../pimoon/codeact/types.ts";
 import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
@@ -111,8 +112,16 @@ export class GuiPayloads {
 	}
 	message(message: AgentMessage): GuiMessage {
 		switch (message.role) {
-			case "user":
-			case "custom": return { ...message, content: this.content(message.content) };
+			case "user": return { ...message, content: this.content(message.content) };
+			case "custom": {
+				if (message.customType === CODEACT_RESULT && isCodeActResult(message.details)) {
+					const id = message.details.id;
+					const output = this.pendingResults.get(id) ?? this.complete(id, "codeact", { content: message.content, details: { metrics: message.details.metrics } });
+					this.pendingResults.delete(id);
+					return { ...message, content: [], output, ...(message.details.nestedCalls ? { nestedCalls: message.details.nestedCalls } : {}) };
+				}
+				return { ...message, content: this.content(message.content) };
+			}
 			case "toolResult": {
 				const { content, details, ...fields } = message;
 				return { ...fields, output: this.pendingResults.get(message.toolCallId)

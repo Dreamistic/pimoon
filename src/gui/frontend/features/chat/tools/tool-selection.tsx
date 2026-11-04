@@ -18,7 +18,7 @@ import { McpExposureLabel } from "@/features/mcp/mcp-exposure.tsx";
 type Tool = GuiSnapshot["tools"][number];
 type McpGroup = { name: string; enabled: boolean; tools: Tool[] };
 const presetLabels: Record<ToolPreset, string> = {
-	vanilla: "Vanilla", "web-chat": "Web Chat", offline: "Offline", "no-tools": "No Tools",
+	vanilla: "Vanilla", "web-chat": "Web Chat", offline: "Offline", "no-tools": "仅 Python",
 };
 
 export function ToolSelection({ snapshot, send, disabled: blocked }: { snapshot: Pick<GuiSnapshot, "tools" | "modelTools" | "toolDefaultsChanged" | "toolPreset">; send: Send; disabled: boolean }) {
@@ -45,23 +45,19 @@ export function ToolSelection({ snapshot, send, disabled: blocked }: { snapshot:
 	).map((tool) => tool.name));
 	const builtin = snapshot.tools.filter((tool) => !tool.mcp);
 	const mcp = snapshot.tools.filter((tool) => tool.mcp);
-	const codemode = builtin.find((tool) => tool.name === "codemode");
-	const enabled = snapshot.modelTools.includes("codemode");
-	const children = builtin.filter((tool) => tool.exposure !== "model-only" && !snapshot.modelTools.includes(tool.name) && matches.has(tool.name));
-	const peers = builtin.filter((tool) => matches.has(tool.name) && tool.name !== "codemode" && (!enabled || snapshot.modelTools.includes(tool.name) || (tool.exposure === "model-only" && tool.name !== "tool_search")));
-	const showCodemode = codemode && (matches.has(codemode.name) || (enabled && children.length > 0));
-	const hasResults = showCodemode || (enabled && children.length > 0) || peers.length > 0 || mcp.some((tool) => matches.has(tool.name));
+	const functions = builtin.filter((tool) => matches.has(tool.name));
+	const hasResults = functions.length > 0 || mcp.some((tool) => matches.has(tool.name));
 	return <LayoutGroup id={groupId}><div className="tool-selection">
 		<div className="tool-selection-toolbar">
 			<div className="tool-selection-search">
-				<SearchInput icon={Search} aria-label="筛选工具" placeholder="筛选工具或 MCP 服务" value={filter} onValueChange={setFilter} />
+				<SearchInput icon={Search} aria-label="筛选函数" placeholder="筛选函数或 MCP 服务" value={filter} onValueChange={setFilter} />
 			</div>
 			<Button title="保存为用户默认" disabled={disabled || !snapshot.toolDefaultsChanged} aria-busy={saving} onClick={() => void persist()}>
 				<MorphIcon icon={saving ? LoaderCircle : Save} spring="smooth" size="1em" className={saving ? "animate-spin" : undefined} />保存默认
 			</Button>
 		</div>
 		<ToggleGroup className="tool-selection-presets" type="single" size="sm" value={snapshot.toolPreset ?? ""}
-			disabled={disabled} aria-label="内置工具预设" aria-busy={applying}
+			disabled={disabled} aria-label="内置函数预设" aria-busy={applying}
 			onValueChange={(value) => {
 				const preset = TOOL_PRESETS.find((preset) => preset === value);
 				if (preset) void applyPreset(preset);
@@ -71,12 +67,10 @@ export function ToolSelection({ snapshot, send, disabled: blocked }: { snapshot:
 				{presetLabels[preset]}
 			</ToggleGroupItem>)}
 		</ToggleGroup>
-		{!hasResults && <p className="tool-selection-empty" role="status">没有匹配的工具</p>}
-		{showCodemode && <ToolChoice tool={codemode} send={send} disabled={disabled} nested={false} />}
-		{enabled && children.length > 0 && <div className="tool-selection-children">
-			{children.map((tool) => <ToolChoice key={tool.name} tool={tool} send={send} disabled={disabled} nested />)}
-		</div>}
-		{peers.map((tool) => <ToolChoice key={tool.name} tool={tool} send={send} disabled={disabled} nested={false} />)}
+		{!hasResults && <p className="tool-selection-empty" role="status">没有匹配的函数</p>}
+		<section aria-label="CodeAct 函数"><h3>CodeAct</h3><p className="tool-note">固定使用 Python 编排；下列开关控制可用函数，不向模型声明独立工具。</p>
+		{functions.map((tool) => <ToolChoice key={tool.name} tool={tool} send={send} disabled={disabled} nested />)}
+		</section>
 		{mcp.length > 0 && <McpToolSelection tools={mcp} matches={matches} query={query} send={send} disabled={disabled} />}
 	</div></LayoutGroup>;
 }
@@ -169,9 +163,8 @@ function ToolChoice({ tool, send, disabled, nested, showExposure = false }: { to
 			onCheckedChange={(checked) => void send({ action: "tool", name: tool.name, enabled: checked === true })} />
 		<div className="tool-choice-details">
 			<div className="tool-choice-heading">
-				<label className="tool-name" htmlFor={id} title={tool.name} data-disabled={locked || undefined}><strong>{name === "codemode" ? "CodeAct (codemode)" : name}</strong></label>
-				{name === "codemode" && <small className="tool-callable-state">唯一执行入口</small>}
-				{nested && tool.exposure === "direct" && <small className="tool-callable-state">宿主能力</small>}
+				<label className="tool-name" htmlFor={id} title={tool.name} data-disabled={locked || undefined}><strong>{name}</strong></label>
+				{nested && tool.exposure === "direct" && <small className="tool-callable-state">Python 函数</small>}
 				{(alwaysCallable || tool.name === "tool_search") && <small className="tool-callable-state">自动</small>}
 			</div>
 			{showExposure && tool.mcpServer && <small className="tool-choice-exposure"><McpExposureLabel exposure={tool.mcpServer.exposure} /></small>}

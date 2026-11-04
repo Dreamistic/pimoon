@@ -15,8 +15,8 @@ export const toolStates: Record<ToolState, string> = {
 const tools = {
 	read: { label: "读取", icon: FileSearch }, grep: { label: "搜索", icon: Search }, find: { label: "查找", icon: FolderSearch },
 	ls: { label: "列出", icon: FolderSearch }, edit: { label: "修改", icon: FilePenLine }, write: { label: "写入", icon: FilePenLine },
-	subagent: { label: "子代理", icon: Bot }, codemode: { label: "CodeAct", icon: CodeXml },
-	bash: { label: "运行", icon: Terminal }, websearch: { label: "搜索网页", icon: Globe }, webfetch: { label: "读取网页", icon: Globe },
+	subagent: { label: "子代理", icon: Bot }, codeact: { label: "CodeAct", icon: CodeXml },
+	process_run: { label: "运行", icon: Terminal }, http: { label: "HTTP", icon: Globe }, websearch: { label: "搜索网页", icon: Globe }, webfetch: { label: "读取网页", icon: Globe },
 };
 export function errorSummary(tool: { output?: GuiToolOutput | undefined; error?: string }): string {
 	if (tool.error !== undefined) return clean(tool.error);

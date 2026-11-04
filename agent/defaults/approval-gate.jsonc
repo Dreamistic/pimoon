@@ -43,6 +43,8 @@
 	],
 	"deny_rules": [],
 	"tools": {
+		"process_run": { "default_action": "ask" },
+		"http": { "default_action": "ask" },
 		"write": {
 			"default_action": "allow"
 		},

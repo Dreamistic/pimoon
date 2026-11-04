@@ -2,10 +2,10 @@ import type { ExtensionAPI, InlineExtension } from "@earendil-works/pi-coding-ag
 import agentsPrompts from "./extensions/agents-prompts.ts";
 import approvalGate from "./extensions/approval-gate.ts";
 import autoTitle from "./extensions/auto-title.ts";
-import bashTool from "./extensions/bash-tool.ts";
+import codeactFunctions from "./extensions/codeact-functions.ts";
 import { createToolsExtension } from "./extensions/cmd-slash-tools.ts";
 import type { ToolStartupOptions } from "./tool-defaults/initial.ts";
-import codemode from "./extensions/codemode.ts";
+import { CodeAct } from "../pimoon/codeact/session.ts";
 import codexSpeed from "./extensions/codex-speed.ts";
 import toolSearch from "./extensions/tool-search.ts";
 import discordPresence from "./extensions/discord-presence.ts";
@@ -28,6 +28,7 @@ import webTools from "./extensions/web-tools.ts";
 import { registerTelemetry, type TelemetryService } from "./telemetry/service.ts";
 
 interface HarnessOptions {
+	codeact?: CodeAct;
 	startup?: ToolStartupOptions;
 	subagent?: (pi: ExtensionAPI, telemetry: TelemetryService) => void;
 	telemetry?: (pi: ExtensionAPI, service: TelemetryService) => void;
@@ -38,14 +39,14 @@ export function createHarnessExtensions(options: HarnessOptions = {}): InlineExt
 	return [
 		{ name: "message-performance", factory: messagePerformance },
 		{ name: "tool-search", builtin: true, factory: toolSearch },
-		{ name: "codemode", builtin: true, factory: codemode },
+		(options.codeact ?? new CodeAct()).extension,
 		{ name: "mcp", builtin: true, factory: mcp },
 		{ name: "agents-prompts", factory: agentsPrompts },
 		{ name: "approval-gate", factory: approvalGate },
 		{ name: "auto-title", factory: autoTitle },
 		{ name: "tools-runtime", factory(pi) {
 			const service = registerTelemetry(pi);
-			bashTool(pi, service);
+			codeactFunctions(pi);
 			fileTools(pi, service);
 			skillContext(pi, service);
 			(options.subagent ?? subagent)(pi, service);

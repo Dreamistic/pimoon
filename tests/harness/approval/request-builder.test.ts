@@ -11,6 +11,23 @@ const runtimeTempRoot = os.tmpdir();
 const runtimeTempChild = path.join(runtimeTempRoot, "pi-approval", "work");
 
 describe("approval request builder", () => {
+	it("结构化进程审批按 argv、环境覆盖和工作目录精确匹配，不拆成 Shell 单元", async () => {
+		const input = { argv: ["node", "build.js", "a & b"], cwd: "webapp", env: { JAVA_HOME: "fixture-jdk", BUILD_MODE: "debug" } };
+		const request = await buildApprovalRequest({ type: "tool_call", toolName: "process_run", toolCallId: "process", input }, cwd);
+		expect(request).toMatchObject({ tool: "process_run", cwd: path.resolve(cwd, "webapp"), detail: { argv: input.argv, env: input.env } });
+		expect(request?.units).toHaveLength(1);
+		expect(JSON.parse(request?.units[0]?.target.value ?? "null")).toEqual({ argv: input.argv, env: input.env });
+		expect(request?.units[0]?.remember).toEqual({ session: true, persistent: false });
+		const changed = await buildApprovalRequest({ type: "tool_call", toolName: "process_run", toolCallId: "changed", input: { ...input, env: { ...input.env, JAVA_HOME: "other-jdk" } } }, cwd);
+		expect(changed?.units[0]?.target.value).not.toBe(request?.units[0]?.target.value);
+	});
+	it("内网下载同时审批固定网络 origin 与输出文件", async () => {
+		const request = await buildApprovalRequest({ type: "tool_call", toolName: "http", toolCallId: "download", input: { url: "http://127.0.0.1:4567/image", mode: "download", path: "image.bin" } }, cwd);
+		expect(request?.tool).toBe("http");
+		expect(request?.units.map(unit => unit.action)).toEqual(["fetch_url", "write_file"]);
+		expect(request?.units[0]?.target.value).toBe("http://127.0.0.1:4567");
+		expect(request?.units[1]?.target.value).toBe(path.resolve(cwd, "image.bin").replace(/\\/gu, "/"));
+	});
 	it("bash 普通命令生成一个 AST command unit", async () => {
 		const request = await buildApprovalRequest(bash("echo hello"), cwd);
 		expect(request).toMatchObject({ tool: "bash" });

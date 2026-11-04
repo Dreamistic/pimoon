@@ -29,11 +29,11 @@ Pi 将命名段落和工具声明写入会话，后续追加变更。支持中�
 | `label` | 界面短标签 |
 | `description` | 模型可见能力说明 |
 | `parameters` | 参数 schema |
-| `promptSnippet` | Pi 默认提示词和 Codemode 目录使用的摘要 |
+| `promptSnippet` | SDK 默认提示词使用的摘要；CodeAct 目录不重复此字段 |
 | `promptGuidelines` | 工具贡献的长期使用规则 |
 | `execute` | 执行逻辑，返回模型内容与宿主数据 |
 
-opi 的系统提示词收集已选工具的 `promptGuidelines` 到 `tool_policy`，工具能力和参数由原生声明提供。Codemode 的目录由 SDK 生成，见 [Codemode](../codemode/README.md)。
+桌面把能力的真实 schema 转为 Python 函数签名，不发送模型原生工具声明。执行规则集中在 CodeAct 层，不在每个函数重复。见 [CodeAct](../codeact/README.md)。
 
 ## 写法
 

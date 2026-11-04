@@ -1,3 +1,4 @@
+import { CODEACT_RESULT, isCodeActResult } from "../../../pimoon/codeact/types.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { SessionManager, AgentSessionRuntime, SessionStartEvent, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { UserHistoryStore, buildInitialHistory, normalizeHistoryText } from "../../../harness/user-history.ts";
@@ -132,6 +133,7 @@ export class GuiExecution {
 			try {
 				const runtime = await createGuiRuntime(manager.getCwd(), {
 					dialogs: this.dialogs,
+					codeactEvent: (event) => { this.liveTools.accept(event); this.schedule(); },
 					emit: (event) => this.emit(event),
 					bindTools: (controller) => { this.toolController = controller; },
 					bindMcp: (tools) => { this.mcpTools = tools; },
@@ -183,6 +185,8 @@ export class GuiExecution {
 				// 变更 diff 作为界面专用条目落盘，父结果完成后仍可恢复。
 				if (mutation) session.sessionManager.appendCustomEntry(NESTED_MUTATION_ENTRY, mutation);
 			}
+			if (event.type === "entry_appended" && event.entry.type === "custom_message" && event.entry.customType === CODEACT_RESULT && isCodeActResult(event.entry.details))
+				this.liveTools.settle(event.entry.details.id);
 			if (event.type === "agent_end" || event.type === "session_info_changed") this.refreshSessions();
 			this.schedule();
 		});

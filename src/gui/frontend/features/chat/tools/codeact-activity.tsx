@@ -15,7 +15,7 @@ import { toolTarget } from "./tool-target.ts";
 import { useToolOutput } from "./use-tool-output.ts";
 import type { ToolActivity } from "./activity.ts";
 
-export function CodemodeActivity({ tool }: { tool: ToolActivity }) {
+export function CodeActActivity({ tool }: { tool: ToolActivity }) {
 	const [expanded, setExpanded] = useDisclosureMemory(`tool:${tool.id}`, null);
 	const active = tool.state === "running" || tool.state === "preparing" || tool.state === "pending";
 	const open = expanded ?? (active || tool.state === "failed");
@@ -29,7 +29,7 @@ export function CodemodeActivity({ tool }: { tool: ToolActivity }) {
 	const target = calls.length === 1 && first ? toolTarget(first.name, first.arguments) : "";
 	const failedCall = calls.find(call => call.status === "error");
 	const error = tool.state === "failed" ? (failedCall && errorSummary(failedCall)) || errorSummary(tool) : "";
-	return <section className="tool-activity codemode-activity" data-state={tool.state} data-tool="codemode" data-tool-call-id={tool.id}>
+	return <section className="tool-activity codeact-activity" data-state={tool.state} data-tool="codeact" data-tool-call-id={tool.id}>
 		<Collapsible open={open} onOpenChange={setExpanded}>
 			<CollapsibleTrigger className="activity-summary">
 				<Icon className="activity-icon" aria-hidden="true" /><span className="activity-label">{label}</span>
@@ -42,16 +42,16 @@ export function CodemodeActivity({ tool }: { tool: ToolActivity }) {
 			</CollapsibleTrigger>
 			<ActivityError>{error}</ActivityError>
 			<CollapsibleContent lazy>
-				<div className="activity-body codemode-body">
-					<div className="codemode-calls">
+				<div className="activity-body codeact-body">
+					<div className="codeact-calls">
 						{calls.map((call) => <NestedCallRow key={call.id} call={call} active={active} stopped={tool.state === "stopped"} />)}
 					</div>
 					{!active && tool.nestedCalls?.complete === false && <p className="tool-note">调用记录不完整，部分参数、调用或完成状态未保留。</p>}
 					{record(tool.args) && typeof tool.args.code === "string" && <Disclosure className="tool-parameters" summary="代码 · Python" lazy>
 						<CodeBlock label="Python" language="python" text={tool.args.code} />
 					</Disclosure>}
-					{!active && tool.output && <Disclosure className="tool-parameters codemode-output" summary="输出给模型" lazy>
-						<CodemodeOutput tool={tool} />
+					{!active && tool.output && <Disclosure className="tool-parameters codeact-output" summary="输出给模型" lazy>
+						<CodeActOutput tool={tool} />
 					</Disclosure>}
 				</div>
 			</CollapsibleContent>
@@ -82,7 +82,7 @@ function NestedCallRow({ call, active, stopped }: { call: GuiNestedCall; active:
 	</Collapsible>;
 }
 
-function CodemodeOutput({ tool }: { tool: ToolActivity }) {
+function CodeActOutput({ tool }: { tool: ToolActivity }) {
 	const id = tool.output?.kind === "reference" ? tool.output.id : undefined;
 	const loaded = useToolOutput(id);
 	if (id && !loaded.value) return <p className="tool-note" role={loaded.error ? "alert" : "status"}>{loaded.error || "正在读取工具结果…"}</p>;

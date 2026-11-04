@@ -72,7 +72,7 @@ TUI 的 `/tools` 用 Enter 或空格切换，Ctrl+S 保存全局默认值。GUI 
 
 SDK 在下次模型请求时记录当前分支的工具声明，恢复与导航采用该记录。切换模型保留工具选择。
 
-`codemode` 默认关闭。非 Windows 平台的内置 `powershell` 显示为不可用，Windows 可显式启用。powershell 沿用 SDK 执行，不经过本仓库的 Bash 审批解析和输出管理。子代理工具取决于可用代理定义。Codemode 下脚本工具的可调用范围见 [Codemode](../codemode/README.md)。
+桌面 CodeAct 固定启用，不注册 `codemode` 工具；Bash/PowerShell 不进入函数集合。`defaultTools` 在桌面控制 I/O 函数，空集合不关闭纯 Python。分支函数权限独立保存在 `codeact_functions` 条目。新版本不迁移旧工具历史，请新建会话；新能力可在函数面板或 Vanilla 预设启用。详见 [CodeAct](../codeact/README.md)。
 
 ## 配置来源
 

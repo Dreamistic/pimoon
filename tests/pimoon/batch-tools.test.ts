@@ -21,7 +21,8 @@ it("CodeAct 在 Python 内处理读取结果，自动返回摘要并保留部分
 	for (let i = 0; i < 8; i++) await fs.writeFile(path.join(cwd, `${i}.txt`), `value-${i}`);
 	await fs.writeFile(path.join(folder, "outside.txt"), "outside sentinel");
 	vi.stubEnv("PIMOON_RESOURCE_DIR", resources);
-	const { default: codemode } = await import("../../src/harness/extensions/codemode.ts");
+	const { CodeAct } = await import("../../src/pimoon/codeact/session.ts");
+	const { isCodeActResultMessage } = await import("../../src/pimoon/codeact/types.ts");
 	const code = [
 		'jobs=[{"path":f"{i}.txt"} for i in range(8)]+[{"path":"missing.txt"},{"path":"../outside.txt"}]',
 		'items=batch("read", jobs, limit=3)',
@@ -29,7 +30,7 @@ it("CodeAct 在 Python 内处理读取结果，自动返回摘要并保留部分
 		'assert not items[8]["ok"] and items[9]["ok"] and "outside sentinel" in items[9]["value"]',
 		'"read={} failed={}".format(sum(item["ok"] for item in items), sum(not item["ok"] for item in items))',
 	].join("\n");
-	const server = await startModelServer(request => request.messages.some(message => message.role === "tool") ? { text: "done" } : { tool: "codemode", args: { code } });
+	const server = await startModelServer(request => JSON.stringify(request.messages).includes("<execute_result status=") ? { text: "done" } : { text: `<execute>\n${code}\n</execute>` });
 	await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
 	await fs.writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: {
 		baseUrl: server.url, api: "openai-completions", apiKey: "fixture", models: [{ id: "test", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
@@ -38,13 +39,16 @@ it("CodeAct 在 Python 内处理读取结果，自动返回摘要并保留部分
 	try {
 		const manager = SessionManager.inMemory(cwd);
 		const create = () => createAgentSessionRuntime(async ({ cwd, agentDir, sessionManager }) => {
+			const codeact = new CodeAct();
 			const services = await createAgentSessionServices({ cwd, agentDir, resourceLoaderOptions: {
-				extensionFactories: [{ name: "codemode", builtin: true, factory: codemode }, { name: "file-tools", factory: pi => {
+				extensionFactories: [codeact.extension, { name: "file-tools", factory: pi => {
 					const service = registerTelemetry(pi); collectors.push(service); fileTools(pi, service);
 				} }],
 				noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
 			} });
-			return { ...await createAgentSessionFromServices({ services, sessionManager, tools: ["codemode", "read"] }), services, diagnostics: services.diagnostics };
+			const result = await createAgentSessionFromServices({ services, sessionManager, tools: ["read"] });
+			codeact.bind(result.session);
+			return { ...result, services, diagnostics: services.diagnostics };
 		}, { cwd, agentDir, sessionManager: manager });
 		const runtime = await create();
 		try {
@@ -57,9 +61,9 @@ it("CodeAct 在 Python 内处理读取结果，自动返回摘要并保留部分
 			expect(server.requests).toHaveLength(0);
 			await runtime.session.prompt("Read the fixture batch and report counts.");
 			expect(server.requests).toHaveLength(2);
-			const results = runtime.session.messages.filter(message => message.role === "toolResult");
+			const results = runtime.session.messages.filter(isCodeActResultMessage);
 			expect(results).toHaveLength(1);
-			expect(results[0]?.isError).toBe(false);
+			expect(results[0]?.details).toMatchObject({ isError: false });
 			const text = JSON.stringify(results[0]?.content);
 			expect(text).toContain("read=9 failed=1");
 			expect(text).toContain("tool_failures");
@@ -76,14 +80,14 @@ it("CodeAct 在 Python 内处理读取结果，自动返回摘要并保留部分
 			}, { timeout: 5000 }).toBe(2);
 			await resumed.session.prompt("Continue without replaying completed work.");
 			expect(server.requests).toHaveLength(3);
-			expect(JSON.stringify(server.requests.at(-1)?.messages)).toContain("Python 内存当前为空");
+			expect(JSON.stringify(server.requests.at(-1)?.messages)).toContain("Python 内存为空");
 		} finally { await resumed.dispose(); }
 		const records = (await Promise.all((await fs.readdir(telemetryDirectory)).filter(file => file.endsWith(".jsonl")).map(file => fs.readFile(path.join(telemetryDirectory, file), "utf8")))).join("\n");
 		const events: unknown[] = records.trim().split("\n").map(line => JSON.parse(line));
 		const toolEvents = events.filter((event): event is Record<string, unknown> => typeof event === "object" && event !== null && "type" in event && event.type === "tool_end");
 		expect(toolEvents.filter(event => event.tool === "read")).toHaveLength(10);
 		expect(toolEvents.filter(event => event.tool === "read" && event.is_error)).toHaveLength(1);
-		expect(toolEvents.filter(event => event.tool === "codemode")).toHaveLength(1);
+		expect(toolEvents.filter(event => event.tool === "codemode")).toHaveLength(0);
 		const runtimeEvents = events.filter((event): event is Record<string, unknown> => typeof event === "object" && event !== null && "type" in event);
 		expect(runtimeEvents.filter(event => event.type === "runtime_created")).toHaveLength(2);
 		const ready = runtimeEvents.find(event => event.type === "runtime_ready");
@@ -97,7 +101,7 @@ it("CodeAct 在 Python 内处理读取结果，自动返回摘要并保留部分
 		const first = collectors[0];
 		if (!first) throw new Error("缺少工具遥测采集器");
 		const snapshot = first.snapshot(), report = createLiveTelemetryReport(snapshot).report;
-		expect(report.execution).toMatchObject({ direct_calls: 1, nested_calls: 10, codeact: { calls: 1, metrics_samples: 1, batch_calls: 1, outcomes: { tool_partial_failure: 1 } } });
+		expect(report.execution).toMatchObject({ direct_calls: 1, nested_calls: 10, codeact: { calls: 1, metrics_samples: 1, outcomes: { tool_partial_failure: 1 } } });
 		const calls = snapshot.records.filter(record => record.type === "call");
 		expect(calls).toHaveLength(11);
 		for (const call of calls) {

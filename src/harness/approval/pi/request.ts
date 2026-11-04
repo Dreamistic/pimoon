@@ -14,11 +14,21 @@ type EditApprovalInput = Record<string, unknown> & { path: string; edits: Approv
 type WebFetchApprovalInput = Record<string, unknown> & { url: string };
 
 export function isApprovalToolCall(event: ToolCallEvent): boolean {
-	return event.toolName === "bash" || event.toolName === "write" || event.toolName === "edit" || event.toolName === "webfetch";
+	return event.toolName === "bash" || event.toolName === "write" || event.toolName === "edit" || event.toolName === "webfetch" || event.toolName === "process_run" || event.toolName === "http";
 }
 
 /** Pi 在 tool_call 前已完成工具参数校验，这里只建立审批目标。 */
 export async function buildApprovalRequest(event: ToolCallEvent, cwd: string): Promise<ApprovalRequest | undefined> {
+	if (event.toolName === "process_run") {
+		const argv = event.input.argv;
+		if (!Array.isArray(argv) || !argv.every((value): value is string => typeof value === "string")) return undefined;
+		const overrides = event.input.env;
+		const env: Record<string, string> = {};
+		if (typeof overrides === "object" && overrides !== null) for (const [key, value] of Object.entries(overrides)) if (typeof value === "string") env[key] = value;
+		const workdir = typeof event.input.cwd === "string" ? path.resolve(cwd, event.input.cwd) : cwd;
+		const value = JSON.stringify({ argv, env: Object.fromEntries(Object.entries(env).sort(([a], [b]) => a.localeCompare(b))) });
+		return { tool: "process_run", cwd: workdir, detail: { argv, env }, units: [{ action: "execute", target: { kind: "command", value, effective_value: value }, remember: { session: true, persistent: false } }] };
+	}
 	if (isToolCallEventType("bash", event)) {
 		// SDK 内置 bash 输入类型不含本项目新增的 workdir。
 		const input: BashParams = event.input;
@@ -44,19 +54,21 @@ export async function buildApprovalRequest(event: ToolCallEvent, cwd: string): P
 			units: [pathUnit("edit_file", targetPath)],
 		};
 	}
-	if (isToolCallEventType<"webfetch", WebFetchApprovalInput>("webfetch", event)) {
+	if (isToolCallEventType<"webfetch", WebFetchApprovalInput>("webfetch", event) || isToolCallEventType<"http", WebFetchApprovalInput>("http", event)) {
 		const webConfig = await loadWebToolsConfig();
 		const inspection = await inspectWebFetchTarget(event.input.url, { allowedFakeIpRanges: webConfig.network.fake_ip_ranges });
 		// 无效请求交给工具报告错误，公网请求仍由网络边界检查 DNS 和重定向。
-		if ("error" in inspection || inspection.status === "public") return undefined;
+		if ("error" in inspection) return undefined;
+		const outputPath = event.toolName === "http" && typeof event.input.path === "string" ? fileToolTarget(event.input.path, cwd) : undefined;
+		if (inspection.status === "public" && outputPath === undefined) return undefined;
 		const origin = inspection.validated.url.origin;
 		return {
-			tool: "webfetch", cwd,
-			detail: { url: inspection.validated.displayUrl, origin, addresses: inspection.addresses },
-			units: [{
-				action: "fetch_url", target: { kind: "url", value: origin },
-				remember: { session: true, persistent: true },
-			}],
+			tool: event.toolName, cwd,
+			detail: { url: inspection.validated.displayUrl, origin, addresses: inspection.addresses, ...(outputPath ? { path: outputPath } : {}) },
+			units: [
+				...(inspection.status === "private" ? [{ action: "fetch_url" as const, target: { kind: "url" as const, value: origin }, remember: { session: true, persistent: true } }] : []),
+				...(outputPath ? [pathUnit("write_file", outputPath)] : []),
+			],
 		};
 	}
 	return undefined;

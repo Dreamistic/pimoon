@@ -31,7 +31,9 @@
 				"bash": { "$ref": "#/$defs/bashPolicy" },
 				"write": { "$ref": "#/$defs/toolPolicy" },
 				"edit": { "$ref": "#/$defs/toolPolicy" },
-				"webfetch": { "$ref": "#/$defs/toolPolicy" }
+				"webfetch": { "$ref": "#/$defs/toolPolicy" },
+				"process_run": { "$ref": "#/$defs/toolPolicy" },
+				"http": { "$ref": "#/$defs/toolPolicy" }
 			}
 		},
 		"ask_rules": {

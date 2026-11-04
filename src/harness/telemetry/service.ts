@@ -26,7 +26,7 @@ import type {
 import type { JsonlTelemetryWriter as TelemetryWriter } from "./writer.ts";
 import { attachTelemetryService } from "./pi-adapter.ts";
 
-export type TelemetryPi = Pick<ExtensionAPI, "getAllTools" | "getThinkingLevel" | "on">;
+export type TelemetryPi = Pick<ExtensionAPI, "getAllTools" | "getThinkingLevel" | "on"> & Partial<Pick<ExtensionAPI, "events">>;
 
 export interface TelemetrySessionContext {
 	cwd: string;

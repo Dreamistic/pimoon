@@ -16,7 +16,7 @@ import { ProviderAuth } from "@/features/auth/provider-auth.tsx";
 import "@/features/reports/reports.css";
 
 const titles: Record<GuiPanel["kind"], string> = {
-	model: "模型", tools: "工具选择", sessions: "会话列表", settings: "设置", auth: "认证",
+	model: "模型", tools: "CodeAct 函数", sessions: "会话列表", settings: "设置", auth: "认证",
 	subagents: "子代理任务", import: "导入会话", system: "系统提示词", help: "命令帮助",
 	lastReply: "最后回复", usage: "用量情况",
 };

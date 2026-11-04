@@ -29,7 +29,6 @@ await import(${JSON.stringify(path.join(root, "src/desktop/backend.ts"))});\n`);
 		[path.join(root, "src/desktop/main.ts"), "main.mjs", "esm"],
 		[path.join(root, "src/desktop/preload.ts"), "preload.cjs", "cjs"],
 		[backendEntry, "backend.mjs", "esm"],
-		[fileURLToPath(new URL("dist/extensions/codemode/worker.js", piRoot)), "codemode-worker.js", "esm"],
 		[fileURLToPath(new URL("dist/utils/image-resize-worker.js", piRoot)), "image-resize-worker.js", "esm"],
 	]) {
 		const result = await Bun.build({
@@ -84,7 +83,7 @@ await import(${JSON.stringify(path.join(root, "src/desktop/backend.ts"))});\n`);
 			artifactName: "pimoon.${ext}",
 			electronVersion,
 			asar: true,
-			asarUnpack: ["backend.mjs", "image-resize-worker.js", "codemode-worker.js", "resources/**/*", "ui/**/*"],
+			asarUnpack: ["backend.mjs", "image-resize-worker.js", "resources/**/*", "ui/**/*"],
 			npmRebuild: false,
 			protocols: [{ name: "pimoon", schemes: ["pimoon"] }],
 			// 不接管原应用的通用 JSONL 文件关联。

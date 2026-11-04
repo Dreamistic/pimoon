@@ -30,9 +30,8 @@ export function createModeMcpExtension(options: McpExtensionOptions = {}): Exten
 				syncToolSearch(pi);
 			},
 			setActiveTools(names) {
-				// MCP 只能改变自己的工具集合，不能将普通会话切换为脚本模式。
-				const scripted = pi.getActiveTools().includes("codemode");
-				const next = names.filter((name) => name !== "tool_search" && (name !== "codemode" || scripted));
+				// MCP 只同步函数选择；执行环境始终是 CodeAct。
+				const next = names.filter((name) => name !== "tool_search");
 				syncToolSearch(pi, next);
 			},
 		});

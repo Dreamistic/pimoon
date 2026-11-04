@@ -79,6 +79,10 @@ export function createWebToolsRuntime(): WebToolsRuntime {
 	}
 
 	return {
+		http(params, context, workspace) {
+			assertOpen();
+			return trackCall(async () => (await import("./fetch/http-function.ts")).executeHttp(params, context, workspace, sharedOptions));
+		},
 		search(params, context) {
 			assertOpen();
 			return trackCall(async () => {

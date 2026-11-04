@@ -68,7 +68,7 @@ python "skill://demo/scripts/report.py"
 
 `details` 包含状态、退出码、耗时、输出状态、行数、字节数、日志路径和 `capture_complete`。执行中更新返回有界最近输出，结束后生成最终元数据。
 
-Codemode 读取最多 1 MiB 的独立原始文本结果，超限保留头尾。字段见 [Codemode 结果](../codemode/README.md#结果)。
+本页描述保留的上游 Bash 实现，不是当前桌面执行入口。桌面改用 [CodeAct process_run](../codeact/README.md#替代-shell)，不提供 Bash 函数。
 
 ## 日志与取消
 

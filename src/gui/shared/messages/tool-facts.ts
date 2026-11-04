@@ -62,6 +62,7 @@ export function toolFacts(tool: { name: string; args: unknown; output: ToolOutpu
 		const lines = details.diff.split("\n");
 		return `+${lines.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length} -${lines.filter((line) => line.startsWith("-") && !line.startsWith("---")).length}`;
 	}
-	if (tool.name === "bash" && typeof details.exit_code === "number") return `退出 ${details.exit_code}`;
+	if (tool.name === "process_run" && typeof details.exit_code === "number") return `退出 ${details.exit_code}`;
+	if (tool.name === "http" && typeof details.status === "number") return `HTTP ${details.status}${typeof details.bytes === "number" ? ` · ${details.bytes} B` : ""}`;
 	return "";
 }

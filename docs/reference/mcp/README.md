@@ -41,7 +41,7 @@ GUI 的 `/mcp` 打开配置页，子命令沿用 SDK。OAuth 登录受上游超�
 | codemode、deferred | 注册延迟工具，按需发现 |
 | hidden | 隐藏，无法发现和调用 |
 
-`codemode-deferred` 是上游别名。opi 由 codemode 工具选择决定会话模式，MCP 的 `autoEnableCodemode` 不触发模式切换。
+这些 exposure 名称属于 SDK 的 MCP 配置枚举，不代表存在 `codemode` 执行工具。桌面始终使用 CodeAct，MCP 只提供内部函数。
 
 ## 会话选择
 
@@ -49,6 +49,6 @@ GUI 工具面板提供服务总开关和单工具开关。关闭服务隐藏其�
 
 选择按会话分支保存，刷新、恢复和重载后保留。共享资源工具 `list_mcp_resources`、`list_mcp_resource_templates`、`read_mcp_resource` 有独立开关，仍可访问已关闭专属工具的服务资源。
 
-普通模式中，未加载的可用延迟工具触发 tool_search。Codemode 使用 searchTools，见 [Codemode](../codemode/README.md)。
+`tool_search` 作为 CodeAct 函数提供按需发现，不向模型提供独立工具声明。见 [CodeAct](../codeact/README.md)。
 
 服务启停开关表示配置状态，实际连接由 SDK 管理。实现位于 `src/harness/extensions/mcp.ts` 和 `src/gui/frontend/features/mcp/`。

@@ -32,9 +32,10 @@ export function ToolResult({ tool }: { tool: Omit<ToolActivity, "output"> & { ou
 		if (tool.name === "webfetch" && isWebFetchSuccess(details)) return <WebFetchResult details={details} content={tool.output?.content} />;
 		if (record(details) && details.status === "progress") return <p className="tool-note" role="status">{webToolFacts(details)}</p>;
 	}
-	if (tool.name === "bash") return <>
-		{typeof args.command === "string" && <CodeBlock label="命令" language="bash" text={args.command} />}
-		{tool.output && <RawToolContent value={tool.output.content} />}
+	if (tool.name === "process_run" && record(details)) return <>
+		{typeof details.stdout === "string" && details.stdout && <CodeBlock label="stdout" text={clean(details.stdout)} />}
+		{typeof details.stderr === "string" && details.stderr && <CodeBlock label="stderr" text={clean(details.stderr)} />}
+		{details.truncated === true && <p className="tool-note">进程输出已截断</p>}
 	</>;
 	if (tool.state !== "failed" && tool.state !== "stopped") {
 		if (tool.name === "read" && isReadSuccess(details)) return <>

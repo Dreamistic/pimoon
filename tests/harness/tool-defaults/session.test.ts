@@ -1,165 +1,86 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import {
-	createAgentSessionFromServices, createAgentSessionServices, createAgentSessionRuntime,
-	SessionManager, type AgentSessionRuntime,
-} from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createAgentSessionServices, createAgentSessionRuntime, SessionManager, type AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createToolsExtension } from "../../../src/harness/extensions/cmd-slash-tools.ts";
-import { codemodeSelection } from "../../../src/harness/codemode/loadout.ts";
+import processFunctions from "../../../src/harness/extensions/codeact-functions.ts";
 import type { ToolSelectionController } from "../../../src/harness/tool-defaults/controller.ts";
 import { startModelServer } from "../../cli/model-server.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
 import { createRuntimeResources } from "../../pimoon/runtime-resources.ts";
 
-const temp = useTempDir("pimoon-tools-session-");
+const temp = useTempDir("pimoon-functions-session-");
 preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_OFFLINE");
-let cwd: string;
-let agentDir: string;
-let runtime: AgentSessionRuntime | undefined;
+let cwd: string, agentDir: string, runtime: AgentSessionRuntime | undefined;
 let server: Awaited<ReturnType<typeof startModelServer>>;
-
 beforeEach(async () => {
-	setTestHome(temp.path);
-	cwd = path.join(temp.path, "workspace");
-	agentDir = path.join(temp.path, "agent");
-	process.env.PI_CODING_AGENT_DIR = agentDir;
-	process.env.PI_OFFLINE = "1";
-	await mkdir(cwd, { recursive: true });
-	await mkdir(agentDir, { recursive: true });
+	setTestHome(temp.path); cwd = path.join(temp.path, "workspace"); agentDir = path.join(temp.path, "agent");
+	process.env.PI_CODING_AGENT_DIR = agentDir; process.env.PI_OFFLINE = "1";
+	await mkdir(cwd, { recursive: true }); await mkdir(agentDir, { recursive: true });
 	vi.stubEnv("PIMOON_RESOURCE_DIR", await createRuntimeResources(temp.path));
 	server = await startModelServer(() => ({ text: "done" }));
-	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
-		defaultProvider: "fixture", defaultModel: "test", defaultThinkingLevel: "off",
-		defaultTools: ["read", "bash", "write"],
-		compaction: { enabled: false }, retry: { enabled: false },
-	}));
-	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: {
-		baseUrl: server.url, api: "openai-completions", apiKey: "fixture",
-		models: [{ id: "test", name: "Test", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
-	} } }));
+	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "test", defaultThinkingLevel: "off", defaultTools: ["read", "process_run", "write"], compaction: { enabled: false }, retry: { enabled: false } }));
+	await writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: { baseUrl: server.url, api: "openai-completions", apiKey: "fixture", models: [{ id: "test", name: "Test", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } }));
 });
-
-afterEach(async () => {
-	await runtime?.dispose();
-	runtime = undefined;
-	await server.close();
-	vi.unstubAllEnvs();
-});
-
+afterEach(async () => { await runtime?.dispose(); runtime = undefined; await server.close(); vi.unstubAllEnvs(); });
 async function start(manager = SessionManager.create(cwd), tools?: string[]) {
 	let controller: ToolSelectionController | undefined;
-	const { default: codemode } = await import("../../../src/harness/extensions/codemode.ts");
+	const { CodeAct } = await import("../../../src/pimoon/codeact/session.ts");
 	runtime = await createAgentSessionRuntime(async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
-		const services = await createAgentSessionServices({
-			cwd, agentDir,
-			resourceLoaderOptions: {
-				noSkills: true, noThemes: true, noPromptTemplates: true, noContextFiles: true,
-				extensionFactories: [
-					{ name: "codemode", builtin: true, factory: codemode },
-					{ name: "tools", factory: createToolsExtension({ bindController: value => { controller = value; }, startup: tools === undefined ? {} : { tools } }) },
-				],
-			},
-		});
-		return {
-			...await createAgentSessionFromServices({ services, sessionManager, ...(tools ? { tools: codemodeSelection(tools) } : {}), ...(sessionStartEvent ? { sessionStartEvent } : {}) }),
-			services, diagnostics: services.diagnostics,
-		};
+		const codeact = new CodeAct();
+		const services = await createAgentSessionServices({ cwd, agentDir, resourceLoaderOptions: { noSkills: true, noThemes: true, noPromptTemplates: true, noContextFiles: true,
+			extensionFactories: [codeact.extension, { name: "process", factory: processFunctions }, { name: "tools", factory: createToolsExtension({ bindController: value => { controller = value; }, startup: tools === undefined ? {} : { tools } }) }] } });
+		const result = await createAgentSessionFromServices({ services, sessionManager, ...(tools ? { tools } : {}), ...(sessionStartEvent ? { sessionStartEvent } : {}) });
+		codeact.bind(result.session); return { ...result, services, diagnostics: services.diagnostics };
 	}, { cwd, agentDir, sessionManager: manager });
 	await runtime.session.bindExtensions({ mode: "print" });
-	if (!controller) throw new Error("工具选择未绑定");
+	if (!controller) throw new Error("函数权限未绑定");
 	return { session: runtime.session, controller };
 }
+const selected = (controller: ToolSelectionController) => controller.listTools().filter(fn => fn.enabled).map(fn => fn.name);
+const requestText = () => JSON.stringify(server.requests.at(-1)?.messages);
+function expectNoNativeTools() { expect(server.requests.at(-1)?.tools ?? []).toEqual([]); }
 
-function selected(controller: ToolSelectionController): string[] {
-	return controller.listTools().filter(tool => tool.enabled).map(tool => tool.name);
-}
-
-function requestedTools(): string[] {
-	return server.requests.at(-1)?.tools?.map(tool => tool.function.name) ?? [];
-}
-
-describe("CodeAct 工具选择与 SDK 状态", () => {
-	it("旧默认列表补齐入口，不改写默认配置或擅自添加能力", async () => {
+describe("CodeAct 固定执行与函数权限", () => {
+	it("不补齐任何执行工具，不改写用户默认函数", async () => {
 		const { session, controller } = await start();
-		expect(selected(controller)).toEqual(expect.arrayContaining(["read", "bash", "write", "codemode"]));
-		expect(selected(controller)).toHaveLength(4);
-		expect(controller.hasUserDefaultChanges(["read", "bash", "write"])).toBe(false);
-		await session.prompt("测试 CodeAct");
-		expect(requestedTools()).toEqual(["codemode"]);
-		expect(JSON.parse(await readFile(path.join(agentDir, "settings.json"), "utf8")).defaultTools).toEqual(["read", "bash", "write"]);
+		expect(selected(controller).sort()).toEqual(["process_run", "read", "write"]);
+		expect(controller.listTools().some(fn => fn.name === "bash" || fn.name === "powershell" || fn.name === "codemode")).toBe(false);
+		expect(controller.hasUserDefaultChanges(["read", "process_run", "write"])).toBe(false);
+		await session.prompt("CodeAct"); expectNoNativeTools(); expect(requestText()).toContain("process_run(");
+		expect(JSON.parse(await readFile(path.join(agentDir, "settings.json"), "utf8")).defaultTools).toEqual(["read", "process_run", "write"]);
 	});
-
-	it("显式工具选择只补入口，空列表保持无工具", async () => {
-		let host = await start(SessionManager.create(cwd), ["bash"]);
-		expect(selected(host.controller)).toEqual(expect.arrayContaining(["bash", "codemode"]));
-		await host.session.prompt("只启用进程能力");
-		expect(requestedTools()).toEqual(["codemode"]);
-		const description = server.requests.at(-1)?.tools?.[0]?.function.description;
-		expect(description).toContain("bash(");
-		expect(description).not.toContain("read(path:");
-		await runtime?.dispose();
-		host = await start(SessionManager.create(cwd), []);
+	it("显式选择只开放指定函数，空列表仍保留 Python 环境", async () => {
+		let host = await start(SessionManager.create(cwd), ["process_run"]);
+		expect(selected(host.controller)).toEqual(["process_run"]);
+		await host.session.prompt("Only processes"); expectNoNativeTools(); expect(requestText()).not.toContain("read(path:");
+		await runtime?.dispose(); host = await start(SessionManager.create(cwd), []);
 		expect(selected(host.controller)).toEqual([]);
-		await host.session.prompt("无工具对话");
-		expect(requestedTools()).toEqual([]);
+		await host.session.prompt("No I/O"); expectNoNativeTools(); expect(requestText()).toContain("Functions:\\nNone.");
 	});
-
-	it("关闭 CodeAct 同时关闭宿主能力，重新启用能力会恢复入口", async () => {
+	it("函数开关不切换执行模式，也不允许恢复 Shell 包装", async () => {
 		const { session, controller } = await start();
-		controller.set("codemode", false);
+		controller.set("read", false); controller.set("process_run", false); controller.set("write", false);
+		controller.set("bash", true); controller.set("powershell", true);
 		expect(selected(controller)).toEqual([]);
-		await session.prompt("关闭执行");
-		expect(requestedTools()).toEqual([]);
-		controller.set("read", true);
-		expect(selected(controller)).toEqual(expect.arrayContaining(["read", "codemode"]));
-		await session.prompt("只允许读取");
-		expect(requestedTools()).toEqual(["codemode"]);
-		const description = server.requests.at(-1)?.tools?.[0]?.function.description;
-		expect(description).toContain("read(");
-		expect(description).not.toContain("bash(");
+		await session.prompt("No I/O"); expectNoNativeTools();
+		controller.set("read", true); await session.prompt("Read only");
+		expectNoNativeTools(); expect(selected(controller)).toEqual(["read"]); expect(requestText()).toContain("read(path:");
 	});
-
-	it("目录随能力选择变化，保存默认后新会话仍只有脚本入口", async () => {
-		let host = await start();
-		host.controller.set("read", false);
-		await host.controller.persistUserDefaults();
-		await host.session.prompt("更新能力目录");
-		expect(server.requests.at(-1)?.tools?.[0]?.function.description).not.toContain("read(path:");
-		await runtime?.dispose();
-		host = await start();
-		expect(selected(host.controller)).not.toContain("read");
-		expect(selected(host.controller)).toContain("codemode");
-		await host.session.prompt("使用已保存默认值");
-		expect(requestedTools()).toEqual(["codemode"]);
+	it("保存默认函数并在新会话恢复", async () => {
+		let host = await start(); host.controller.set("read", false); await host.controller.persistUserDefaults();
+		await runtime?.dispose(); host = await start();
+		expect(selected(host.controller)).not.toContain("read"); await host.session.prompt("Saved defaults"); expectNoNativeTools();
 	});
-
-	it("恢复会话及导航分支保留能力选择，不回落到直接调用", async () => {
-		let host = await start();
-		host.controller.set("bash", false);
-		await host.session.prompt("文件能力分支");
+	it("恢复及分支导航保持函数权限，不产生旧工具调用", async () => {
+		let host = await start(); host.controller.set("process_run", false); await host.session.prompt("File functions");
 		const leaf = host.session.sessionManager.getLeafId(), file = host.session.sessionFile;
 		if (!leaf || !file) throw new Error("缺少会话分支");
-		await runtime?.dispose();
-		host = await start(SessionManager.open(file));
-		expect(selected(host.controller)).not.toContain("bash");
-		await host.session.prompt("恢复分支");
-		expect(requestedTools()).toEqual(["codemode"]);
-		host.controller.set("codemode", false);
-		await host.session.prompt("关闭执行分支");
-		expect(requestedTools()).toEqual([]);
-		await host.session.navigateTree(leaf, { summarize: false });
-		await host.session.prompt("回到文件能力分支");
-		expect(requestedTools()).toEqual(["codemode"]);
-		expect(selected(host.controller)).not.toContain("bash");
-	});
-
-	it("SDK 恢复旧的直接工具集合后，下一次请求也补齐脚本入口", async () => {
-		const { session } = await start();
-		session.setActiveToolsByName(["bash"]);
-		await session.prompt("旧工具集合");
-		expect(requestedTools()).toEqual(["codemode"]);
-		expect(session.getActiveToolNames()).toEqual(["bash", "codemode"]);
+		await runtime?.dispose(); host = await start(SessionManager.open(file));
+		expect(selected(host.controller)).not.toContain("process_run");
+		await host.session.prompt("Resume"); expectNoNativeTools();
+		host.controller.set("read", false); await host.session.prompt("Other branch");
+		await host.session.navigateTree(leaf, { summarize: false }); await host.session.prompt("Return"); expectNoNativeTools();
+		expect(selected(host.controller)).toContain("read"); expect(selected(host.controller)).not.toContain("process_run");
 	});
 });

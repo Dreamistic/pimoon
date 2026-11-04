@@ -15,6 +15,10 @@ export function buildApprovalContent(request: ApprovalRequest, decision: AskDeci
 		...[...new Set(decision.items.map((item) => item.reason))].map((reason) => line(`Reason: ${reason}`, "warning")),
 		line(""),
 	];
+	if (request.tool === "process_run") return [
+		...common, line(`argv: ${JSON.stringify(request.detail.argv)}`),
+		line(`env overrides: ${JSON.stringify(request.detail.env)}`),
+	];
 	if (request.tool === "bash") {
 		return [
 			...common,
@@ -36,11 +40,12 @@ export function buildApprovalContent(request: ApprovalRequest, decision: AskDeci
 			...payloadLines(request.detail.content, "added", "+ "),
 		];
 	}
-	if (request.tool === "webfetch") {
+	if (request.tool === "webfetch" || request.tool === "http") {
 		return [
 			line(`Target: ${request.detail.origin}`),
 			...common,
 			line(`URL: ${request.detail.url}`),
+			...(request.detail.path ? [line(`Download: ${request.detail.path}`)] : []),
 			line("Resolved addresses:", "dim"),
 			...request.detail.addresses.map((item) => line(item.address, "warning")),
 		];

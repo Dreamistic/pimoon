@@ -117,7 +117,7 @@ function parsePersistentRules(value: unknown): ApprovalAllowRule[] {
 
 function parseApprovalAllowRule(value: unknown): ApprovalAllowRule | undefined {
 	if (typeof value !== "object" || value === null || !("tool" in value)
-		|| (value.tool !== "bash" && value.tool !== "write" && value.tool !== "edit" && value.tool !== "webfetch")
+		|| (value.tool !== "bash" && value.tool !== "write" && value.tool !== "edit" && value.tool !== "webfetch" && value.tool !== "process_run" && value.tool !== "http")
 		|| !("kind" in value) || !("value" in value) || typeof value.value !== "string") return undefined;
 	if (value.kind === "exact_command" || value.kind === "command_prefix") {
 		if (!("cwd" in value) || typeof value.cwd !== "string") return undefined;

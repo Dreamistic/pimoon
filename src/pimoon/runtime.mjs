@@ -8,7 +8,7 @@ import { checkReadablePath } from './paths.ts';
 export const OP = { INIT:1, EXEC:2, REPLY:3, CANCEL:4, CLOSE:5, PING:6, NATIVE:7,
   READY:101, DONE:102, CALL:103, NATIVE_RESULT:107, PONG:108, ERROR:109, METRICS:110 };
 const MAX_FRAME=8*1024*1024;
-const ROOT=process.env.PIMOON_RESOURCE_DIR || fileURLToPath(new URL('../../assets',import.meta.url));
+const ROOT=fileURLToPath(new URL('../../assets',import.meta.url));
 
 export class Decoder {
   constructor(emit){this.emit=emit;this.header=Buffer.alloc(17);this.used=0;this.data=null;this.offset=0;}
@@ -40,8 +40,9 @@ export class Runtime {
     this.rootPromise=fs.realpath(cwd);this.protectedPaths=protectedPaths;
     this.queue=[];this.waiters=[];this.request=0;this.sessions=new Set();this.statefulSessions=new Set();this.dead=false;this.closed=false;
     const env=Object.fromEntries(Object.entries(process.env).filter(([k])=>/^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|PATHEXT|PIMOON_HOME|HOME|USERPROFILE|APPDATA|LOCALAPPDATA)$/i.test(k)));
-    const worker=path.join(ROOT,'pimoon','worker.py');
-    const binary=path.join(ROOT,'pimoon/pimoon-runtime'+(process.platform==='win32'?'.exe':''));
+    const resources=process.env.PIMOON_RESOURCE_DIR || ROOT;
+    const worker=path.join(resources,'pimoon','worker.py');
+    const binary=path.join(resources,'pimoon/pimoon-runtime'+(process.platform==='win32'?'.exe':''));
     this.child=transport==='rust'?spawn(binary,[cwd,worker,'python'],{cwd,env,stdio:['pipe','pipe','pipe'],windowsHide:true}):
       spawn('python',['-X','utf8','-B',worker],{cwd,env,stdio:['pipe','pipe','pipe'],windowsHide:true});
     this.stderr='';
@@ -140,7 +141,7 @@ export class Runtime {
       emit('bridge_tool_start',tags);
       try{
         if(stopReason||signal?.aborted)throw Error('Cancelled');
-        const tool=context.tools.find(t=>t.name===name&&name!=='codemode');if(!tool)throw Error('Unknown tool: '+name);
+        const tool=context.tools.find(t=>t.name===name);if(!tool)throw Error('Unknown tool: '+name);
         const outcome=await context.executeTool(name,args,{signal:toolController.signal});toolId=outcome.toolCall?.id;
         const content=outcome.result.content||[];
         // 图片不经 Python 字符串化，随父结果保留原始内容块。
@@ -166,7 +167,7 @@ export class Runtime {
         await this.createSession(session);
         emit('runtime_reinitialized',{previous_python_pid:previous,python_pid:this.workerInfo?.pid,python_version:this.workerInfo?.python_version,startup_ms:performance.now()-started,state_restored:false});
       }
-      request=++this.request;this.send(OP.EXEC,session,request,code);this.statefulSessions.add(session);
+      request=++this.request;this.send(OP.EXEC,session,request,JSON.stringify({code,tools:context.tools.map(t=>({name:t.name,parameters:t.parameters}))}));this.statefulSessions.add(session);
       while(true){
         const frame=await this.next();
         if(frame.request!==request||frame.session!==session)continue; // 忽略取消后残留的旧帧。

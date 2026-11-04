@@ -1,3 +1,4 @@
+import { CODEACT_RESULT, type CodeActMessage } from "../../../../../../src/pimoon/codeact/types.ts";
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderWithMemory } from "../../../../helpers/render.ts";
@@ -72,22 +73,23 @@ describe("整轮处理过程折叠", () => {
 		]);
 	});
 
-	it("嵌套调用附着父工具，完成后从 SDK 记录恢复而不伪造工具结果", () => {
-		const parent = { ...call, name: "codemode", id: "code-1" };
-		const pending = replies(source({ messages: [user, assistant([parent])], streaming: true,
-			liveTools: [{ toolCallId: parent.id, toolName: parent.name, args: parent.arguments, output: undefined,
+	it("CodeAct 元数据与自定义结果恢复同一执行容器，不伪造原生工具调用", () => {
+		const parent: CodeActMessage = { ...assistant([text('read(path="a.ts")')], "stop"), codeact: { id: "code-1", index: 0, complete: true } };
+		const pending = replies(source({ messages: [user, parent], streaming: true,
+			liveTools: [{ toolCallId: "code-1", toolName: "codeact", args: { code: 'read(path="a.ts")' }, output: undefined,
 				nestedCalls: { complete: false, calls: [{ id: "code-1/1", name: "read", arguments: { path: "a.ts" }, status: "unfinished" }] } }],
 		}));
-		expect(pending[0]?.process.filter((item) => item.kind === "tool")).toMatchObject([
-			{ tool: { id: "code-1", nestedCalls: { calls: [{ id: "code-1/1", name: "read", status: "unfinished" }] } } },
-		]);
-		const history = source({ messages: [user, assistant([parent]), {
-			...result, toolCallId: "code-1", toolName: "codemode",
-			nestedCalls: { complete: false, calls: [{ id: "code-1/1", name: "read", status: "error", error: "File not found", durationMs: 12 }] },
+		expect(pending[0]?.process.filter(item => item.kind === "tool")).toMatchObject([{ tool: { id: "code-1", name: "codeact", state: "running" } }]);
+		expect(pending[0]?.answer).toEqual([]);
+		const history = source({ messages: [user, parent, {
+			role: "custom", customType: CODEACT_RESULT, content: [{ type: "text", text: "ok" }], display: false, timestamp: 20,
+			details: { id: "code-1", isError: false, durationMs: 24, metrics: {},
+				nestedCalls: { complete: true, calls: [{ id: "code-1/1", name: "read", status: "error", error: "File not found", durationMs: 12 }] },
+			},
 		}, assistant([text("完成")], "stop")] });
-		expect(replies(history)[0]?.process.filter((item) => item.kind === "tool")).toMatchObject([
-			{ tool: { nestedCalls: { complete: false, calls: [{ status: "error" }] } } },
-		]);
+		const row = replies(history)[0];
+		expect(row?.process.filter(item => item.kind === "tool")).toMatchObject([{ tool: { state: "completed", durationMs: 24, nestedCalls: { calls: [{ status: "error" }] } } }]);
+		expect(row?.answer.map(item => item.text)).toEqual(["完成"]);
 	});
 
 	it("扩展消息分隔调用和结果时，历史与当前分组仍只展示一个已完成工具", () => {

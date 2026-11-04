@@ -19,7 +19,7 @@ for (const [name, source] of cases) {
 	for (const dir of ["home", "appdata", "localappdata", "profile", "temp"]) await fs.mkdir(path.join(home, dir), { recursive: true });
 	const bundle = path.join(home, "harness.mjs");
 	await build({ stdin: { contents: `export { default as fileTools } from ${JSON.stringify(path.join(source, "src/harness/extensions/file-tools.ts"))};
-${name === "pimoon" ? `export { default as codemode } from ${JSON.stringify(path.join(source, "src/harness/extensions/codemode.ts"))};
+${name === "pimoon" ? `export { CodeAct } from ${JSON.stringify(path.join(source, "src/pimoon/codeact/session.ts"))};
 export { flushTelemetry, telemetryStats } from ${JSON.stringify(path.join(source, "src/pimoon/telemetry.ts"))};` : ""}
 export { startModelServer } from ${JSON.stringify(path.join(root, "tests/cli/model-server.ts"))};
 export async function disposeLsp() { const { lspManager } = await import(${JSON.stringify(path.join(source, "src/harness/lsp/index.ts"))}); await lspManager.reload(); }`, resolveDir: root }, outfile: bundle, bundle: true, platform: "node", format: "esm", packages: "external", logLevel: "silent" });

@@ -18,7 +18,7 @@
 | [子代理](subagent/README.md) | 定义、隔离与 fork、执行和输出 |
 | [提示词](prompts/README.md) | 系统提示词、工具字段和模板 |
 | [模型](models/README.md) | 提供方、认证、思考、请求体和调速 |
-| [Codemode](codemode/README.md) | 脚本调用、工具发现和结构化结果 |
+| [CodeAct](codeact/README.md) | Python 编排、函数权限、进程与 HTTP |
 | [MCP](mcp/README.md) | 服务配置、认证和工具可见性 |
 | [自动标题](auto-title/README.md) | 命名配置和生命周期 |
 | [Discord Presence](discord-presence/README.md) | 活动状态、档位、模板和进程协调 |

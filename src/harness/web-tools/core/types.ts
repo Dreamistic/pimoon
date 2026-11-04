@@ -199,6 +199,7 @@ export interface CookieStore {
 }
 
 export interface WebToolsRuntime {
+	http(params: import("../fetch/http-function.ts").HttpInput, context: WebFetchExecutionContext, workspace: string): Promise<import("../fetch/http-function.ts").HttpResult>;
 	fetch(params: WebFetchParams, context: WebFetchExecutionContext): Promise<WebFetchResult>;
 	search(params: WebSearchParams, context: WebSearchExecutionContext): Promise<WebSearchResult>;
 	close(): Promise<void>;
