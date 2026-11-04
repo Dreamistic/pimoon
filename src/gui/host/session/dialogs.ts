@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionUIDialogOptions, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import type { GuiBashApproval, GuiDialog, GuiNotice } from "../../shared/protocol/state.ts";
+import type { GuiDialog, GuiNotice } from "../../shared/protocol/state.ts";
 import type { GuiEvent } from "../../shared/protocol/events.ts";
-import type { ApprovalInteractionPort } from "../../../harness/approval/runtime/interaction.ts";
-import { approvalText, formatApprovalPrompt } from "../../../harness/approval/presentation.ts";
+import { approvalScopes, DENY, type ApprovalInteractionPort, type ApprovalReply } from "../../../harness/approval/runtime/interaction.ts";
+import { approvalSummary, approvalText, buildApprovalContent } from "../../../harness/approval/presentation.ts";
 import { plainTheme } from "./theme.ts";
 import type { CodeActConfirmation, CodeActConfirmationDecision } from "../../../pimoon/codeact/confirmation.ts";
 
@@ -21,14 +21,14 @@ export class GuiDialogs {
 		return [...this.pending.values()].map(({ dialog }) => dialog);
 	}
 
-	approve(...[request, decision, options, opts]: Parameters<ApprovalInteractionPort["approve"]>): Promise<string | undefined> {
-		const bash: GuiBashApproval | undefined = request.tool === "bash" ? {
-			cwd: approvalText(request.cwd), command: approvalText(request.detail.command),
-			items: decision.items.map(({ unit, reason }) => ({
-				action: unit.action, kind: unit.target.kind, target: approvalText(unit.target.value), reason: approvalText(reason),
-			})),
-		} : undefined;
-		return this.ask("select", bash ? "执行 Bash 命令" : formatApprovalPrompt(request, decision), "", [...options], "", opts, bash);
+	async approve(...[request, decision, options, opts]: Parameters<ApprovalInteractionPort["approve"]>): Promise<ApprovalReply | undefined> {
+		const scopes = approvalScopes(request, decision, options);
+		const response = await this.request({ kind: "approval", title: "操作审批", message: "", options: [...scopes.map(scope => scope.choice), DENY], initial: "",
+			approval: { tool: request.tool, cwd: approvalText(request.cwd), reason: approvalText(opts?.proposal?.reason ?? decision.reason),
+				summary: approvalSummary(request), content: buildApprovalContent(request, decision), scopes,
+				recommended: opts?.proposal?.scope ?? "once" } }, opts);
+		const choice = options.find(choice => choice === response.value);
+		return choice ? { choice, ...(response.feedback ? { feedback: response.feedback } : {}) } : undefined;
 	}
 
 	async confirmCodeAct(request: CodeActConfirmation, signal?: AbortSignal): Promise<CodeActConfirmationDecision> {
@@ -45,9 +45,8 @@ export class GuiDialogs {
 		options: string[] = [],
 		initial = "",
 		opts?: ExtensionUIDialogOptions,
-		bash?: GuiBashApproval,
 	): Promise<string | undefined> {
-		return this.request({ kind, title, message, options, initial, ...(bash ? { bash } : {}) }, opts).then(response => response.value);
+		return this.request({ kind, title, message, options, initial }, opts).then(response => response.value);
 	}
 
 	private request(dialog: Omit<GuiDialog, "id" | "deadline">, opts?: ExtensionUIDialogOptions): Promise<DialogResponse> {
@@ -77,11 +76,11 @@ export class GuiDialogs {
 	respond(id: string, value: string | null, feedback?: string): void {
 		const pending = this.pending.get(id);
 		if (!pending) throw new Error("对话框已结束，请刷新当前状态。");
-		if (value !== null && pending.dialog.kind === "select" && !pending.dialog.options.includes(value))
+		if (value !== null && (pending.dialog.kind === "select" || pending.dialog.kind === "approval") && !pending.dialog.options.includes(value))
 			throw new Error("无效选项。");
 		if (value !== null && pending.dialog.kind === "confirm" && value !== "yes") throw new Error("无效确认。");
 		if (pending.dialog.kind === "codeact" && value !== null && value !== "yes" && value !== "no") throw new Error("无效执行确认。");
-		if (feedback !== undefined && (pending.dialog.kind !== "codeact" || value !== "no" || feedback.length > 2000)) throw new Error("无效拒绝意见。");
+		if (feedback !== undefined && (!(pending.dialog.kind === "approval" && value !== null || pending.dialog.kind === "codeact" && value === "no") || feedback.length > 2000)) throw new Error("无效拒绝意见。");
 		pending.finish(value ?? undefined, feedback?.trim());
 	}
 

@@ -62,6 +62,13 @@ export function buildApprovalContent(request: ApprovalRequest, decision: AskDeci
 	];
 }
 
+export function approvalSummary(request: ApprovalRequest): string {
+	const target = request.tool === "process_run" ? JSON.stringify(request.detail.argv) : request.tool === "bash" ? request.detail.command
+		: request.tool === "write" || request.tool === "edit" ? request.detail.path : request.detail.url;
+	const characters = [...approvalText(target)];
+	return characters.length > 240 ? `${characters.slice(0, 240).join("")}...` : characters.join("");
+}
+
 export function formatApprovalPrompt(request: ApprovalRequest, decision: AskDecision): string {
 	return [`Approval required | ${request.tool}`, ...buildApprovalContent(request, decision).map(({ text }) => text)].join("\n");
 }

@@ -6,7 +6,7 @@ import { ToolSelection } from "../../../../../../src/gui/frontend/features/chat/
 import { ToolActivity } from "../../../../../../src/gui/frontend/features/chat/tools/tool-activity.tsx";
 import type { ToolActivity as Activity } from "../../../../../../src/gui/frontend/features/chat/tools/activity.ts";
 import { activityCounts } from "../../../../../../src/gui/frontend/features/chat/tools/activity.ts";
-import { CodeActConfirmationBar } from "../../../../../../src/gui/frontend/features/chat/tools/codeact-confirmation.tsx";
+import { ApprovalBar } from "../../../../../../src/gui/frontend/features/chat/tools/approval.tsx";
 import { renderWithMemory } from "../../../../helpers/render.ts";
 
 const tools: GuiSnapshot["tools"] = [
@@ -73,12 +73,12 @@ describe("CodeAct 目的、结果与确认", () => {
 		expect(activityCounts([tool])).toEqual(["1 次执行", "2 次函数调用"]);
 	});
 	it("确认条展示目的和真实确认原因，不把待执行源码当 HTML，也不渲染模态弹窗", () => {
-		const doc = parseHTML(renderWithMemory(createElement(CodeActConfirmationBar, { disabled: false, send: async () => true,
+		const doc = parseHTML(renderWithMemory(createElement(ApprovalBar, { disabled: false, send: async () => true,
 			dialog: { id: "confirm-1", kind: "codeact", title: "检查配置", message: "确认？", options: [], initial: "", deadline: null,
 				codeact: { id: "execution-1", cwd: "D:/fixture", code: 'print("<script>not html</script>")', reason: "允许写入 <b>配置</b>？" } } }))).document;
 		expect(doc.querySelector("section")?.getAttribute("data-execution-id")).toBe("execution-1");
 		expect(doc.querySelector("section")?.textContent).toContain("等待确认 · 尚未执行");
-		expect(doc.querySelector(".codeact-confirmation-reason")?.textContent).toBe("允许写入 <b>配置</b>？");
+		expect(doc.querySelector(".approval-bar-reason")?.textContent).toBe("允许写入 <b>配置</b>？");
 		expect(doc.querySelector("b,script,[role=dialog]")).toBeNull();
 		expect(doc.querySelectorAll("button:not([disabled])").length).toBeGreaterThanOrEqual(3);
 	});

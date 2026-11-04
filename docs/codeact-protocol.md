@@ -35,9 +35,15 @@ valid=[r for r in rows if r["ok"]]
 
 开始行可带 `desc`（1–160 字符）和 `confirm`（1–1000 字符）两个引号属性；标题说明目的，不声明成功。不额外输出前置播报。属性不跨行，内嵌引号用 `&quot;`，支持常见 XML 实体与数字字符引用。开始行最多 4096 字符，未知、重复、空值、控制字符或损坏属性拒绝整块，不静默忽略确认。无属性块仍可执行。
 
-`confirm="原因"` 在完整代码闭合且供应商终态有效后，暂停整块等待用户确认。GUI 输入框上方展示原因、工作区和待执行源码，可拒绝并附带意见。响应只能消费一次；确认绑定原会话、有效历史分支、工作区、解释器实例和源码，状态变化则失效；命名、书签和用量元数据不影响确认。断线重连只恢复待处理请求；重启不恢复请求，不自动重放。没有交互入口时不执行。拒绝和取消保存 `executed=false` 结果，执行耗时为零，不复用上一块指标；人工确认等待不计入代码执行预算。整块同意不替代内部函数的校验和权限审批。
+`confirm="原因"` 用于澄清不确定的用户意图；在完整代码闭合且供应商终态有效后，暂停整块等待用户确认。GUI 输入框上方展示原因、工作区和待执行源码，可拒绝并附带意见。响应只能消费一次；确认绑定原会话、有效历史分支、工作区、解释器实例和源码，状态变化则失效；命名、书签和用量元数据不影响确认。断线重连只恢复待处理请求；重启不恢复请求，不自动重放。没有交互入口时不执行。拒绝和取消保存 `executed=false` 结果，执行耗时为零，不复用上一块指标；人工确认等待不计入代码执行预算。整块同意不替代内部函数的校验和权限审批。
 
 缺少闭合、空块、用户取消、供应商错误或输出超限不启动代码；不会自动补齐或重放。源码上限 1 Mi 字符。保留供应商原始文本分块与有效签名，避免把一个 Responses message 重建成重复 ID 消息。
+
+## 内部权限提案
+
+具体函数的审批拦截以 `approval_required` 和请求 ID 返回模型，代码块中的此前副作用仍保留。AI 用 `approval(request_id, reason, scope)` 提出目的、风险及可选范围；用户通过与整块确认共用的非模态审批条决定。该函数只返回决定，不执行被拦截操作，批准后由 AI 重试具体调用。一次票据绑定原始参数和策略，不能借它重跑整块或替换目标。不要先用 `confirm` 申请工具权限，避免重复确认。
+
+实际意见可成为自主记忆的经验来源，但 Markdown 不构成许可。取消、拒绝、重启或上下文变化不能隐式续批；完整范围及失效规则见[审批](reference/approval-gate/README.md)。
 
 ## 闭合后截流
 
@@ -63,6 +69,6 @@ valid=[r for r in rows if r["ok"]]
 
 节省来自减少声明重复、中间数据驻留和多步编排，不能把内部调用数减少直接当成计费或耗时收益。当前没有提供新版与旧版的供应商费用对比。
 
-定向验证：`tests/pimoon/codeact-parser.test.ts`、`codeact-stream.test.ts`、`codeact-stop.test.ts`、`codeact-confirmation.test.ts`、`text-codeact.test.ts`、`codeact-process.test.ts`、`codeact-http.test.ts`、`codeact-headless.test.ts`、`process-budget.test.ts`、`process-batch-sdk.test.ts`、`process-orchestration.test.mjs` 与 `runtime.test.mjs`。使用真实 SDK、Python/Rust、npm CLI、JVM 合成 Wrapper 和本地 HTTP/代理服务；不运行实际 Android 构建、不请求付费模型、不启动桌面窗口。
+定向验证：`tests/pimoon/codeact-parser.test.ts`、`codeact-stream.test.ts`、`codeact-stop.test.ts`、`codeact-confirmation.test.ts`、`approval.test.ts`、`text-codeact.test.ts`、`codeact-process.test.ts`、`codeact-http.test.ts`、`codeact-headless.test.ts`、`process-budget.test.ts`、`process-batch-sdk.test.ts`、`process-orchestration.test.mjs` 与 `runtime.test.mjs`。使用真实 SDK、Python/Rust、npm CLI、JVM 合成 Wrapper 和本地 HTTP/代理服务；不运行实际 Android 构建、不请求付费模型、不启动桌面窗口。
 
 所有验证通过 `node scripts/test-isolated.mjs ...` 隔离配置、访问凭据及临时目录。

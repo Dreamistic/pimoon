@@ -1,10 +1,10 @@
 import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import { borderedPanelContentWidth, renderBorderedPanel } from "../../components/scroll-viewer.ts";
-import { buildApprovalContent, type ApprovalDisplayLine, type ApprovalLineStyle } from "../../../harness/approval/presentation.ts";
+import { approvalText, buildApprovalContent, type ApprovalDisplayLine, type ApprovalLineStyle } from "../../../harness/approval/presentation.ts";
 import {
-	ALLOW_ONCE, ALLOW_PERSISTENT, ALLOW_SESSION, DENY_WITH_INSTRUCTION,
-	type ApprovalChoice, type ApprovalDialogOptions, type ApprovalOptions,
+	ALLOW_ONCE, ALLOW_PERSISTENT, ALLOW_SESSION, DENY_WITH_INSTRUCTION, approvalScopes,
+	type ApprovalChoice, type ApprovalDialogOptions, type ApprovalOptions, type ApprovalReply, type ApprovalProposal,
 } from "../../../harness/approval/runtime/interaction.ts";
 import type { ApprovalDecision, ApprovalRequest } from "../../../harness/approval/types.ts";
 
@@ -18,14 +18,17 @@ export async function openApprovalDialog(
 	decision: AskDecision,
 	options: ApprovalOptions,
 	dialogOptions?: ApprovalDialogOptions,
-): Promise<string | undefined> {
-	return ui.custom<string | undefined>(
+): Promise<ApprovalReply | undefined> {
+	if (dialogOptions?.signal?.aborted) return;
+	const choice = await ui.custom<string | undefined>(
 		(tui, theme, _keybindings, done) => new ApprovalDialog(
 			request, decision, options, theme,
-			() => tui.terminal.rows, () => tui.requestRender(), done, dialogOptions?.timeout,
+			() => tui.terminal.rows, () => tui.requestRender(), done, dialogOptions?.timeout, dialogOptions?.signal, dialogOptions?.proposal,
 		),
 		{ overlay: true, overlayOptions: { anchor: "center", width: "90%", minWidth: 80, maxHeight: "90%", margin: 1 } },
 	);
+	const offered = options.find(option => option === choice);
+	return offered ? { choice: offered } : undefined;
 }
 
 /** 高度受限的审批面板，内容滚动与操作选择相互独立。 */
@@ -38,6 +41,7 @@ export class ApprovalDialog implements Component {
 	private readonly expiresAt: number | undefined;
 	private readonly timeoutTimer: ReturnType<typeof setTimeout> | undefined;
 	private readonly countdownTimer: ReturnType<typeof setInterval> | undefined;
+	private readonly abort = () => this.done(undefined);
 
 	constructor(
 		private readonly request: ApprovalRequest,
@@ -48,9 +52,16 @@ export class ApprovalDialog implements Component {
 		private readonly requestRender: () => void,
 		private readonly done: (choice: string | undefined) => void,
 		timeoutMs?: number,
+		private readonly signal?: AbortSignal,
+		proposal?: ApprovalProposal,
 	) {
+		signal?.addEventListener("abort", this.abort, { once: true });
 		this.selectedChoice = options[0];
-		this.content = buildApprovalContent(request, decision);
+		this.content = [
+			...(proposal ? [{ text: approvalText(proposal.reason), style: "text" as const }] : []),
+			...approvalScopes(request, decision, options).map(scope => ({ text: approvalText(`${scope.choice}: ${scope.detail}`), style: "dim" as const })),
+			...buildApprovalContent(request, decision),
+		];
 		if (timeoutMs !== undefined) {
 			this.expiresAt = Date.now() + timeoutMs;
 			this.timeoutTimer = setTimeout(() => this.done(undefined), timeoutMs);
@@ -105,6 +116,7 @@ export class ApprovalDialog implements Component {
 	invalidate(): void {}
 
 	dispose(): void {
+		this.signal?.removeEventListener("abort", this.abort);
 		if (this.timeoutTimer !== undefined) clearTimeout(this.timeoutTimer);
 		if (this.countdownTimer !== undefined) clearInterval(this.countdownTimer);
 	}

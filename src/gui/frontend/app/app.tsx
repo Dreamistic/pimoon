@@ -54,7 +54,7 @@ export function App() {
 	const gui = useGui();
 	const { snapshot, dialogs, status, error, panel, auth, authUrl, deviceCode, send } = gui;
 	const currentDialog = dialogs[0];
-	const confirmation = currentDialog?.kind === "codeact" ? currentDialog : undefined;
+	const confirmation = currentDialog?.kind === "codeact" || currentDialog?.kind === "approval" ? currentDialog : undefined;
 	const [mobileOpen, setMobileOpen] = useState(false);
 	const [collapsed, setCollapsed] = useState(false);
 	const toggleSidebar = useCallback(() => setCollapsed((value) => !value), []);

@@ -8,7 +8,7 @@ import { allowRuleMatches, dedupeRules, type ApprovalRuleMatcher } from "./allow
 
 export interface ApprovalStore extends ApprovalRuleMatcher {
 	addSessionAllowRules(rules: readonly ApprovalAllowRule[]): void;
-	addPersistentAllowRules(rules: readonly ApprovalAllowRule[]): Promise<void>;
+	addPersistentAllowRules(rules: readonly ApprovalAllowRule[], signal?: AbortSignal, validate?: () => Promise<boolean>): Promise<void>;
 }
 
 /** 临时授权属于逻辑会话，不随 SDK 实例回收。 */
@@ -50,7 +50,7 @@ export class FileApprovalStore {
 			matchesAllowRule: (request, unit) => session.rules.some((rule) => allowRuleMatches(rule, request, unit))
 				|| this.persistentRules.some((rule) => allowRuleMatches(rule, request, unit)),
 			addSessionAllowRules: (rules) => { session.rules = dedupeRules([...session.rules, ...rules]); },
-			addPersistentAllowRules: (rules) => this.addPersistentAllowRules(rules),
+			addPersistentAllowRules: (rules, signal, validate) => this.addPersistentAllowRules(rules, signal, validate),
 		};
 	}
 
@@ -61,12 +61,13 @@ export class FileApprovalStore {
 		return operation;
 	}
 
-	async addPersistentAllowRules(rules: readonly ApprovalAllowRule[]): Promise<void> {
+	async addPersistentAllowRules(rules: readonly ApprovalAllowRule[], signal?: AbortSignal, validate?: () => Promise<boolean>): Promise<void> {
 		if (rules.length === 0) return;
 		const mutation = this.persistentMutation.then(async () => {
 			await this.loadPersistentRules();
 			const next = dedupeRules([...this.persistentRules, ...rules]);
-			await this.writePersistentRules(next);
+			signal?.throwIfAborted();
+			await this.writePersistentRules(next, signal, validate);
 			this.persistentRules = next;
 			this.stamp = undefined;
 		});
@@ -93,12 +94,14 @@ export class FileApprovalStore {
 		this.stamp = stamp;
 	}
 
-	private async writePersistentRules(rules: ApprovalAllowRule[]): Promise<void> {
+	private async writePersistentRules(rules: ApprovalAllowRule[], signal?: AbortSignal, validate?: () => Promise<boolean>): Promise<void> {
 		const file = this.persistentStorePath;
 		await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
 		const temporary = `${file}.${randomUUID()}.tmp`;
 		try {
-			await writeFile(temporary, `${JSON.stringify({ rules }, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+			await writeFile(temporary, `${JSON.stringify({ rules }, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx", signal });
+			if (validate && !await validate()) throw new Error("Approval context changed before persistence.");
+			signal?.throwIfAborted();
 			await rename(temporary, file);
 		} finally { await rm(temporary, { force: true }); }
 	}

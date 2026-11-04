@@ -139,6 +139,22 @@ describe("approval store", () => {
 		expect(reloaded.matchesAllowRule(second, unit(second, "npm install lodash"))).toBe(true);
 	});
 
+	it.each(["cancel", "invalidated"] as const)("持久提交排队期间 %s 不落盘，其他会话的已批准写入保留", async change => {
+		const file = path.join(dir, "queued.rules.jsonc"), store = await openStore(file);
+		const first = await commandRequest("git push origin main"), second = await commandRequest("npm install lodash");
+		const ready = Promise.withResolvers<boolean>(), controller = new AbortController();
+		let current = true;
+		const a = store.addPersistentAllowRules(createExactAllowRules(first, first.units), undefined, () => ready.promise);
+		const b = store.addPersistentAllowRules(createExactAllowRules(second, second.units), controller.signal, async () => current).then(() => "saved", () => "blocked");
+		if (change === "cancel") controller.abort(); else current = false;
+		ready.resolve(true); await a;
+		expect(await b).toBe("blocked");
+		const disk = await openStore(file);
+		expect(disk.matchesAllowRule(first, firstUnit(first))).toBe(true);
+		expect(disk.matchesAllowRule(second, firstUnit(second))).toBe(false);
+		expect(store.matchesAllowRule(second, firstUnit(second))).toBe(false);
+	});
+
 	it("持久写入失败不提交内存规则，并允许下一次写入继续", async () => {
 		const storePath = path.join(dir, "rules.jsonc");
 		const store = await openStore(storePath);

@@ -2,7 +2,7 @@
 
 Windows 桌面与其无界面子代理只使用文本 CodeAct。没有 `codemode` 工具，也没有模型原生工具声明；`<execute>` 代码块直接进入持久 CPython。函数目录由启用能力的真实 schema 生成。
 
-执行开始行可写 `<execute desc="简短目的" confirm="确认原因">`。GUI 以目的作为执行卡片标题，真实状态和结果单独展示；`confirm` 在整块运行前等待用户，可拒绝并附带意见，不替代内部函数审批。无交互入口不执行需要确认的块。格式与边界见[文本 CodeAct 协议](../../codeact-protocol.md)。
+执行开始行可写 `<execute desc="简短目的" confirm="确认原因">`。GUI 以目的作为执行卡片标题，真实状态和结果单独展示；`confirm` 仅用于澄清用户意图，在整块运行前等待用户，可拒绝并附带意见，不替代内部函数审批。无交互入口不执行需要确认的块。格式与边界见[文本 CodeAct 协议](../../codeact-protocol.md)。
 
 ## Python 与函数
 
@@ -18,6 +18,12 @@ rows = [json.loads(line) for line in Path("events.jsonl").read_text(encoding="ut
 `read(...)`、`grep(...)`、`edit(...)`、`webfetch(...)` 等是注入的函数，也可通过 `functions.read(...)` 调用。函数参数使用关键字；目录中的 `?` 表示省略，不是传 `None`。关闭 I/O 函数不关闭 Python。下一块执行前同步函数集合，保留其他变量；旧函数引用不能绕过当前权限。
 
 普通本地文件读写和下载可以离开工作区；凭据、系统写入和应用安全配置仍受保护，网络及设备路径不能当作普通本地文件直接访问。已有文件通过 read 后的 write/edit 修改并检测版本冲突；原生 Python 只允许新建文件，不直接覆盖已有文件。原生删除、重命名和改权限需转为明确审批的 process_run 操作。这些检查不是强安全沙箱，也不是任意读取隐私文件的授权。
+
+## 审批继续
+
+内部调用需要审批时，先返回 `approval_required` 与请求 ID，不立即弹窗。AI 使用启用的 `approval(request_id, reason, scope)` 提出理由及范围，用户在统一审批条中作决定。返回的是真实范围和意见，不是执行结果；批准后只重试该调用，不重放包含已完成副作用的整块代码。拒绝、取消或上下文变化不能通过换入口重试。
+
+`once` 票据只匹配下一次相同调用；`session/persistent` 按运行时展示的规则匹配。完整语义和限制见[审批](../approval-gate/README.md)。已有自定义函数列表需手动启用 `approval`，或重新应用预设。
 
 ## 替代 Shell
 

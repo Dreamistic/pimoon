@@ -5,97 +5,87 @@ import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest } from "../t
 export const ALLOW_ONCE = "Allow once";
 export const ALLOW_SESSION = "Allow for session";
 export const ALLOW_PERSISTENT = "Always allow similar";
-const DENY = "Deny";
+export const DENY = "Deny";
 export const DENY_WITH_INSTRUCTION = "Deny with instruction";
-const USER_DENIED_REASON = "User denied this tool call.";
-
-export type ApprovalChoice =
-	| typeof ALLOW_ONCE
-	| typeof ALLOW_SESSION
-	| typeof ALLOW_PERSISTENT
-	| typeof DENY
-	| typeof DENY_WITH_INSTRUCTION;
+export type ApprovalChoice = typeof ALLOW_ONCE | typeof ALLOW_SESSION | typeof ALLOW_PERSISTENT | typeof DENY | typeof DENY_WITH_INSTRUCTION;
 export type ApprovalOptions = readonly [ApprovalChoice, ...ApprovalChoice[]];
-
+export type ApprovalScope = "once" | "session" | "persistent";
+export interface ApprovalProposal { reason: string; scope: ApprovalScope }
+export interface ApprovalReply { choice: ApprovalChoice; feedback?: string }
+export interface ApprovalScopeOption { scope: ApprovalScope; choice: ApprovalChoice; label: string; detail: string }
+export interface ApprovalReceipt {
+	decision: "approved" | "rejected" | "cancelled";
+	scope?: ApprovalScope;
+	feedback?: string;
+	persistence_failed?: boolean;
+}
 export interface ApprovalDialogOptions {
 	timeout?: number;
+	signal?: AbortSignal;
+	proposal?: ApprovalProposal;
+	/** 在保存授权前复核会话、分支、配置及取消状态。 */
+	validate?: () => Promise<boolean>;
 }
-
-export type ApprovalOutcome = { kind: "approved" } | { kind: "blocked"; reason: string };
-
+export type ApprovalOutcome = ({ kind: "approved" } | { kind: "blocked"; reason: string }) & { receipt?: ApprovalReceipt };
 export interface ApprovalInteractionPort {
-	approve(
-		request: ApprovalRequest,
-		decision: Extract<ApprovalDecision, { kind: "ask" }>,
-		options: ApprovalOptions,
-		optionsOverride?: ApprovalDialogOptions,
-	): Promise<string | undefined>;
-	input(title: string, placeholder: string, optionsOverride?: ApprovalDialogOptions): Promise<string | undefined>;
+	approve(request: ApprovalRequest, decision: Extract<ApprovalDecision, { kind: "ask" }>, options: ApprovalOptions, opts?: ApprovalDialogOptions): Promise<ApprovalReply | undefined>;
+	input(title: string, placeholder: string, opts?: ApprovalDialogOptions): Promise<string | undefined>;
 	notify(message: string, type: "info" | "warning"): void;
 }
 
+export function approvalOptions(config: ApprovalGateConfig, decision: Extract<ApprovalDecision, { kind: "ask" }>): ApprovalOptions {
+	const units = decision.items.map(item => item.unit);
+	return [ALLOW_ONCE,
+		...(config.remember.allow_session && units.every(unit => unit.remember.session) ? [ALLOW_SESSION] as const : []),
+		...(config.remember.allow_persistent && units.every(unit => unit.remember.persistent) ? [ALLOW_PERSISTENT] as const : []),
+		DENY, DENY_WITH_INSTRUCTION];
+}
+
+export function approvalScopes(request: ApprovalRequest, decision: Extract<ApprovalDecision, { kind: "ask" }>, options: ApprovalOptions): ApprovalScopeOption[] {
+	const units = decision.items.map(item => item.unit);
+	const scopes: ApprovalScopeOption[] = [{ scope: "once", choice: ALLOW_ONCE, label: "仅本次", detail: "仅批准所示操作的下一次相同调用，不重跑整段代码。" }];
+	if (options.includes(ALLOW_SESSION)) scopes.push({ scope: "session", choice: ALLOW_SESSION, label: "本会话相同操作", detail: describeAllowRules(createExactAllowRules(request, units)) });
+	if (options.includes(ALLOW_PERSISTENT)) scopes.push({ scope: "persistent", choice: ALLOW_PERSISTENT, label: "以后按所示规则", detail: describeAllowRules(createSimilarAllowRules(request, units)) });
+	return scopes.filter(option => options.includes(option.choice));
+}
+
+function notify(interaction: ApprovalInteractionPort, message: string, type: "info" | "warning"): void {
+	try { interaction.notify(message, type); } catch { /* 展示失败不能撤销或伪造已经提交的授权。 */ }
+}
+
 export async function handleAskDecision(
-	request: ApprovalRequest,
-	decision: Extract<ApprovalDecision, { kind: "ask" }>,
-	config: ApprovalGateConfig,
-	store: ApprovalStore,
-	interaction: ApprovalInteractionPort,
+	request: ApprovalRequest, decision: Extract<ApprovalDecision, { kind: "ask" }>, config: ApprovalGateConfig,
+	store: ApprovalStore, interaction: ApprovalInteractionPort, opts: ApprovalDialogOptions = {},
 ): Promise<ApprovalOutcome> {
-	const askedUnits = decision.items.map((item) => item.unit);
-	const options = approvalOptions(
-		config,
-		askedUnits.every((unit) => unit.remember.session),
-		askedUnits.every((unit) => unit.remember.persistent),
-	);
-	const choice = await interaction.approve(request, decision, options, dialogOptions(config));
-	const acceptedChoice = choice !== undefined && isOfferedChoice(choice, options) ? choice : undefined;
-	if (acceptedChoice === ALLOW_ONCE) return { kind: "approved" };
-	if (acceptedChoice === ALLOW_SESSION) {
-		store.addSessionAllowRules(createExactAllowRules(request, askedUnits));
-		return { kind: "approved" };
+	const cancelled = (): ApprovalOutcome => ({ kind: "blocked", reason: "Approval cancelled or invalidated. No permission was granted.", receipt: { decision: "cancelled" } });
+	const valid = async () => !opts.signal?.aborted && (await opts.validate?.() ?? true) && !opts.signal?.aborted;
+	if (!await valid()) return cancelled();
+	const options = approvalOptions(config, decision);
+	const dialog = { ...(config.ui.timeout_ms > 0 ? { timeout: config.ui.timeout_ms } : {}), ...opts };
+	const reply = await interaction.approve(request, decision, options, dialog);
+	if (!reply || !options.includes(reply.choice) || !await valid()) return cancelled();
+	let feedback = reply.feedback?.trim().slice(0, 2000) || undefined;
+	if (reply.choice === DENY_WITH_INSTRUCTION && feedback === undefined) {
+		feedback = (await interaction.input("Instruction for agent", "Why deny, or what should happen instead?", dialog))?.trim().slice(0, 2000) || undefined;
+		if (!await valid()) return cancelled();
 	}
-	if (acceptedChoice === ALLOW_PERSISTENT) {
-		const rules = createSimilarAllowRules(request, askedUnits);
+	if (reply.choice === DENY || reply.choice === DENY_WITH_INSTRUCTION) return {
+		kind: "blocked", reason: `User denied this tool call. Do not retry without a new user instruction.${feedback ? `\nUser feedback:\n${feedback}` : ""}`,
+		receipt: { decision: "rejected", ...(feedback ? { feedback } : {}) },
+	};
+	let scope: ApprovalScope = reply.choice === ALLOW_SESSION ? "session" : reply.choice === ALLOW_PERSISTENT ? "persistent" : "once";
+	const units = decision.items.map(item => item.unit);
+	let persistenceFailed = false;
+	if (scope === "session") store.addSessionAllowRules(createExactAllowRules(request, units));
+	if (scope === "persistent") {
 		try {
-			await store.addPersistentAllowRules(rules);
-			interaction.notify(`Approval rules saved: ${describeAllowRules(rules)}`, "info");
+			await store.addPersistentAllowRules(createSimilarAllowRules(request, units), opts.signal, valid);
+			notify(interaction, "审批规则已保存。", "info");
 		} catch (error) {
-			interaction.notify(`Approval rules were not saved: ${error instanceof Error ? error.message : String(error)}`, "warning");
+			if (!await valid()) return cancelled();
+			scope = "once"; persistenceFailed = true;
+			notify(interaction, `审批规则未保存，仅批准本次：${error instanceof Error ? error.message : String(error)}`, "warning");
 		}
-		return { kind: "approved" };
 	}
-	if (acceptedChoice === DENY_WITH_INSTRUCTION) {
-		const instruction = await interaction.input(
-			"Instruction for agent",
-			"Explain why this tool call was denied or what the agent should do instead.",
-			dialogOptions(config),
-		);
-		return { kind: "blocked", reason: formatDenyReason(instruction) };
-	}
-	return { kind: "blocked", reason: formatDenyReason(undefined) };
-}
-
-function approvalOptions(
-	config: ApprovalGateConfig,
-	canRememberSession: boolean,
-	canRememberPersistent: boolean,
-): ApprovalOptions {
-	const remembered: ApprovalChoice[] = [];
-	if (config.remember.allow_session && canRememberSession) remembered.push(ALLOW_SESSION);
-	if (config.remember.allow_persistent && canRememberPersistent) remembered.push(ALLOW_PERSISTENT);
-	return [ALLOW_ONCE, ...remembered, DENY, DENY_WITH_INSTRUCTION];
-}
-
-function isOfferedChoice(choice: string, options: ApprovalOptions): choice is ApprovalChoice {
-	return options.some((option) => option === choice);
-}
-
-function dialogOptions(config: ApprovalGateConfig): ApprovalDialogOptions | undefined {
-	return config.ui.timeout_ms > 0 ? { timeout: config.ui.timeout_ms } : undefined;
-}
-
-function formatDenyReason(instruction: string | undefined): string {
-	const trimmed = instruction?.trim();
-	if (trimmed === undefined || trimmed.length === 0) return USER_DENIED_REASON;
-	return `${USER_DENIED_REASON}\n\nInstruction from user:\n${trimmed}`;
+	return { kind: "approved", receipt: { decision: "approved", scope, ...(feedback ? { feedback } : {}), ...(persistenceFailed ? { persistence_failed: true } : {}) } };
 }

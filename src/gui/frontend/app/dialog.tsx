@@ -3,7 +3,6 @@ import { Clock3, ShieldCheck } from "lucide-react";
 import type { GuiDialog } from "../../shared/protocol/state.ts";
 import type { Send } from "@/connection/connection.ts";
 import { clean } from "@/ui/content/format.ts";
-import { BashApproval } from "@/features/chat/tools/bash-approval.tsx";
 import { Button } from "@/ui/button.tsx";
 import { Input } from "@/ui/input.tsx";
 import { Textarea } from "@/ui/textarea.tsx";
@@ -50,7 +49,6 @@ export function Dialog({ dialog, send, restoreFocus }: { dialog: GuiDialog; send
 					</DialogDescription>
 					<DialogTitle className="dialog-title">{clean(dialog.title)}</DialogTitle>
 				</DialogHeader>
-				{dialog.bash && <BashApproval approval={dialog.bash} />}
 				{dialog.message && dialog.kind !== "input" && dialog.kind !== "secret" && <pre>{clean(dialog.message)}</pre>}
 				{dialog.deadline !== null && (
 					<p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -96,16 +94,14 @@ export function Dialog({ dialog, send, restoreFocus }: { dialog: GuiDialog; send
 						)}
 					</form>
 				) : null}
-				{(!dialog.bash || dialog.kind !== "select") && (
 					<div className="dialog-actions">
-						{!dialog.bash && <Button variant="outline" onClick={() => respond(null)}>取消</Button>}
+						<Button variant="outline" onClick={() => respond(null)}>取消</Button>
 						{dialog.kind === "confirm" ? (
 							<Button onClick={() => respond("yes")}>确认</Button>
 						) : dialog.kind !== "select" ? (
 							<Button type="submit" form={formId}>提交</Button>
 						) : null}
 					</div>
-				)}
 			</DialogContent>
 		</DialogRoot>
 	);

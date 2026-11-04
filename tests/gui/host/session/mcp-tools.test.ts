@@ -52,8 +52,8 @@ it("内置预设只调整函数权限，模型请求始终不声明工具，不�
 	const settings = path.join(agentDir, "settings.json");
 	await writeFile(settings, JSON.stringify({ defaultProjectTrust: "never", defaultProvider: "fixture", defaultModel: "test", defaultTools: ["read"], extensions: ["-builtin:mcp"], compaction: { enabled: false }, retry: { enabled: false } }));
 	await host.host.start(temp.path); const original = await readFile(settings, "utf8");
-	const offline = ["edit", "find", "grep", "ls", "process_run", "read", "skill", "subagent", "write"];
-	for (const [preset, expected] of [["vanilla", [...offline, "http", "websearch", "webfetch"]], ["web-chat", ["http", "websearch", "webfetch"]], ["offline", offline], ["no-tools", []]] as const) {
+	const offline = ["approval", "edit", "find", "grep", "ls", "process_run", "read", "skill", "subagent", "write"];
+	for (const [preset, expected] of [["vanilla", [...offline, "http", "websearch", "webfetch"]], ["web-chat", ["approval", "http", "websearch", "webfetch"]], ["offline", offline], ["no-tools", []]] as const) {
 		await host.dispatch({ action: "toolPreset", preset }); const snapshot = readSnapshot(host);
 		expect(snapshot.toolPreset).toBe(preset);
 		expect(snapshot.tools.filter(tool => tool.enabled).map(tool => tool.name).sort()).toEqual([...expected].sort());

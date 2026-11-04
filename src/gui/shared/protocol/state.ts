@@ -5,7 +5,8 @@ import type { AutoTitleState } from "../../../harness/extensions/auto-title.ts";
 import type { CodexSpeed } from "../../../harness/codex-speed/state.ts";
 import type { UsageSnapshot } from "../../../harness/usage/types.ts";
 import type { SubagentDetails } from "../../../harness/subagent/types.ts";
-import type { ApprovalUnit } from "../../../harness/approval/types.ts";
+import type { ApprovalScope, ApprovalScopeOption } from "../../../harness/approval/runtime/interaction.ts";
+import type { ApprovalDisplayLine } from "../../../harness/approval/presentation.ts";
 import type { GuiEntry, GuiMessage, GuiNestedCalls, GuiToolOutput } from "../messages/types.ts";
 import type { GuiToolSelectionItem } from "../config/mcp.ts";
 import type { ToolPreset } from "../../../harness/tool-defaults/types.ts";
@@ -15,20 +16,24 @@ export const queueModes = ["one-at-a-time", "all"] as const;
 
 export type SessionTarget = { id: string } | { path: string };
 
-export interface GuiBashApproval {
+export interface GuiApproval {
+	tool: string;
 	cwd: string;
-	command: string;
-	items: { action: ApprovalUnit["action"]; kind: ApprovalUnit["target"]["kind"]; target: string; reason: string }[];
+	reason: string;
+	summary: string;
+	content: ApprovalDisplayLine[];
+	scopes: ApprovalScopeOption[];
+	recommended: ApprovalScope;
 }
 export interface GuiDialog {
 	id: string;
-	kind: "select" | "confirm" | "input" | "editor" | "secret" | "codeact";
+	kind: "select" | "confirm" | "input" | "editor" | "secret" | "codeact" | "approval";
 	title: string;
 	message: string;
 	options: string[];
 	initial: string;
 	deadline: number | null;
-	bash?: GuiBashApproval;
+	approval?: GuiApproval;
 	codeact?: CodeActConfirmation;
 }
 export interface GuiNotice {

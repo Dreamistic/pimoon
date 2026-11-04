@@ -33,7 +33,7 @@ import { useComposerQueries } from "./use-composer-queries.ts";
 import { useFileDrop } from "./use-file-drop.ts";
 import { fileReference } from "../../../../shared/file-reference.ts";
 import { ImagePreviewButton } from "@/ui/media/image-preview.tsx";
-import { CodeActConfirmationBar } from "../tools/codeact-confirmation.tsx";
+import { ApprovalBar } from "../tools/approval.tsx";
 
 // 跨组件挂载保持唯一，局域网 HTTP 不依赖 randomUUID 安全上下文。
 let nextAttachmentId = 0;
@@ -163,7 +163,7 @@ export function Composer({ ref, style, gui, view, snapshot, preferences, onSubmi
 			: [];
 	return (
 		<motion.footer className="composer" ref={ref} style={style}>
-			{confirmation && <CodeActConfirmationBar key={confirmation.id} dialog={confirmation} send={send} disabled={!connected} />}
+			{confirmation && <ApprovalBar key={confirmation.id} dialog={confirmation} send={send} disabled={!connected} />}
 			<AnimatePresence initial={false}>
 			{setup && hasContextMessages(snapshot) && <Reveal><div className="flex flex-wrap items-center justify-center gap-2 pb-2 text-sm text-muted-foreground" role="status">
 				<span>{setup.kind === "auth" ? "发送消息前，请先配置模型服务。" : "发送消息前，请先选择可用模型。"}</span>

@@ -70,10 +70,10 @@ describe("approval gate", () => {
 		const handler = captureExtensionHandler(emitted);
 		const event = webfetch("http://127.0.0.1/private");
 		const pending = handler(event, ctx(ui));
-		if (outcome === "error") await expect(pending).rejects.toThrow();
+		if (outcome === "error") expect(await pending).toMatchObject({ block: true });
 		else await pending;
 		expect(emitted).toEqual([
-			{ channel: APPROVAL_STATUS_CHANNEL, data: { type: "requested", toolCallId: event.toolCallId, toolName: event.toolName } },
+			{ channel: APPROVAL_STATUS_CHANNEL, data: { type: "requested", toolCallId: event.toolCallId, toolName: "approval" } },
 			{ channel: APPROVAL_STATUS_CHANNEL, data: { type: "resolved", toolCallId: event.toolCallId, outcome: outcome === "approved" ? "approved" : "denied" } },
 		]);
 		expect(readPrivateNetworkGrant(event.input) !== undefined).toBe(outcome === "approved");
@@ -103,13 +103,13 @@ describe("approval gate", () => {
 
 	it("窄 interaction port 可完成审批", async () => {
 		const interaction: ApprovalInteractionPort = {
-			approve: async () => "Allow once",
+			approve: async () => ({ choice: "Allow once" }),
 			input: async () => undefined,
 			notify() {},
 		};
 		const gate = createApprovalGate();
 		expect(await gate.authorize(await requiredRequest(bash("git push origin main")), await loadApprovalGateConfig(), interaction))
-			.toEqual({ kind: "approved" });
+			.toMatchObject({ kind: "approved", receipt: { decision: "approved", scope: "once" } });
 	});
 
 	it("复合命令只触发一次聚合审批", async () => {
@@ -527,7 +527,8 @@ function handle(event: ToolCallEvent, context: TestContext): Promise<ToolCallEve
 function captureExtensionHandler(
 	emitted: Array<{ channel: string; data: unknown }> = [],
 ): (event: ToolCallEvent, ctx: TestContext) => Promise<ToolCallEventResult | void> {
-	const { handlers } = registerExtension((pi) => approvalGateExtension(pi, presentation.approvalGate), {
+	const { handlers, registered } = registerExtension((pi) => approvalGateExtension(pi, presentation.approvalGate), {
+		appendEntry() {},
 		events: {
 			emit(channel: string, data: unknown) { emitted.push({ channel, data }); },
 			on() { return () => {}; },
@@ -535,7 +536,20 @@ function captureExtensionHandler(
 	});
 	const handler = handlers.get("tool_call");
 	if (handler === undefined) throw new Error("tool_call handler not registered");
-	return (event, context) => handler(event, context) as Promise<ToolCallEventResult | void>;
+	const proposal = registered.find(tool => tool.name === "approval");
+	if (!proposal) throw new Error("approval not registered");
+	return async (event, context) => {
+		const current = { ...context, sessionManager: { getSessionId: () => "test", getBranch: () => [] } };
+		const result = await handler(event, current) as ToolCallEventResult | void;
+		if (!result?.reason?.startsWith("{")) return result;
+		const required: unknown = JSON.parse(result.reason);
+		if (!required || typeof required !== "object" || !("request_id" in required)) return result;
+		const response = await proposal.execute(event.toolCallId, { request_id: required.request_id, reason: "Test proposal", scope: "once" }, undefined, undefined, current);
+		const value = response.structuredContent;
+		if (typeof value === "object" && value !== null && "status" in value && (value.status === "approved" || value.status === "already_allowed"))
+			return await handler(event, current) as ToolCallEventResult | void;
+		return { block: true, reason: typeof value === "object" && value !== null && "reason" in value ? String(value.reason) : "Approval failed" };
+	};
 }
 
 interface FakeUi {

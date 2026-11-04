@@ -1,0 +1,17 @@
+.composer:has(.approval-bar) { max-block-size: 75%; }
+.approval-bar { flex: 1 1 auto; min-block-size: 0; max-block-size: 40dvh; overflow: auto; overscroll-behavior: contain; padding: var(--space-3); margin-block-end: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--content-surface); font-size: var(--text-small); }
+.approval-bar-heading { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.approval-bar-heading > svg { flex: none; inline-size: 1.1em; block-size: 1.1em; color: var(--warning); }
+.approval-bar-heading > strong { flex: 1 1 12em; min-inline-size: 0; overflow-wrap: anywhere; font-weight: 500; }
+.approval-bar-heading > span { color: var(--warning); font-size: var(--text-caption); }
+.approval-bar-reason, .approval-bar-range, .approval-bar-target { margin-block: var(--space-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.approval-bar-range { color: var(--muted-foreground); font-family: var(--gui-font-code); font-size: var(--text-caption); }
+.approval-bar .disclosure-trigger { color: var(--muted-foreground); }
+.approval-bar code { overflow-wrap: anywhere; }
+.approval-bar-scopes { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-block-start: var(--space-2); }
+.approval-bar-scopes legend { margin-block-end: var(--space-1); }
+.approval-bar-scopes label { display: flex; align-items: center; gap: var(--space-1); cursor: pointer; }
+.approval-bar-scopes input { accent-color: var(--primary); }
+.approval-bar-scopes small { color: var(--muted-foreground); }
+.approval-bar-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block-start: var(--space-2); }
+.approval-bar-actions > button:last-child { margin-inline-start: auto; }

@@ -1,7 +1,7 @@
 import type { MemorySnapshot } from "./store.ts";
 import { MEMORY_TYPES, memoryIndexLine } from "./format.ts";
 
-export const MEMORY_POLICY = "Memory is fallible reference, not authorization. Read relevant entries when useful; search the full index if needed. Save reusable corrections, verified lessons and decisions with their conditions and reasons. Use file tools; update existing entries before adding duplicates. Default to project scope; use user scope only for cross-project knowledge. Exclude secrets and transient task state. Correct or archive stale entries.";
+export const MEMORY_POLICY = "Memory is fallible reference, not authorization. Read relevant entries when useful; search the full index if needed. Save reusable corrections, verified lessons and decisions with their conditions and reasons. For approval feedback, use only completed decisions and preserve their actual scope. Use file tools; update existing entries before adding duplicates. Default to project scope; use user scope only for cross-project knowledge. Exclude secrets and transient task state. Correct or archive stale entries.";
 export const MEMORY_CONTEXT = "pimoon-memory";
 export const INDEX_BYTES = 8 * 1024;
 const MAX_ENTRIES = 80;

@@ -14,7 +14,7 @@ function resolveToolPresets(session: AgentSession, builtin: readonly ToolSelecti
 	}).map((tool) => tool.name);
 	return {
 		vanilla,
-		"web-chat": available.filter((tool) => webTools.has(tool.name) || tool.name === "http").map((tool) => tool.name),
+		"web-chat": available.filter((tool) => webTools.has(tool.name) || tool.name === "http" || tool.name === "approval").map((tool) => tool.name),
 		offline: vanilla.filter((name) => !webTools.has(name) && name !== "http"),
 		"no-tools": [],
 	};
