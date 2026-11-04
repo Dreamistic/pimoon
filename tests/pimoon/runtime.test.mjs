@@ -242,6 +242,46 @@ test('batch 有界并发、按序返回，部分失败不吞错也不提前停�
  },[tool],false);
 });
 
+for(const transport of ['rust','direct'])test(`${transport}: batch find 使用工具名和参数字典，按根目录顺序返回`,async()=>{
+ const tool={name:'find',parameters:{type:'object',properties:{query:{type:'string'},path:{type:'array',items:{type:'string'}}}}};
+ const calls=[];
+ await runTest(async runtime=>{
+  const result=await runtime.run('roots=["workspace","config","roaming"]\nresults=batch(name="find", jobs=[{"query":"clash | mihomo","path":[root]} for root in roots], limit=3)\nassert [item["value"] for item in results]==roots\nassert all(item["ok"] for item in results)\nprint("batch find complete")',{
+   tools:[tool],executeTool:async(name,args)=>{
+    calls.push({name,args});
+    await new Promise(resolve=>setTimeout(resolve,args.path[0]==='workspace'?20:5));
+    return{isError:false,result:{content:[{type:'text',text:args.path[0]}]}};
+   },
+  });
+  assert.equal(result.isError,false,result.content[0].text);assert.match(result.content[0].text,/batch find complete/);
+  assert.deepEqual(calls,['workspace','config','roaming'].map(root=>({name:'find',args:{query:'clash | mihomo',path:[root]}})));
+  assert.equal(result.details.metrics.internal_tool_calls,3);assert.equal(result.details.metrics.batch_calls,1);
+ },[tool],false,{transport});
+});
+
+test('batch 区分工具名与任务标题，执行前拒绝任务包装及非参数字典',async()=>{
+ const tool={name:'find',parameters:{type:'object',properties:{query:{type:'string'}}}};
+ await runTest(async runtime=>{
+  let calls=0;
+  const ctx={tools:[tool],executeTool:async()=>{calls++;throw Error('must not execute invalid batch');}};
+  const cases=[
+   ['batch(name="查找 Clash 配置", jobs=[{"tool":"find","args":{"query":"clash | mihomo"}}], limit=3)',/batch name must be a tool: read\/find\/grep\/ls, not a task label/],
+   ['batch("write", [{"path":"blocked.txt"}])',/batch name must be a tool/],
+   ['batch("bash", [{"command":"blocked"}])',/batch name must be a tool/],
+   ...['{"tool":"find","args":{"query":"clash"}}','{"args":{"query":"clash"}}','None','[]','"clash"'].map(job=>[
+    `batch("find", [{"query":"valid"},${job}])`,/batch jobs must be keyword-argument dicts for name, without tool\/args wrappers/,
+   ]),
+  ];
+  for(const [code,expected] of cases){
+   const result=await runtime.run(code,ctx);
+   assert.equal(result.isError,true,code);assert.match(result.content[0].text,expected);
+   assert.equal(result.details.metrics.internal_tool_calls,0);assert.equal(result.details.metrics.batch_calls,0);
+   assert.equal(result.details.metrics.tool_failure_count,1);
+  }
+  assert.equal(calls,0);
+ },[tool],false);
+});
+
 test('预热只初始化，不执行代码；首次执行复用已就绪的 Python',()=>runTest(async runtime=>{
  const pid=runtime.workerInfo.pid;
  assert.equal(runtime.hasState,false);

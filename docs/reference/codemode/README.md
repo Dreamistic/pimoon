@@ -17,7 +17,12 @@ rows = [json.loads(line) for line in Path("D:/data/events.jsonl").read_text(enco
 
 宿主函数已注入 Python，例如 `read(path=...)`、`bash(command=...)`、`websearch(...)`。启用的函数签名及返回结构由真实 schema 生成，模型无须另找入口。底层能力关闭后不可调用；执行仍经过 SDK 校验、审批与遥测。Python 不直接启动进程、访问网络或调用 FFI。
 
-`batch(name, jobs, limit=6)` 只并发独立的 read/find/grep/ls，最多 16 并发。返回有序的 `{ok, value|error}` 列表。
+`batch(name, jobs, limit=6)` 的 `name` 是 read/find/grep/ls 工具名，不是任务标题；`jobs` 每项直接放该工具的参数字典，不使用 `{tool, args}` 包装，同批不混用工具。只并发独立调用，最多 16 并发。返回有序的 `{ok, value|error}` 列表。
+
+```python
+roots = ["D:/configs", "D:/backup"]
+batch("find", [{"query": "clash | mihomo", "path": [root]} for root in roots], limit=3)
+```
 
 ## 结果与状态
 

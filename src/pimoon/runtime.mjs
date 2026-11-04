@@ -194,8 +194,9 @@ export class Runtime {
           let value;
           if(message.kind==='call')value=await invoke(message.name,message.args);
           else if(message.kind==='batch'){
-            if(!['read','find','grep','ls'].includes(message.name))throw Error('batch permits read-only tools');
+            if(!['read','find','grep','ls'].includes(message.name))throw Error('batch name must be a tool: read/find/grep/ls, not a task label');
             if(!Array.isArray(message.jobs)||message.jobs.length>256||!Number.isInteger(message.limit)||message.limit<1||message.limit>16)throw Error('invalid batch bounds');
+            if(message.jobs.some(job=>!job||typeof job!=='object'||Array.isArray(job)||'tool' in job||'args' in job))throw Error('batch jobs must be keyword-argument dicts for name, without tool/args wrappers');
             const batchId=randomUUID(),started=performance.now(),beforeFailures=internalFailures;
             batches++;
             emit('batch_start',{batch_id:batchId,tool:message.name,jobs:message.jobs.length,concurrency_limit:message.limit});
