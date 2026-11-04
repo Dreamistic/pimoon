@@ -9,6 +9,7 @@ import packageInfo from "../../package.json" with { type: "json" };
 import type { CodeActMessage } from "./codeact/transcript.ts";
 import { APPROVAL_STATUS_CHANNEL, isApprovalStatusEvent } from "../harness/approval/events.ts";
 import { CallTiming, processDuration } from "../harness/telemetry/call-timing.ts";
+import { estimateRequestTokens, estimateResponseTokens, responseUsageStatus, textTokens } from "./token-accounting.ts";
 
 const run = applicationRunId;
 export const telemetryDirectory = path.join(pimoonHome, "telemetry", run);
@@ -76,7 +77,8 @@ export function pimoonTelemetry(pi: ExtensionAPI): void {
 		const payload = fingerprint(event.payload);
 		requestBindings.set(payload.sha256, { labels: labels(ctx), model: ctx.model?.id, allowed: Boolean(span && ctx.model?.provider === "openai-codex") });
 		if (requestBindings.size > 200) { const first = requestBindings.keys().next().value; if (first) requestBindings.delete(first); }
-		record("model_request", { ...labels(ctx), provider: ctx.model?.provider, model: ctx.model?.id, payload });
+		record("model_request", { ...labels(ctx), provider: ctx.model?.provider, model: ctx.model?.id, thinking: pi.getThinkingLevel(),
+			payload, token_estimate: estimateRequestTokens(event.payload) });
 	});
 	pi.on("after_provider_response", (event, ctx) => record("model_headers", { ...labels(ctx), status: event.status }));
 	pi.on("provider_stream_event", (_event, ctx) => {
@@ -100,7 +102,7 @@ export function pimoonTelemetry(pi: ExtensionAPI): void {
 		// 工具取消可追加合成 assistant 错误，不把它算成同一模型请求的第二次结束。
 		record(elapsed === null ? "assistant_end" : "model_end", { ...labels(ctx), provider: message.provider, model: message.model, elapsed_ms: elapsed,
 			usage: message.usage, usage_reported: message.usage.totalTokens > 0, stop_reason: message.stopReason,
-			usage_status: message.codeactStop?.usage ?? (message.usage.totalTokens > 0 ? "complete" : "unavailable"),
+			usage_status: responseUsageStatus(message), token_estimate: elapsed === null ? undefined : estimateResponseTokens(message),
 			stream_stop: message.codeactStop ? "stop_sequence" : undefined,
 			performance: getAssistantPerformance(message), tool_calls: message.content.filter(part => part.type === "toolCall").map(part => ({ id: part.id, name: part.name })),
 			error: message.errorMessage ? fingerprint(message.errorMessage) : undefined });
@@ -118,7 +120,7 @@ export function pimoonTelemetry(pi: ExtensionAPI): void {
 		record("tool_end", { ...(start?.trace ?? labels(ctx)), tool_call_id: event.toolCallId, parent_tool_call_id: event.parentToolCallId,
 			tool: event.toolName, is_error: event.isError, elapsed_ms: timing?.wall_ms ?? null, ...timing,
 			execution_ms: event.durationMs, process_duration_ms: processDuration(event.toolName, result.details),
-			output: fingerprint(event.result.content), output_text: fingerprint(text) });
+			output: fingerprint(event.result.content), output_text: fingerprint(text), returned_text_tokens: textTokens(text), token_method: "o200k_base" });
 	});
 	pi.on("agent_settled", (event, ctx) => {
 		const span = spans.get(ctx.sessionManager.getSessionId());

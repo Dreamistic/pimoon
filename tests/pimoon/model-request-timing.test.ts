@@ -12,7 +12,7 @@ it("合成错误不重复计模型时长，审批起止与实际进程时长写�
 	const { handlers } = registerExtension(pimoonTelemetry, { events });
 	const ctx = { sessionManager: { getSessionId: () => "timing-fixture" }, model: { id: "fixture", provider: "fixture" } };
 	await handlers.get("before_agent_start")?.({ messageType: "user", prompt: "fixture" }, ctx);
-	await handlers.get("before_provider_request")?.({ payload: {} }, ctx);
+	await handlers.get("before_provider_request")?.({ payload: { instructions: "PRIVATE_PROTOCOL", input: [{ role: "user", content: "PRIVATE_PROMPT" }] } }, ctx);
 	await handlers.get("message_end")?.({ message: assistant([{ type: "text", text: "done" }]) }, ctx);
 	await handlers.get("message_end")?.({ message: { ...assistant([]), stopReason: "error", errorMessage: "synthetic cancellation" } }, ctx);
 	await handlers.get("before_provider_request")?.({ payload: { next: true } }, ctx);
@@ -26,6 +26,10 @@ it("合成错误不重复计模型时长，审批起止与实际进程时长写�
 	const rows: Array<Record<string, unknown>> = (await Promise.all(files.map(file => fs.readFile(path.join(telemetryDirectory, file), "utf8"))))
 		.flatMap(text => text.trim().split("\n").map(line => JSON.parse(line)));
 	expect(rows.filter(row => row["type"] === "model_end")).toHaveLength(2);
+	expect(rows.find(row => row["type"] === "model_request")).toMatchObject({ token_estimate: { input: expect.any(Number), method: "o200k_base" } });
+	expect(rows.filter(row => row["type"] === "model_end")).toEqual(expect.arrayContaining([expect.objectContaining({ token_estimate: expect.objectContaining({ visible_output: expect.any(Number) }) })]));
+	expect(rows.find(row => row["type"] === "assistant_end")).not.toHaveProperty("token_estimate");
+	expect(JSON.stringify(rows)).not.toContain("PRIVATE_");
 	expect(rows.filter(row => row["type"] === "assistant_end")).toMatchObject([{ elapsed_ms: null, stop_reason: "error" }]);
 	expect(rows.filter(row => row["type"] === "approval_start")).toHaveLength(1);
 	expect(rows.filter(row => row["type"] === "approval_end")).toMatchObject([{ outcome: "approved" }]);

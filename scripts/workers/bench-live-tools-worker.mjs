@@ -11,7 +11,8 @@ let input = "";
 for await (const chunk of process.stdin) input += chunk;
 const { credential, catalog } = JSON.parse(input);
 input = "";
-const { fileTools, systemPrompt, CodeAct, flushTelemetry, disposeLsp } = await import(pathToFileURL(bundle).href);
+const { fileTools, systemPrompt, CodeAct, flushTelemetry, disposeLsp,
+	estimateRequestTokens, estimateResponseTokens, responseUsageStatus, summarizeTokenAccounting, textTokens } = await import(pathToFileURL(bundle).href);
 const cwd = path.join(home, "workspace"), agentDir = path.join(process.env.PIMOON_HOME, "agent");
 await fs.mkdir(cwd, { recursive: true }); await fs.mkdir(agentDir, { recursive: true });
 await fs.writeFile(path.join(agentDir, "models-store.json"), JSON.stringify(catalog));
@@ -42,7 +43,16 @@ factories.push({ name: "stream-probe", factory(pi) {
 	pi.on("before_provider_request", event => {
 		const payload = event.payload;
 		const trace = currentTrace();
-		if (trace) trace.payload = { model: payload.model, effort: payload.reasoning?.effort, tools: payload.tools?.length ?? 0, hasCodeAct: typeof payload.instructions === "string" && payload.instructions.includes("<execute>") && payload.instructions.includes("execute_result") };
+		if (trace) {
+			trace.payload = { model: payload.model, effort: payload.reasoning?.effort,
+				tools: (payload.tools?.length ?? 0) + (payload.input ?? []).reduce((total, item) => total + (["additional_tools", "tool_search_output"].includes(item.type) ? item.tools?.length ?? 0 : 0), 0),
+				hasCodeAct: typeof payload.instructions === "string" && /<execute[ >]/u.test(payload.instructions) && payload.instructions.includes("execute_result") };
+			trace.accounting.input = estimateRequestTokens(payload);
+			if (payload.model !== model.id || !trace.accounting.input || trace.accounting.input.tool_definitions <= 0)
+				throw new Error("模型或工具计量不完整，拒绝无效对测");
+			if (codeAct ? trace.payload.tools !== 0 || !trace.payload.hasCodeAct : trace.payload.tools === 0)
+				throw new Error("实际工具协议与被测应用不符，拒绝无效对测");
+		}
 	});
 	pi.on("provider_stream_event", event => {
 		mark("firstEventMs");
@@ -53,8 +63,8 @@ factories.push({ name: "stream-probe", factory(pi) {
 		if (trace && data.type === "response.output_item.added" && data.item?.type === "message") trace.textMessages++;
 	});
 } });
-const pendingTools = new Map();
-let rootExecutionMs = 0, modelMs = 0;
+const pendingTools = new Map(), toolIntervals = [];
+let rootExecutionMs = 0, modelMs = 0, returnedToolTextTokens = 0;
 let requests = 0, executionErrors = 0, incompleteUsage = 0, runtime;
 const started = performance.now();
 let failure;
@@ -67,13 +77,23 @@ const observe = event => {
 		const started = pendingTools.get(event.toolCallId);
 		const durationMs = event.durationMs ?? (started === undefined ? undefined : performance.now() - started);
 		pendingTools.delete(event.toolCallId);
-		if (!event.parentToolCallId) rootExecutionMs += durationMs ?? 0;
+		if (!event.parentToolCallId) {
+			rootExecutionMs += durationMs ?? 0;
+			if (started !== undefined) toolIntervals.push([started, performance.now()]);
+			returnedToolTextTokens += textTokens(event.result.content.filter(part => part.type === "text").map(part => part.text).join("\n"));
+		}
 		toolResults.push({ name: event.toolName, result: event.result });
 		if (event.isError) executionErrors++;
 		events.push({ type: event.type, name: event.toolName, parent: Boolean(event.parentToolCallId), isError: event.isError, durationMs });
 	}
 	if (event.type === "message_end" && event.message.role === "assistant") {
 		const message = event.message;
+		const trace = currentTrace();
+		if (trace && !trace.accounting.output) {
+			trace.accounting.output = estimateResponseTokens(message);
+			trace.accounting.usage = message.usage;
+			trace.accounting.usage_status = responseUsageStatus(message);
+		}
 		modelMs += message.durationMs ?? 0;
 		for (const key of Object.keys(usage)) usage[key] += message.usage[key] ?? 0;
 		if (message.codeactStop?.usage !== undefined && message.codeactStop.usage !== "complete") incompleteUsage++;
@@ -92,7 +112,7 @@ try {
 		result.session.agent.streamFunction = (model, context, options) => {
 			if (requests >= 12) throw new Error("测试请求预算 12 已用尽");
 			requests++;
-			requestTraces.push({ started: performance.now(), textChars: 0, textMessages: 0 });
+			requestTraces.push({ started: performance.now(), textChars: 0, textMessages: 0, accounting: {} });
 			const tools = getCurrentTools(context.messages);
 			requestSizes.push({ systemTokens: countTokens(JSON.stringify(context.messages.filter(message => message.role === "system"))), toolTokens: tools.length ? countTokens(JSON.stringify(tools)) : 0 });
 			return provider(model, context, options);
@@ -113,6 +133,11 @@ try {
 	await flushTelemetry?.();
 	await disposeLsp();
 }
-const result = { app, scenario: scenarioName, model: modelId, thinkingLevel, transport, promptMode, ok: !failure, failure, requests, elapsedMs: Math.round(performance.now() - started), executionErrors, incompleteUsage, modelMs, rootExecutionMs, usage, requestSizes, requestTraces: requestTraces.map(({ started: _started, ...trace }) => trace), events };
+let toolMs = 0, right = -Infinity;
+for (const [start, end] of toolIntervals.sort((a, b) => a[0] - b[0])) { toolMs += Math.max(0, end - Math.max(start, right)); right = Math.max(right, end); }
+const tokenAccounting = summarizeTokenAccounting(requestTraces.map(trace => trace.accounting));
+const result = { app, scenario: scenarioName, model: modelId, thinkingLevel, transport, promptMode, ok: !failure, failure, requests,
+	elapsedMs: Math.round(performance.now() - started), executionErrors, incompleteUsage, modelMs, rootExecutionMs, toolMs,
+	returnedToolTextTokens, tokenAccounting, usage, requestSizes, requestTraces: requestTraces.map(({ started: _started, ...trace }) => trace), events };
 await fs.writeFile(path.join(home, "transcript.json"), JSON.stringify({ messages, toolResults }, null, 2));
 console.log(JSON.stringify(result));

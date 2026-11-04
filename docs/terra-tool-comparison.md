@@ -1,5 +1,7 @@
 # Terra 真实工具调用对测
 
+最新的计量补齐与三轮对测见 [Terra 计量与当前源码对比](terra-accounting-comparison.md)。下文保留早期实验，不作为当前结果。
+
 2026-11-04，Windows、Node 24.18.0，使用 **pimoon 的 Codex 订阅 / gpt-6.1-terra / low**。没有启动 Electron。
 
 后续[模型流分段诊断](terra-stream-latency.md)确认本页历史样本采用 SDK 默认 auto 传输和 SDK 提示词，不是桌面的 SSE / 项目提示词。新基准已显式区分这些条件；下表不能当作桌面耗时或切换 SSE 的收益。

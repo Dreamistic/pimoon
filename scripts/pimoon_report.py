@@ -3,8 +3,10 @@ from collections import Counter, defaultdict
 import json
 import math
 from pathlib import Path
+from pimoon_tokens import token_estimate, summarize_tokens
 
 SCALARS = set('''schema run pid seq at mono_ms type application_run_id session_id agent_run_id model_request_id
+ parent_model_request_id purpose thinking returned_text_tokens token_method
  tool_call_id parent_tool_call_id code_call_id bridge_call_id bridge_index batch_id batch_index runtime_id
  reason tool provider model status stop_reason stream_stop usage_status aborted elapsed_ms startup_ms requests cancelled outcome is_error usage_reported
  prewarmed python_pid python_version previous_python_pid state_restored had_state completed_writes_rolled_back
@@ -66,6 +68,9 @@ def sanitize(event):
     if isinstance(event.get('usage'), dict):
         result['usage'] = {key: value for key, value in pick(event['usage'], {'input', 'output', 'cacheRead', 'cacheWrite', 'totalTokens'}).items()
                            if isinstance(value, (int, float)) and not isinstance(value, bool)}
+    estimate = token_estimate(event.get('token_estimate'))
+    if estimate is not None:
+        result['token_estimate'] = estimate
     if isinstance(event.get('performance'), dict):
         result['performance'] = pick(event['performance'], {'ttftWithThinkingMs', 'ttftWithoutThinkingMs'})
     return result
@@ -200,6 +205,8 @@ def summarize(events):
         'tools_without_end': missing_ends(events, 'tool_start', 'tool_end', 'tool_call_id'),
         'python_without_end': missing_ends(events, 'code_start', 'code_end', 'tool_call_id'),
         'batches_without_end': missing_ends(events, 'batch_start', 'batch_end', 'batch_id'),
+        'token_accounting': {'main': summarize_tokens(events, 'model_request', 'model_end'),
+                             'auxiliary': summarize_tokens(events, 'auxiliary_model_request', 'auxiliary_model_end')},
         'reported_tokens': sum(item.get('usage', {}).get('totalTokens', 0) for item in ends if item.get('usage_reported')),
         'unreported_usage': sum(not item.get('usage_reported') for item in ends),
         'incomplete_usage': sum(item.get('usage_status') in {'partial', 'unavailable'} for item in ends),
@@ -262,7 +269,7 @@ def build_report(home, run=None, session=None, agent=None, timeline=False):
     for (run_id, session_id, agent_id), items in turns.items():
         item = {'run': run_id, 'session_id': session_id, 'agent_run_id': agent_id,
                 'settled': any(event['type'] == 'agent_settled' for event in items), 'summary': summarize(items),
-                'model_requests': [event for event in items if event['type'] in {'model_request', 'model_end', 'transport_error', 'transport_denied'}],
+                'model_requests': [event for event in items if event['type'] in {'model_request', 'model_end', 'auxiliary_model_request', 'auxiliary_model_end', 'transport_error', 'transport_denied'}],
                 'executions': [event for event in items if event['type'] == 'code_end'],
                 'batches': [event for event in items if event['type'] == 'batch_end'],
                 'tools': [event for event in items if event['type'] == 'tool_end']}
@@ -272,6 +279,9 @@ def build_report(home, run=None, session=None, agent=None, timeline=False):
     result = {'app': 'pimoon', 'report_schema': 2, 'events': len(events), 'summary': summarize(events),
               'coverage': coverage, 'environments': environments, 'tool_facts': facts, 'turns': turn_reports,
               'notes': ['订阅 Token 是额度用量，不是美元成本；未知用量不计为免费。',
+                        'provider_total_tokens 仅在所有请求均有完整用量时存在；供应商已报告数不能代替总量。',
+                        '本地 o200k_base 只估算可见载荷，不含隐藏思考、图片与加密内容；不与供应商用量相加。',
+                        '工具 Token 拆为说明/目录、调用、回填结果；历史在后续请求中重复输入会重复计数，内部未回填的 I/O 不算模型输入。',
                         'settled 只表示本轮结束，不代表任务成功或经过验证。',
                         'open_or_interrupted 无法区分仍在运行与异常退出；缺失结束事件不推断成功。',
                         '内部工具输出不等于模型曝光；返回字符是交给宿主的工具文本，不保证下一请求实际纳入；字符比不代表省下的 Token 或模型调用。',

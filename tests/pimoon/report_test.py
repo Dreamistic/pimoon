@@ -77,6 +77,10 @@ class ReplayReportTests(unittest.TestCase):
         self.assertEqual(summary['incomplete_usage'], 2)
         self.assertEqual(summary['unreported_usage'], 1)
         self.assertEqual(summary['reported_tokens'], 32)
+        accounting = summary['token_accounting']['main']
+        self.assertEqual(accounting['requests'], 3)
+        self.assertEqual(accounting['provider_reported_tokens'], 32)
+        self.assertIsNone(accounting['provider_total_tokens'])
 
     def test_missing_ends_and_unknown_outcomes_are_not_success(self):
         records = [self.event('model_request', 1, model_request_id='same', session_id='one'),
@@ -147,6 +151,47 @@ class ReplayReportTests(unittest.TestCase):
         self.assertEqual(event['remaining_ms'], 45000)
         self.assertEqual(report['summary']['process_timeout_caps'], 1)
         self.assertNotIn('PRIVATE_', json.dumps(report))
+
+    def test_token_ledger_keeps_auxiliary_and_partial_usage_separate(self):
+        estimate = {'method': 'o200k_base', 'input': 100, 'tool_definitions': 20, 'tool_calls': 5,
+                    'tool_results': 10, 'secret': 'PRIVATE_ESTIMATE'}
+        self.write_events([
+            self.event('model_request', 1, model_request_id='main', token_estimate=estimate),
+            self.event('auxiliary_model_request', 2, model_request_id='aux', parent_model_request_id='main', purpose='approval', token_estimate=estimate),
+            self.event('auxiliary_model_end', 3, model_request_id='aux', usage_status='complete', usage={'totalTokens': 90},
+                       token_estimate={'method': 'o200k_base', 'visible_output': 8, 'tool_calls': 0}),
+            self.event('model_end', 4, model_request_id='main', usage_status='partial', usage={'totalTokens': 30},
+                       token_estimate={'method': 'o200k_base', 'visible_output': 12, 'tool_calls': 6}),
+        ])
+        report = build_report(self.home, timeline=True)
+        main = report['summary']['token_accounting']['main']
+        auxiliary = report['summary']['token_accounting']['auxiliary']
+        self.assertIsNone(main['provider_total_tokens'])
+        self.assertEqual(main['provider_reported_tokens'], 30)
+        self.assertEqual(main['estimate']['visible_total_tokens'], 112)
+        self.assertEqual(main['estimate']['tool_tokens'], 41)
+        self.assertEqual(auxiliary['provider_total_tokens'], 90)
+        self.assertNotIn('PRIVATE_', json.dumps(report))
+
+    def test_duplicate_end_is_not_counted_twice_or_claimed_complete(self):
+        self.write_events([
+            self.event('model_request', 1, model_request_id='same'),
+            self.event('model_end', 2, model_request_id='same', usage_status='complete', usage={'totalTokens': 40}),
+            self.event('model_end', 3, model_request_id='same', usage_status='unavailable', usage={'totalTokens': 0}),
+        ])
+        accounting = build_report(self.home)['summary']['token_accounting']['main']
+        self.assertEqual(accounting['requests'], 1)
+        self.assertEqual(accounting['ambiguous_requests'], 1)
+        self.assertEqual(accounting['provider_reported_tokens'], 40)
+        self.assertIsNone(accounting['provider_total_tokens'])
+
+    def test_unfinished_request_does_not_report_partial_sum_as_total(self):
+        self.write_events([self.event('model_request', 1, model_request_id='unfinished',
+                                     token_estimate={'method': 'o200k_base', 'input': 42})])
+        accounting = build_report(self.home)['summary']['token_accounting']['main']
+        self.assertIsNone(accounting['provider_total_tokens'])
+        self.assertIsNone(accounting['estimate']['visible_total_tokens'])
+        self.assertEqual(accounting['unknown_usage_requests'], 1)
 
     def test_empty_home_is_a_valid_empty_report(self):
         report = build_report(self.home)

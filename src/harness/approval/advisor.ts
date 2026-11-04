@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { clampThinkingLevel } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, type AssistantMessage } from "@earendil-works/pi-ai";
 import path from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { agentHome } from "../../pimoon/profile.ts";
@@ -85,11 +85,19 @@ export async function adviseApproval(
 	const choices = cardChoices(options);
 	const payload = { ...approvalAdvisorInput(request, decision, options, style, input), autonomous: config.autonomous === true };
 	const reasoning = clampThinkingLevel(model, "low");
-	const response = await ctx.modelRegistry.streamSimple(model, {
-		systemPrompt: PROMPT,
-		messages: [{ role: "user", content: JSON.stringify(payload), timestamp: Date.now() }],
-	}, { signal: input.signal, maxTokens: 1400, maxRetries: 0, transport: "sse", ...(reasoning === "off" ? {} : { reasoning }),
-		onPayload: (payload, actualModel) => { input.signal.throwIfAborted(); bindAuxiliaryRequest(payload, actualModel, ctx.sessionManager.getSessionId()); } }).result();
+	let measurement: ReturnType<typeof bindAuxiliaryRequest> | undefined;
+	let response: AssistantMessage;
+	try {
+		response = await ctx.modelRegistry.streamSimple(model, {
+			systemPrompt: PROMPT,
+			messages: [{ role: "user", content: JSON.stringify(payload), timestamp: Date.now() }],
+		}, { signal: input.signal, maxTokens: 1400, maxRetries: 0, transport: "sse", ...(reasoning === "off" ? {} : { reasoning }),
+			onPayload: (payload, actualModel) => {
+				input.signal.throwIfAborted();
+				measurement = bindAuxiliaryRequest(payload, actualModel, ctx.sessionManager.getSessionId());
+			} }).result();
+	} catch (error) { measurement?.finish(); throw error; }
+	measurement?.finish(response);
 	input.signal.throwIfAborted();
 	if (response.stopReason === "error" || response.stopReason === "aborted") throw new ApprovalAdvisorError("request_failed");
 	try { return parseApprovalCard(response.content.filter(part => part.type === "text").map(part => part.text).join(""), choices); }

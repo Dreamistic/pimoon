@@ -33,6 +33,7 @@ export function registerExtension<TTool = CapturedExtensionTool>(
 	const host: Partial<ExtensionAPI> = {
 		events: createEventBus(),
 		getCommands: () => [],
+		getThinkingLevel: () => "low",
 		...api,
 		registerTool(tool) {
 			registered.push(tool as TTool);

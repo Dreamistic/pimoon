@@ -45,12 +45,15 @@ await fs.cp(path.join(root, "dist/desktop/app/resources"), resources, { recursiv
 // Python 源码与被测工作树一致；不覆盖已有桌面构建。
 for (const name of ["worker.py", "execution.py", "feedback.py", "observations.py", "worker_hooks.py"]) await fs.copyFile(path.join(root, "src/pimoon", name), path.join(resources, "pimoon", name));
 const bundles = {};
-const manifest = { createdAt: new Date().toISOString(), model, thinkingLevel, transport, promptMode, apps, runs, scenarios: selected, upstream: upstream ? path.resolve(upstream) : undefined, sources: {}, sourceAuthUnchanged: null };
+const manifest = { createdAt: new Date().toISOString(), model, thinkingLevel, transport, promptMode, apps, runs, scenarios: selected, upstream: upstream ? path.resolve(upstream) : undefined,
+	measurement: { schema: 2, tokenizer: "o200k_base", toolTime: "union of root execution intervals", tokenScope: "visible request payload and generated output; hidden reasoning/images excluded; provider usage separate" },
+	sources: {}, sourceAuthUnchanged: null };
 for (const app of apps) {
 	const source = app === "pimoon" ? root : path.resolve(upstream);
 	const bundle = path.join(base, `${app}.mjs`);
 	const built = await build({ metafile: true, stdin: { contents: `export { default as fileTools } from ${JSON.stringify(path.join(source, "src/harness/extensions/file-tools.ts"))};
 export { default as systemPrompt } from ${JSON.stringify(path.join(source, "src/harness/extensions/system-prompt.ts"))};
+export { estimateRequestTokens, estimateResponseTokens, responseUsageStatus, summarizeTokenAccounting, textTokens } from ${JSON.stringify(path.join(root, "src/pimoon/token-accounting.ts"))};
 ${app === "pimoon" ? `export { CodeAct } from ${JSON.stringify(path.join(root, "src/pimoon/codeact/session.ts"))}; export { flushTelemetry } from ${JSON.stringify(path.join(root, "src/pimoon/telemetry.ts"))};` : ""}
 export async function disposeLsp() { const { lspManager } = await import(${JSON.stringify(path.join(source, "src/harness/lsp/index.ts"))}); await lspManager.reload(); }`, resolveDir: root }, outfile: bundle, bundle: true, platform: "node", format: "esm", packages: "external", logLevel: "silent" });
 	bundles[app] = bundle;
@@ -95,6 +98,9 @@ try {
 	await fs.writeFile(path.join(base, "manifest.json"), JSON.stringify(manifest, null, 2));
 	if (!manifest.sourceAuthUnchanged) console.error("注意：测试期间源凭据发生变化；本测试不写源凭据。");
 }
-console.table(results.map(({ app, scenario, ok, requests, elapsedMs, executionErrors, usage }) => ({ app, scenario, ok, requests, seconds: +(elapsedMs / 1000).toFixed(2), executionErrors, reportedTokens: usage.totalTokens })));
+console.table(results.map(({ app, scenario, ok, requests, elapsedMs, toolMs, tokenAccounting }) => ({ app, scenario, ok, requests,
+	seconds: +(elapsedMs / 1000).toFixed(2), toolSeconds: +(toolMs / 1000).toFixed(3),
+	providerTokens: tokenAccounting.provider_total_tokens ?? "unknown",
+	estimatedVisibleTokens: tokenAccounting.estimate.visible_total_tokens, estimatedToolTokens: tokenAccounting.estimate.tool_tokens })));
 console.log(`Results: ${path.join(base, "results.json")}`);
 if (results.some(result => !result.ok)) process.exitCode = 1;
