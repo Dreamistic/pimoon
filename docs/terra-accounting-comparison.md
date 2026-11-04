@@ -2,6 +2,8 @@
 
 2026-11-05，Windows，Node 24.18.0。结论：**本组任务 pimoon 少模型轮次、可见载荷更小，但总耗时更高。供应商真实总 Token 仍不能比较，不能将本地估算当作额度节省。**
 
+后续只切换模型的发票汇总结果见 [Sol 单场景三轮对测](sol-aggregate-comparison.md)。
+
 ## 本次计量变化
 
 - `model_request/model_end` 分别记录请求可见载荷和响应可见输出的本地 Token 估算，不记录正文。所有估算使用同一个 `o200k_base`。
