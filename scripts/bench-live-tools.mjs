@@ -10,9 +10,19 @@ import { scenarios } from "./benchmark/tool-scenarios.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const args = process.argv.slice(2);
 const value = (key, fallback) => args.find(arg => arg.startsWith(`--${key}=`))?.slice(key.length + 3) ?? fallback;
-if (!args.includes("--live")) throw new Error("真实订阅测试需显式 --live；参数 --upstream=PATH --model=gpt-6.1-terra --runs=1 --scenarios=locate-edit,aggregate,conditional-edit");
+const help = "node scripts/bench-live-tools.mjs --live [--apps=o-pi,pimoon] [--upstream=PATH] [--model=gpt-6.1-terra] [--thinking=low] [--transport=sse|auto] [--prompt=runtime|sdk] [--runs=1] [--scenarios=locate-edit,aggregate,conditional-edit]";
+if (args.includes("--help")) { console.log(help); process.exit(0); }
+if (!args.includes("--live")) throw new Error(`真实订阅测试需显式 --live；${help}`);
 const upstream = value("upstream");
-if (!upstream) throw new Error("请指定 --upstream=o-pi源码目录");
+const apps = value("apps", "o-pi,pimoon").split(",");
+if (apps.some(app => !["o-pi", "pimoon"].includes(app)) || new Set(apps).size !== apps.length) throw new Error("apps 必须为 o-pi,pimoon 的非重复子集");
+if (apps.includes("o-pi") && !upstream) throw new Error("请指定 --upstream=o-pi源码目录");
+const thinkingLevel = value("thinking", "low");
+if (!["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(thinkingLevel)) throw new Error("无效 thinking");
+const transport = value("transport", "sse");
+if (!["sse", "auto"].includes(transport)) throw new Error("transport 必须为 sse 或 auto");
+const promptMode = value("prompt", "runtime");
+if (!["runtime", "sdk"].includes(promptMode)) throw new Error("prompt 必须为 runtime 或 sdk");
 const model = value("model", "gpt-6.1-terra");
 const runs = Number(value("runs", "1"));
 if (!Number.isInteger(runs) || runs < 1 || runs > 5) throw new Error("runs 必须为 1..5");
@@ -35,10 +45,12 @@ await fs.cp(path.join(root, "dist/desktop/app/resources"), resources, { recursiv
 // Python 源码与被测工作树一致；不覆盖已有桌面构建。
 for (const name of ["worker.py", "execution.py", "feedback.py", "observations.py", "worker_hooks.py"]) await fs.copyFile(path.join(root, "src/pimoon", name), path.join(resources, "pimoon", name));
 const bundles = {};
-const manifest = { createdAt: new Date().toISOString(), model, thinkingLevel: "low", runs, scenarios: selected, upstream: path.resolve(upstream), sources: {}, sourceAuthUnchanged: null };
-for (const [app, source] of [["o-pi", path.resolve(upstream)], ["pimoon", root]]) {
+const manifest = { createdAt: new Date().toISOString(), model, thinkingLevel, transport, promptMode, apps, runs, scenarios: selected, upstream: upstream ? path.resolve(upstream) : undefined, sources: {}, sourceAuthUnchanged: null };
+for (const app of apps) {
+	const source = app === "pimoon" ? root : path.resolve(upstream);
 	const bundle = path.join(base, `${app}.mjs`);
 	const built = await build({ metafile: true, stdin: { contents: `export { default as fileTools } from ${JSON.stringify(path.join(source, "src/harness/extensions/file-tools.ts"))};
+export { default as systemPrompt } from ${JSON.stringify(path.join(source, "src/harness/extensions/system-prompt.ts"))};
 ${app === "pimoon" ? `export { CodeAct } from ${JSON.stringify(path.join(root, "src/pimoon/codeact/session.ts"))}; export { flushTelemetry } from ${JSON.stringify(path.join(root, "src/pimoon/telemetry.ts"))};` : ""}
 export async function disposeLsp() { const { lspManager } = await import(${JSON.stringify(path.join(source, "src/harness/lsp/index.ts"))}); await lspManager.reload(); }`, resolveDir: root }, outfile: bundle, bundle: true, platform: "node", format: "esm", packages: "external", logLevel: "silent" });
 	bundles[app] = bundle;
@@ -50,7 +62,7 @@ const results = [];
 try {
 	for (let round = 0; round < runs; round++) for (const scenario of selected) {
 		const order = (round + selected.indexOf(scenario)) % 2 ? ["pimoon", "o-pi"] : ["o-pi", "pimoon"];
-		for (const app of order) {
+		for (const app of order.filter(app => apps.includes(app))) {
 			const home = path.join(base, `${round}-${scenario}-${app}`);
 			const env = { ...process.env, PYTHONDONTWRITEBYTECODE: "1", PIMOON_RESOURCE_DIR: resources, PI_OPI_RESOURCE_DIR: resources };
 			for (const key of ["PIMOON_HOME", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"]) {
@@ -58,9 +70,9 @@ try {
 			}
 			env.PI_CODING_AGENT_DIR = env.PIMOON_CODING_AGENT_DIR = path.join(env.PIMOON_HOME, "agent");
 			const payload = JSON.stringify({ credential: accessOnly, catalog: { "openai-codex": catalog["openai-codex"] } });
-			console.log(`Running ${app} ${scenario} round=${round + 1} model=${model}`);
+			console.log(`Running ${app} ${scenario} round=${round + 1} model=${model} thinking=${thinkingLevel} transport=${transport} prompt=${promptMode}`);
 			const result = await new Promise((resolve, reject) => {
-				const child = spawn(process.execPath, [path.join(root, "scripts/workers/bench-live-tools-worker.mjs"), app, bundles[app], home, scenario, model], { cwd: root, env, windowsHide: true, timeout: 240_000, stdio: ["pipe", "pipe", "pipe"] });
+				const child = spawn(process.execPath, [path.join(root, "scripts/workers/bench-live-tools-worker.mjs"), app, bundles[app], home, scenario, model, thinkingLevel, transport, promptMode], { cwd: root, env, windowsHide: true, timeout: 240_000, stdio: ["pipe", "pipe", "pipe"] });
 				let stdout = "", stderr = "";
 				child.stdout.on("data", data => { stdout += data; });
 				child.stderr.on("data", data => { stderr = (stderr + data).slice(-8000); });
@@ -74,7 +86,7 @@ try {
 			});
 			results.push({ round: round + 1, ...result });
 			await fs.writeFile(path.join(base, "results.json"), JSON.stringify(results, null, 2));
-			const { events: _events, requestSizes: _sizes, ...summary } = results.at(-1);
+			const { events: _events, requestSizes: _sizes, requestTraces: _traces, ...summary } = results.at(-1);
 			console.log(JSON.stringify(summary));
 		}
 	}

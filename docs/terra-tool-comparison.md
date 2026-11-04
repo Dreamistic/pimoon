@@ -2,6 +2,8 @@
 
 2026-11-04，Windows、Node 24.18.0，使用 **pimoon 的 Codex 订阅 / gpt-6.1-terra / low**。没有启动 Electron。
 
+后续[模型流分段诊断](terra-stream-latency.md)确认本页历史样本采用 SDK 默认 auto 传输和 SDK 提示词，不是桌面的 SSE / 项目提示词。新基准已显式区分这些条件；下表不能当作桌面耗时或切换 SSE 的收益。
+
 ## 结论
 
 - 同一模型完成相同合成文件任务：o-pi 原生工具与修正后的 pimoon 文本 CodeAct 均通过三个场景。
@@ -77,7 +79,7 @@
 已有桌面资源构建及有效 pimoon 访问凭据时：
 
 ```powershell
-node scripts/bench-live-tools.mjs --live --upstream=D:/Code/githubproject/o-pi --model=gpt-6.1-terra --runs=1
+node scripts/bench-live-tools.mjs --live --upstream=D:/Code/githubproject/o-pi --model=gpt-6.1-terra --thinking=low --transport=auto --prompt=sdk --runs=1
 ```
 
 可用 `--scenarios=locate-edit` 限制订阅消耗；没有 `--live` 不会请求模型。不安装依赖、不修改上游或真实配置。新运行会保存打包源码输入的指纹、合成对话/执行结果和完整指标，均留在忽略目录；不将私人会话或凭据提交到 Git。
