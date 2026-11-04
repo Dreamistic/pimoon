@@ -5,10 +5,7 @@ interface MutationWaiter {
 	signal?: AbortSignal;
 	onAbort?: () => void;
 }
-
-interface MutationQueueEntry {
-	readonly waiters: MutationWaiter[];
-}
+interface MutationQueueEntry { readonly waiters: MutationWaiter[] }
 
 export class MutationQueueUnavailableError extends Error {
 	constructor(readonly reason: "aborted" | "disposed", options?: ErrorOptions) {
@@ -17,9 +14,12 @@ export class MutationQueueUnavailableError extends Error {
 	}
 }
 
-/** Process-local keyed queue: one active mutation per canonical target. */
+// 各 FileToolsHost 共用目标队列，避免不同会话同时提交同一文件。
+const entries = new Map<string, MutationQueueEntry>();
+
+/** 每个实例只取消自己的等待者，提交队列跨会话共享。 */
 export class MutationQueue {
-	private readonly entries = new Map<string, MutationQueueEntry>();
+	private readonly ownedWaiters = new Set<MutationWaiter>();
 	private disposed = false;
 
 	async run<T>(key: string, signal: AbortSignal | undefined, operation: () => Promise<T>): Promise<T> {
@@ -28,36 +28,42 @@ export class MutationQueue {
 		try {
 			if (signal?.aborted === true) throw new MutationQueueUnavailableError("aborted", { cause: signal.reason });
 			return await operation();
-		} finally {
-			release();
-		}
+		} finally { release(); }
 	}
 
 	dispose(): void {
 		if (this.disposed) return;
 		this.disposed = true;
-		for (const entry of this.entries.values()) {
-			for (const waiter of entry.waiters.splice(0)) this.rejectWaiter(waiter);
+		for (const waiter of this.ownedWaiters) {
+			waiter.settled = true;
+			this.removeAbortListener(waiter);
+			waiter.reject(new MutationQueueUnavailableError("disposed"));
 		}
+		this.ownedWaiters.clear();
 	}
 
 	private async acquire(key: string, signal: AbortSignal | undefined): Promise<() => void> {
 		if (this.disposed) throw new MutationQueueUnavailableError("disposed");
 		if (signal?.aborted === true) throw new MutationQueueUnavailableError("aborted", { cause: signal.reason });
-		let entry = this.entries.get(key);
+		let entry = entries.get(key);
 		if (entry === undefined) {
-			entry = { waiters: [] };
-			this.entries.set(key, entry);
+			entry = { waiters: [] }; entries.set(key, entry);
 			return this.releaseFor(key, entry);
 		}
-		return await new Promise<() => void>((resolve, reject) => {
-			const waiter: MutationWaiter = { settled: false, resolve, reject, ...(signal === undefined ? {} : { signal }) };
+		return new Promise<() => void>((resolve, reject) => {
+			const waiter: MutationWaiter = {
+				settled: false,
+				resolve: release => { this.ownedWaiters.delete(waiter); resolve(release); },
+				reject: error => { this.ownedWaiters.delete(waiter); reject(error); },
+				...(signal === undefined ? {} : { signal }),
+			};
+			this.ownedWaiters.add(waiter);
 			if (signal !== undefined) {
 				waiter.onAbort = () => {
 					waiter.settled = true;
 					const index = entry.waiters.indexOf(waiter);
 					if (index >= 0) entry.waiters.splice(index, 1);
-					reject(new MutationQueueUnavailableError("aborted", { cause: signal.reason }));
+					waiter.reject(new MutationQueueUnavailableError("aborted", { cause: signal.reason }));
 				};
 				signal.addEventListener("abort", waiter.onAbort, { once: true });
 			}
@@ -73,21 +79,12 @@ export class MutationQueue {
 			while (entry.waiters.length > 0) {
 				const waiter = entry.waiters.shift();
 				if (waiter === undefined || waiter.settled) continue;
-				waiter.settled = true;
-				this.removeAbortListener(waiter);
-				waiter.resolve(this.releaseFor(key, entry));
-				return;
+				waiter.settled = true; this.removeAbortListener(waiter);
+				waiter.resolve(this.releaseFor(key, entry)); return;
 			}
-			if (this.entries.get(key) === entry) this.entries.delete(key);
+			if (entries.get(key) === entry) entries.delete(key);
 		};
 	}
-
-	private rejectWaiter(waiter: MutationWaiter): void {
-		waiter.settled = true;
-		this.removeAbortListener(waiter);
-		waiter.reject(new MutationQueueUnavailableError("disposed", waiter.signal?.reason === undefined ? undefined : { cause: waiter.signal.reason }));
-	}
-
 	private removeAbortListener(waiter: MutationWaiter): void {
 		if (waiter.signal !== undefined && waiter.onAbort !== undefined) waiter.signal.removeEventListener("abort", waiter.onAbort);
 	}

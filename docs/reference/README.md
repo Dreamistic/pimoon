@@ -14,6 +14,7 @@
 | [网页工具](web-tools/README.md) | 搜索、抓取、网络策略和 Cookie |
 | [LSP](lsp/README.md) | 服务器配置、路由、诊断和代码关系 |
 | [审批](approval-gate/README.md) | 调用策略、Bash 分析和放行规则 |
+| [自主记忆](memory/README.md) | 短索引、按需读取、AI 自主维护和记忆管理 |
 | [技能](skill-context/README.md) | 发现、加载、分支状态和 `skill://` |
 | [子代理](subagent/README.md) | 定义、隔离与 fork、执行和输出 |
 | [提示词](prompts/README.md) | 系统提示词、工具字段和模板 |
@@ -34,6 +35,7 @@ TUI 和 GUI 在输入框执行命令。RPC 通过 `prompt` 提交命令，交互
 | --- | --- | --- |
 | `/tools` | 选择工具、保存默认值 | TUI 选择器，GUI 工具面板。RPC 不提供选择器。见[工具选择](runtime/configuration.md#工具选择) |
 | `/system` | 查看当前系统提示词 | TUI 查看器，GUI 提示词窗口。见[提示词](prompts/README.md) |
+| `/memory` | 查看、编辑、归档和删除记忆 | 主动打开管理对话框，不调用模型。见[自主记忆](memory/README.md) |
 | `/skill` | 查看当前分支加载记录 | 界面通知。见[技能](skill-context/README.md) |
 | `/skill:<name>` | 加载技能 | 加载后写入上下文。见[技能](skill-context/README.md) |
 | `/agents` | 列出子代理 | 见[子代理](subagent/README.md) |

@@ -6,7 +6,7 @@ import type { NestedToolCallRecord } from "@earendil-works/pi-ai";
 import { Runtime } from "../runtime.mjs";
 import { fingerprint, labels, record, pimoonTelemetry } from "../telemetry.ts";
 import { agentHome, protectedCredentialPaths } from "../profile.ts";
-import { checkReadablePath, checkWorkspacePath } from "../paths.ts";
+import { checkReadablePath, checkWritablePath, protectedControlPaths } from "../paths.ts";
 import { functionCatalog } from "./catalog.ts";
 import { codeactInstructions } from "./prompt.ts";
 import { codeactStream } from "./stream.ts";
@@ -92,7 +92,7 @@ export class CodeAct {
 			try {
 				for (const file of paths) {
 					if (typeof file !== "string") throw new Error("无效路径。");
-					if (["write", "edit"].includes(event.toolName)) await checkWorkspacePath(ctx.cwd, file);
+					if (["write", "edit"].includes(event.toolName)) await checkWritablePath(ctx.cwd, file, protectedCredentialPaths);
 					else await checkReadablePath(ctx.cwd, file, protectedCredentialPaths);
 				}
 			} catch (error) { return { block: true, reason: error instanceof Error ? error.message : String(error) }; }
@@ -198,7 +198,7 @@ export class CodeAct {
 		if (this.runtime) return this.runtime;
 		const started = performance.now();
 		const runtime = new Runtime({ transport: "rust", observe: false, cwd: ctx.cwd, timeoutMs: 1_800_000,
-			protectedPaths: protectedCredentialPaths, tools: context.tools.filter(fn => isCodeActFunction(fn.name)) });
+			protectedPaths: [...protectedCredentialPaths, ...protectedControlPaths()], tools: context.tools.filter(fn => isCodeActFunction(fn.name)) });
 		this.runtime = runtime; this.runtimeSession = session; this.runtimeId = randomUUID();
 		const tags = { ...labels(ctx), runtime_id: this.runtimeId, workspace: fingerprint(ctx.cwd), prewarmed };
 		record("runtime_created", tags);

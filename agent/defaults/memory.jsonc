@@ -1,0 +1,4 @@
+{
+	"$schema": "../schemas/memory.schema.json",
+	"enabled": true
+}

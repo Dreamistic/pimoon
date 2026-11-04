@@ -1,12 +1,14 @@
 import fs from "node:fs/promises";
-import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { MutationQueue } from "../../filesystem/platform/node/mutation-queue.ts";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { WebCapabilityOptions } from "../core/runtime-types.ts";
 import type { WebFetchExecutionContext } from "../core/types.ts";
 import { validateRequestUrl } from "../network/network-policy.ts";
 import { fetchHttpUrl } from "../network/http-client.ts";
-import { checkWorkspacePath } from "../../../pimoon/paths.ts";
+import { checkWritablePath } from "../../../pimoon/paths.ts";
+import { protectedCredentialPaths } from "../../../pimoon/profile.ts";
+const downloads = new MutationQueue();
 
 export interface HttpInput {
 	url: string;
@@ -31,7 +33,7 @@ export async function executeHttp(input: HttpInput, context: WebFetchExecutionCo
 	const started = performance.now();
 	const mode = input.mode ?? "text";
 	if ((mode === "download") !== (input.path !== undefined)) throw new Error("download 模式必须且仅能提供 path。");
-	if (input.path !== undefined) await checkWorkspacePath(workspace, input.path);
+	if (input.path !== undefined) await checkWritablePath(workspace, input.path, protectedCredentialPaths);
 	const requested = validateRequestUrl(input.url, context.privateNetworkGrant?.origin);
 	if ("status" in requested) throw new Error(requested.error.message);
 	const loaded = await options.loadConfig();
@@ -59,15 +61,16 @@ export async function executeHttp(input: HttpInput, context: WebFetchExecutionCo
 	if (mode === "download" && input.path !== undefined) {
 		context.signal?.throwIfAborted();
 		const destination = path.resolve(workspace, input.path);
-		await withFileMutationQueue(destination, async () => {
+		await downloads.run(destination, context.signal, async () => {
 			context.signal?.throwIfAborted();
-			await checkWorkspacePath(workspace, destination);
+			await checkWritablePath(workspace, destination, protectedCredentialPaths);
 			const temporary = `${destination}.${randomUUID()}.tmp`;
 			try {
 				await fs.writeFile(temporary, result.body, { flag: "wx", signal: context.signal });
 				context.signal?.throwIfAborted();
-				await checkWorkspacePath(workspace, destination);
-				await fs.rename(temporary, destination);
+				await checkWritablePath(workspace, destination, protectedCredentialPaths);
+				// 下载只能创建新文件，避免绕过 write/edit 的已读版本保护。
+				await fs.link(temporary, destination);
 			} finally { await fs.rm(temporary, { force: true }); }
 		});
 		output.path = destination;

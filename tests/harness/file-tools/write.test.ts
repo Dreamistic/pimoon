@@ -74,10 +74,12 @@ describe("write", () => {
 		expectFailure(await testContext.edit({ path: "a.txt", edits: [{ old: "old", new: "new" }] }), { code: "STALE_READ", path: "a.txt" });
 	});
 
-	it("覆盖已有文件，不要求先 read", async () => {
+	it("覆盖已有文件需要先 read，并验证版本", async () => {
 		const before = Buffer.from("old\n");
 		const after = Buffer.from("new\n");
 		await writeFile(path.join(workspace, "a.txt"), before);
+		expectFailure(await testContext.write({ path: "a.txt", content: "unsafe" }), "READ_REQUIRED");
+		await testContext.read({ path: "a.txt" });
 		const result = await testContext.write({ path: "a.txt", content: after.toString("utf8") });
 		expect(result).toMatchObject({
 			status: "written",
@@ -91,6 +93,12 @@ describe("write", () => {
 		});
 		expect(result).toMatchObject({ diff: expect.stringContaining("+1 new") });
 		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("new\n");
+	});
+
+	it("重新创建已明确不存在的目标不会被旧会话观测永久阻塞", async () => {
+		await testContext.write({ path: "recreate.txt", content: "old" });
+		await rm(path.join(workspace, "recreate.txt"));
+		expect(await testContext.write({ path: "recreate.txt", content: "new" })).toMatchObject({ status: "written", action: "create" });
 	});
 
 	it("允许写入 cwd 外的绝对路径", async () => {
@@ -117,6 +125,7 @@ describe("write", () => {
 		const protectedFile = path.join(protectedDir, "secret.txt");
 		await mkdir(protectedDir);
 		await writeFile(target, "original\n");
+		await testContext.read({ path: "queued.txt" });
 		await writeFile(protectedFile, "secret\n");
 		await testContext.useConfig({ blocked_path: [`${protectedDir}/`] });
 

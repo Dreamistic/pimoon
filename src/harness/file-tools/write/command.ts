@@ -10,6 +10,12 @@ import {
 import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.ts";
 import type { TextDiffGenerator } from "../shared/text-diff.ts";
 import type { WriteParams, WritePreviewSuccess, WriteSuccess } from "./types.ts";
+import type { FileObservations } from "../runtime/observation-store.ts";
+import type { FailedResult } from "../shared/result.ts";
+
+class WritePreparationError extends Error {
+	constructor(readonly result: FailedResult) { super(result.error.message); }
+}
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });
@@ -19,6 +25,7 @@ export interface WriteCommandContext {
 	readonly operation: FsOperationContext;
 	readonly limits: Readonly<Pick<FileToolLimits, "write_max_file_bytes">>;
 	readonly diff: TextDiffGenerator;
+	readonly observation: Pick<FileObservations, "get">;
 	readonly diagnostics?: MutationDiagnosticsSource;
 	readonly onPrepared?: (preview: WritePreviewSuccess) => void;
 }
@@ -33,6 +40,7 @@ export async function writeFile(params: WriteParams, context: WriteCommandContex
 		return fail("INVALID_PATH", "Target must be a file path, not the current directory.", { path: params.path });
 	}
 
+	const observed = context.observation.get(target.value);
 	const bytes = encoder.encode(params.content);
 	const mutated = await context.filesystem.mutations.run(
 		target.value,
@@ -42,6 +50,12 @@ export async function writeFile(params: WriteParams, context: WriteCommandContex
 			maxOutputBytes: context.limits.write_max_file_bytes,
 		},
 		async (current) => {
+			if (current.exists && observed === undefined)
+				throw new WritePreparationError(fail("READ_REQUIRED", "Read the existing file before replacing it.", { path: params.path }));
+			if (current.exists && observed && (current.hash !== observed.hash || current.sizeBytes !== observed.sizeBytes))
+				throw new WritePreparationError(fail("STALE_READ", "File changed since the last read; read it again before replacing it.", { path: params.path }));
+			if (!current.exists && target.value.existingKind !== undefined)
+				throw new WritePreparationError(fail("STALE_READ", "Previously read file was removed; inspect the target before recreating it.", { path: params.path }));
 			const renderedDiff = await context.diff(normalizeLineEndings(snapshotText(current)), normalizeLineEndings(params.content));
 			safePrepared(context.onPrepared, {
 				status: "preview",
@@ -53,6 +67,7 @@ export async function writeFile(params: WriteParams, context: WriteCommandContex
 			return { bytes, prepared: { renderedDiff, baseline } };
 		},
 	).catch((error: unknown) => {
+		if (error instanceof WritePreparationError) return error.result;
 		if (error instanceof FileSystemError) return mapFsError(error.error);
 		throw error;
 	});

@@ -51,21 +51,26 @@ def send(op, value, raw=False):
     OUTPUT.write(data); OUTPUT.flush()
 
 
-def inside(path, root):
-    try:
-        Path(path).resolve().relative_to(root)
-        return True
-    except (ValueError, TypeError, OSError):
-        return False
-
-
 def readable(target):
     if isinstance(target, int):
         raise PermissionError('raw file descriptors are disabled')
-    absolute = Path(os.fsdecode(target)).absolute()
+    raw = os.fsdecode(target)
+    if raw.startswith(('\\\\', '//')):
+        raise PermissionError('network and device paths require separate approval')
+    absolute = Path(raw).absolute()
     canonical = absolute.resolve()
     if any(candidate.is_relative_to(blocked) for candidate in (absolute, canonical) for blocked in protected_paths):
         raise PermissionError('protected credential path')
+
+
+def writable(target):
+    readable(target)
+    canonical = Path(os.fsdecode(target)).resolve()
+    if any(canonical.is_relative_to(root) for root in system_write_roots):
+        raise PermissionError('system writes require an explicitly approved operation')
+    # 原生覆盖无法复用宿主的观测版本和原子提交，交回文件工具处理。
+    if canonical.exists() and canonical.is_file():
+        raise PermissionError('existing files require read then write/edit functions; native overwrite is disabled')
 
 
 def audit(event, args):
@@ -76,16 +81,16 @@ def audit(event, args):
         target, mode, flags = args
         readable(target)
         writing = (isinstance(mode, str) and any(c in mode for c in 'wax+')) or bool(flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC))
-        if writing and not inside(target, ROOT):
-            raise PermissionError('writes require the task workspace')
+        if writing:
+            writable(target)
     if event in {'os.listdir', 'os.scandir'}:
         readable(args[0] if args[0] is not None else '.')
-    if event in {'os.remove', 'os.rmdir', 'os.mkdir', 'os.chdir', 'os.chmod', 'os.utime', 'os.rename', 'os.replace'}:
-        targets = args[:2] if event in {'os.rename', 'os.replace'} else args[:1]
-        for target in targets:
-            readable(target)
-            if not inside(target, ROOT):
-                raise PermissionError('writes require the task workspace')
+    if event in {'os.remove', 'os.rmdir', 'os.chmod', 'os.rename', 'os.replace'}:
+        raise PermissionError('destructive native mutation requires an explicitly approved process_run operation')
+    if event in {'os.mkdir', 'os.utime'}:
+        writable(args[0])
+    if event == 'os.chdir':
+        readable(args[0])
 
 
 failures = []
@@ -160,6 +165,9 @@ SESSION, REQUEST = first[1:3]
 config = json.loads(first[3])
 protected_paths = tuple(candidate for p in config.get('protected_paths', [])
                         for candidate in (Path(p).absolute(), Path(p).resolve()))
+system_write_roots = tuple(Path(p).resolve() for p in (
+    [os.environ.get('SystemRoot', 'C:/Windows'), 'C:/Program Files', 'C:/Program Files (x86)']
+    if os.name == 'nt' else ['/etc', '/usr', '/bin', '/sbin', '/System', '/Library', '/var']))
 observer = Observations()
 agent_print = config.get('observe', False)
 namespace = {'__builtins__': builtins, 'json': json, 'native_read': native_read,

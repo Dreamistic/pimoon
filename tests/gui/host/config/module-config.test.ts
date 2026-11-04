@@ -9,10 +9,13 @@ import { preserveEnv, setTestHome, useTempDir } from "../../../helpers/lifecycle
 
 const temp = useTempDir("pimoon-module-config-");
 const envs = moduleConfigIds.map((id) => CONFIG_DEFINITIONS[id].userEnv);
-preserveEnv("HOME", "USERPROFILE", ...envs);
+preserveEnv("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PIMOON_HOME", "PIMOON_CODING_AGENT_DIR", "PI_CODING_AGENT_DIR", ...envs);
 let host: ReturnType<GuiHost["createClient"]>;
 beforeEach(() => {
 	setTestHome(temp.path);
+	process.env.APPDATA = process.env.LOCALAPPDATA = temp.path;
+	process.env.PIMOON_HOME = path.join(temp.path, "pimoon");
+	process.env.PIMOON_CODING_AGENT_DIR = process.env.PI_CODING_AGENT_DIR = path.join(process.env.PIMOON_HOME, "agent");
 	for (const env of envs) delete process.env[env];
 	host = new GuiHost().createClient();
 });

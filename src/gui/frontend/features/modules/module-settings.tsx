@@ -109,6 +109,7 @@ export function ModuleSettings({ title, id, query, send, disabled, models, tools
 				})}
 			</>}>
 				{fields(group.fields)}
+				{id === "memory" && <p className="settings-empty">只自动加载短索引，AI 自行选择读取和维护记忆。索引与主动读取的正文会发送给当前模型。输入 /memory 查看、编辑或归档；关闭不会删除已有文件。</p>}
 				{id === "approvalGate" && index === 0 && (valueAt("enabled") === false || valueAt("ui.non_interactive") === "allow")
 					&& <p className="settings-warning">{valueAt("enabled") === false ? "权限审批已关闭。" : "非交互操作将直接放行。"}</p>}
 				{id === "discordPresence" && index === 0 && valueAt("enabled") === true && valueAt("profile") === "detailed"

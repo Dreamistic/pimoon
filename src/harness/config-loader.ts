@@ -42,6 +42,7 @@ export interface LoadedConfigLayers {
 export const CONFIG_DEFINITIONS = {
 	approvalGate: globalConfig("approval-gate", "approval-gate.jsonc", "PI_APPROVAL_GATE_CONFIG"),
 	autoTitle: globalConfig("auto-title", "auto-title.jsonc", "PI_AUTO_TITLE_CONFIG"),
+	memory: globalConfig("memory", "memory.jsonc", "PIMOON_MEMORY_CONFIG"),
 	bashTool: globalConfig("bash-tool", "bash-tool.jsonc", "PI_BASH_TOOL_CONFIG"),
 	discordPresence: projectConfig("discord-presence", "discord-presence.jsonc", "PI_DISCORD_PRESENCE_CONFIG", "PI_DISCORD_PRESENCE_PROJECT_CONFIG", "PI_DISCORD_PRESENCE_PROJECT_ROOT"),
 	fileTools: projectConfig("file-tools", "file-tools.jsonc", "PI_FILE_TOOLS_CONFIG", "PI_FILE_TOOLS_PROJECT_CONFIG", "PI_FILE_TOOLS_PROJECT_ROOT"),

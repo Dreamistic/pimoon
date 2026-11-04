@@ -17,7 +17,7 @@ rows = [json.loads(line) for line in Path("events.jsonl").read_text(encoding="ut
 
 `read(...)`、`grep(...)`、`edit(...)`、`webfetch(...)` 等是注入的函数，也可通过 `functions.read(...)` 调用。函数参数使用关键字；目录中的 `?` 表示省略，不是传 `None`。关闭 I/O 函数不关闭 Python。下一块执行前同步函数集合，保留其他变量；旧函数引用不能绕过当前权限。
 
-文件读取可以离开工作区；Python 写入、文件修改和下载仍限工作区，凭据路径受保护。这些检查不是强安全沙箱，也不是任意读取隐私文件的授权。
+普通本地文件读写和下载可以离开工作区；凭据、系统写入和应用安全配置仍受保护，网络及设备路径不能当作普通本地文件直接访问。已有文件通过 read 后的 write/edit 修改并检测版本冲突；原生 Python 只允许新建文件，不直接覆盖已有文件。原生删除、重命名和改权限需转为明确审批的 process_run 操作。这些检查不是强安全沙箱，也不是任意读取隐私文件的授权。
 
 ## 替代 Shell
 
@@ -48,7 +48,7 @@ info = http(url=url, mode="probe", timeout=25)
 {"status": info["status"], "bytes": info["bytes"], "total_ms": info["total_ms"]}
 ```
 
-- `http` 当前只做 GET：`text` 返回 UTF-8 文本，`probe` 下载后丢弃正文，`download` 原子保存到工作区内的 `path`。
+- `http` 当前只做 GET：`text` 返回 UTF-8 文本，`probe` 下载后丢弃正文，`download` 原子创建 `path`，可位于工作区外，但不覆盖已有文件。
 - 返回状态码、最终 URL、内容类型、正文大小、响应头完成时间、总耗时及平均速度。大小是解码后正文，不是线速字节；不伪造 DNS/TLS 分阶段指标。
 - 代理复用应用网络配置和桌面系统代理；统一处理超时、取消、DNS、逐跳重定向、响应大小和内网审批。不会读取浏览器或配置 Cookie。
 - 网页正文、图片、PDF 继续使用 `webfetch`；联网搜索使用 `websearch`。它们与原始 HTTP 的职责不同。

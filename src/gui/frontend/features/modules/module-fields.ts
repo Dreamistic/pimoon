@@ -16,6 +16,7 @@ const field = (path: string, label: string, type?: ConfigField["type"]): ConfigF
 	({ path, label, ...(type ? { type } : {}) });
 
 export const moduleGroups: Record<ModuleConfigId, ConfigGroup[]> = {
+	memory: [{ title: "自主记忆", fields: [field("enabled", "自主沉淀与按需读取")] }],
 	autoTitle: [{ title: "自动标题", fields: [
 		field("enabled", "自动生成标题"), { ...field("model", "标题模型", "model"), enabledBy: "enabled" },
 		{ ...field("thinking_level", "思考等级", "thinking"), enabledBy: "enabled" },

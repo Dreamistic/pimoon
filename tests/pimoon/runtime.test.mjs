@@ -12,7 +12,7 @@ const {Runtime,Decoder}=await import('../../src/pimoon/runtime.mjs');
 async function runTest(fn,tools=[],observe=true,options={}){const cwd=await fs.mkdtemp(path.join(base,'case-'));const runtime=new Runtime({cwd,tools,observe,...options});try{await runtime.ready;await fn(runtime,cwd);}finally{const exit=once(runtime.child,'exit');runtime.close();await exit;}}
 const context={tools:[],executeTool:async()=>{throw Error('unexpected tool');}};
 
-for(const transport of ['rust','direct'])test(`${transport}: Python 直接分析外部文件，宿主读取共用凭据保护且不启动 shell`,async()=>{
+for(const transport of ['rust','direct'])test(`${transport}: Python 可新建外部文件，覆盖和破坏性操作走受控入口，凭据保护保留`,async()=>{
  const outside=await fs.mkdtemp(path.join(base,'external-'));
  const protectedDir=path.join(outside,'credentials');await fs.mkdir(protectedDir);
  await fs.writeFile(path.join(protectedDir,'secret.txt'),'SYNTHETIC_SECRET');
@@ -36,11 +36,15 @@ assert Path("external-link/events.jsonl").read_text().strip().startswith('{')
 print(total(rows))`;
   const result=await runtime.run(setup,context);assert.equal(result.isError,false,result.content[0].text);
   const next=await runtime.run('assert total(rows)==42\nassert os.environ["PIMOON_HOME"]\nassert isinstance(os.listdir(),list)\nassert isinstance(list(os.scandir()),list)\nprint("persistent")',context);assert.equal(next.isError,false,next.content[0].text);
+  const externalWrite=await runtime.run('(external / "new.txt").write_text("allowed")\nPath("external-link/new-via-link.txt").write_text("allowed")',context);
+  assert.equal(externalWrite.isError,false,externalWrite.content[0].text);
+  assert.equal(await fs.readFile(path.join(outside,'new.txt'),'utf8'),'allowed');
+  assert.equal(await fs.readFile(path.join(outside,'new-via-link.txt'),'utf8'),'allowed');
   for(const code of [
-   '(external / "new.txt").write_text("blocked")',
+   '(external / "events.jsonl").write_text("blocked")',
    '(external / "events.jsonl").unlink()',
    '(external / "events.jsonl").rename("moved.txt")',
-   'Path("external-link/new.txt").write_text("blocked")',
+   'Path("external-link/events.jsonl").write_text("blocked")',
    '(external / "credentials/secret.txt").read_text()',
    'Path("credential-link/secret.txt").read_text()',
    'native_read(str(external / "credentials/secret.txt"))',

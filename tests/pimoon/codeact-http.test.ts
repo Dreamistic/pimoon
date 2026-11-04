@@ -43,7 +43,11 @@ it("原始 GET、测速和二进制下载不调用 curl，返回真实且有界�
 		expect(probe).toMatchObject({ status: 200, bytes: 4 }); expect(probe.body).toBeUndefined(); expect(probe).not.toHaveProperty("tls_ms");
 		const download = await executeHttp({ url: f.url + "/binary", mode: "download", path: "image.bin" }, f.context, f.cwd, f.options);
 		expect(await fs.readFile(download.path ?? "")).toEqual(data);
-		await expect(executeHttp({ url: f.url, mode: "download", path: "../outside" }, f.context, f.cwd, f.options)).rejects.toThrow("工作区");
+		const outside = path.join(await fs.mkdtemp(path.join(path.dirname(f.cwd), "outside-")), "download.bin");
+		await executeHttp({ url: f.url + "/binary", mode: "download", path: outside }, f.context, f.cwd, f.options);
+		expect(await fs.readFile(outside)).toEqual(data);
+		await expect(executeHttp({ url: f.url, mode: "download", path: outside }, f.context, f.cwd, f.options)).rejects.toThrow();
+		expect(await fs.readFile(outside)).toEqual(data);
 	} finally { await f.close(); }
 });
 it("未授权内网与跨 origin 内网跳转被阻止，大小限制和超时继续有效", async () => {

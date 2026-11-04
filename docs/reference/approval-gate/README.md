@@ -37,7 +37,7 @@ TUI 的方向键选择操作，PageUp/PageDown 浏览内容，Enter 确认，Esc
 
 ## 配置
 
-用户文件为 `~/.pi/agent/configs/approval-gate.jsonc`，可用 `PI_APPROVAL_GATE_CONFIG` 指定路径。
+用户文件为 `PIMOON_HOME/agent/configs/approval-gate.jsonc`，可用 `PI_APPROVAL_GATE_CONFIG` 指定路径。持久授权默认保存于 `PIMOON_HOME/agent/state/approval-gate.rules.jsonc`；`persistent_store` 的相对路径基于 pimoon 的 agent 目录，不回落到原版目录。已有显式绝对路径需由用户检查并迁移。
 
 | 字段 | 含义 |
 | --- | --- |

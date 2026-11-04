@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import path from "node:path";
+import { agentHome } from "../../pimoon/profile.ts";
 import {
 	CONFIG_DEFINITIONS,
 	agentSchemaPath,
@@ -44,7 +46,7 @@ function compileConfig(value: unknown): ApprovalGateConfig {
 	const file = value as ConfigFile;
 	return {
 		...file,
-		remember: { ...file.remember, persistent_store: expandHomePath(file.remember.persistent_store) },
+		remember: { ...file.remember, persistent_store: path.resolve(agentHome, expandHomePath(file.remember.persistent_store)) },
 		tools: { ...file.tools, bash: compileBashPolicy(file.tools.bash) },
 	};
 }

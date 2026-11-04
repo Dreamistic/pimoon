@@ -8,7 +8,7 @@
 	"remember": {
 		"allow_session": true,
 		"allow_persistent": true,
-		"persistent_store": "~/.pi/agent/state/approval-gate.rules.jsonc"
+		"persistent_store": "state/approval-gate.rules.jsonc"
 	},
 	"ask_rules": [
 		{
