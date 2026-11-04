@@ -41,7 +41,12 @@ describe("统一审批条", () => {
 		expect(doc.querySelector("script,[role=dialog]")).toBeNull();
 		expect(doc.querySelectorAll('input[type="radio"]')).toHaveLength(1);
 		expect(doc.querySelector(".approval-bar")?.textContent).toContain("此操作尚未执行");
-		expect(doc.querySelector(".approval-bar-range")?.textContent).toContain("当前暂停的操作");
+		expect(dialog.approval?.recommended).toBeNull();
+		expect(doc.querySelectorAll('input[type="radio"][checked]')).toHaveLength(0);
+		expect(doc.querySelector(".approval-bar-range")?.textContent).toContain("AI建议拒绝");
+		const buttons = [...doc.querySelectorAll("button")];
+		expect(buttons.find(button => button.textContent?.includes("选择范围后仍要执行"))?.hasAttribute("disabled")).toBe(true);
+		expect(buttons.find(button => button.textContent?.includes("AI推荐"))?.textContent).toContain("拒绝");
 		expect(() => dialogs.respond(dialog.id, "Always allow similar")).toThrow();
 		dialogs.respond(dialog.id, "Deny", "使用只读工具");
 		expect(await pending).toEqual({ choice: "Deny", feedback: "使用只读工具" });

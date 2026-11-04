@@ -52,6 +52,8 @@ export function parseApprovalCard(text: string, choices: readonly ApprovalChoice
 	const feedbackPlaceholder = field(value.feedbackPlaceholder, 160);
 	const recommendation = choices.find(choice => choice === value.recommendation);
 	if (value.decision !== undefined && !["allow", "ask", "deny"].includes(String(value.decision))) throw new Error("Invalid advisor decision.");
+	if (value.decision === "deny" && recommendation !== "Deny" || value.decision === "allow" && recommendation === "Deny")
+		throw new Error("Conflicting advisor decision.");
 	if (!recommendation || !Array.isArray(value.actions) || value.actions.length !== choices.length) throw new Error("Invalid approval actions.");
 	const seen = new Set<ApprovalChoice>();
 	const actions = value.actions.map((action: unknown) => {

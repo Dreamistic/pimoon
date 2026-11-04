@@ -11,6 +11,8 @@ it("卡片只能包含已提供动作，每个恰好一次，推荐必须在其�
 	expect(parseApprovalCard(JSON.stringify(card), choices).title).toBe(card.title);
 	expect(cardChoices([...choices, "Deny with instruction"])).toEqual(choices);
 	for (const invalid of [
+		{ ...card, decision: "deny", recommendation: "Allow once" },
+		{ ...card, decision: "allow", recommendation: "Deny" },
 		{ ...card, recommendation: "execute" }, { ...card, decision: "auto" },
 		{ ...card, actions: [...card.actions, { choice: "execute", label: "运行任意代码" }] },
 		{ ...card, actions: [card.actions[0], card.actions[0], card.actions[2], card.actions[3]] },
@@ -49,5 +51,5 @@ it("文件正文不进入顾问，超长进程参数明确标为截断", () => {
 
 it("自主决定保留在合法卡片中，拒绝任意决定字符串", () => {
 	expect(parseApprovalCard(JSON.stringify({ ...card, decision: "allow" }), choices)).toMatchObject({ decision: "allow" });
-	expect(parseApprovalCard(JSON.stringify({ ...card, decision: "deny" }), choices)).toMatchObject({ decision: "deny" });
+	expect(parseApprovalCard(JSON.stringify({ ...card, decision: "deny", recommendation: "Deny" }), choices)).toMatchObject({ decision: "deny" });
 });

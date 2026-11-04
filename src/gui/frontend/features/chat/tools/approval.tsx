@@ -16,7 +16,7 @@ export function ApprovalBar({ dialog, send, disabled }: { dialog: GuiDialog; sen
 	const [busy, setBusy] = useState(false);
 	const [explaining, setExplaining] = useState(false);
 	const [feedback, setFeedback] = useState("");
-	const [scope, setScope] = useState(dialog.approval?.recommended ?? "once");
+	const [scope, setScope] = useState(dialog.approval ? dialog.approval.recommended : "once");
 	const [now, setNow] = useState(Date.now());
 	useEffect(() => {
 		if (dialog.deadline === null) return;
@@ -27,10 +27,11 @@ export function ApprovalBar({ dialog, send, disabled }: { dialog: GuiDialog; sen
 	if (!permission && !codeact) return null;
 	const selected = permission?.scopes.find(option => option.scope === scope);
 	const card = permission?.card;
+	const recommendsDeny = card?.decision === "deny" || card?.recommendation === "Deny" || card?.recommendation === "Deny with instruction";
 	const label = (choice: string, fallback: string) => card?.actions.find(action => action.choice === choice)?.label ?? fallback;
 	const expired = dialog.deadline !== null && now >= dialog.deadline;
 	const locked = disabled || busy || expired;
-	const approveLabel = !permission ? "确认执行" : label(selected?.choice ?? "", scope === "persistent" ? "保存规则并授权" : scope === "session" ? "授权本会话" : "授权本次");
+	const approveLabel = !permission ? "确认执行" : !selected ? "选择范围后仍要执行" : label(selected?.choice ?? "", scope === "persistent" ? "保存规则并授权" : scope === "session" ? "授权本会话" : "授权本次");
 	const respond = async (approved: boolean, discuss = false) => {
 		if (submitting.current || locked || approved && permission && !selected) return;
 		submitting.current = true; setBusy(true);
@@ -58,7 +59,7 @@ export function ApprovalBar({ dialog, send, disabled }: { dialog: GuiDialog; sen
 				</label>)}
 			</fieldset>
 			{permission.advisorUnavailable && <p className="tool-note">审批顾问暂不可用{permission.advisorFailure ? `（${permission.advisorFailure}）` : ""}，已回退为普通审批；操作仍在等待确认。</p>}
-			<p className="approval-bar-range">{clean(selected?.detail ?? "请选择授权范围")}</p>
+			<p className="approval-bar-range">{clean(selected?.detail ?? (recommendsDeny ? "AI建议拒绝；如要覆盖此建议，请先明确选择授权范围。" : "请选择授权范围"))}</p>
 			<p className="tool-note">{scope === "persistent" ? "将保存所示授权规则。" : ""}不重跑整段代码；明确拒绝规则和文件版本检查仍生效。</p>
 		</> : codeact && <>
 			<Disclosure summary="查看待执行代码与工作区" lazy>
@@ -71,10 +72,10 @@ export function ApprovalBar({ dialog, send, disabled }: { dialog: GuiDialog; sen
 		{(explaining || permission?.discuss) && <Textarea aria-label={permission ? "审批意见" : "拒绝原因或替代方案"} autoFocus={explaining} maxLength={2000} rows={2} value={feedback}
 			disabled={locked} onChange={event => setFeedback(event.target.value)} placeholder={card?.feedbackPlaceholder ?? "说明原因或希望采用的做法（可选）"} />}
 		<div className="approval-bar-actions">
-			<Button variant="outline" size="sm" disabled={locked} onClick={() => void respond(false)}>{explaining && !permission ? "提交拒绝" : card ? `拒绝 · ${label("Deny", "不执行")}` : "拒绝"}</Button>
+			<Button variant={recommendsDeny ? "default" : "outline"} size="sm" disabled={locked} onClick={() => void respond(false)}>{explaining && !permission ? "提交拒绝" : card ? `拒绝 · ${label("Deny", "不执行")}${recommendsDeny ? " · AI推荐" : ""}` : "拒绝"}</Button>
 			{!permission?.discuss && <Button variant="ghost" size="sm" disabled={locked} onClick={() => setExplaining(value => !value)}>{explaining ? "收起说明" : permission ? "补充意见" : "拒绝并说明"}</Button>}
 			{permission?.discuss && <Button variant="outline" size="sm" disabled={locked || !feedback.trim()} onClick={() => void respond(false, true)}>先聊一下，不执行</Button>}
-			<Button size="sm" disabled={locked || Boolean(permission && !selected)} onClick={() => void respond(true)}>{busy ? "正在提交…" : approveLabel}</Button>
+			<Button variant={recommendsDeny ? "outline" : "default"} size="sm" disabled={locked || Boolean(permission && !selected)} onClick={() => void respond(true)}>{busy ? "正在提交…" : approveLabel}</Button>
 		</div>
 	</section>;
 }

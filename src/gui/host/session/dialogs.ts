@@ -24,7 +24,8 @@ export class GuiDialogs {
 	async approve(...[request, decision, options, opts]: Parameters<ApprovalInteractionPort["approve"]>): Promise<ApprovalReply | undefined> {
 		const scopes = approvalScopes(request, decision, options);
 		const card = opts?.card;
-		const recommended = scopes.find(scope => scope.choice === card?.recommendation)?.scope ?? "once";
+		const recommended = card?.decision === "deny" || card?.recommendation === DENY || card?.recommendation === "Deny with instruction"
+			? null : scopes.find(scope => scope.choice === card?.recommendation)?.scope ?? "once";
 		const response = await this.request({ kind: "approval", title: card?.title ?? "操作审批", message: "", options: [...scopes.map(scope => scope.choice), DENY, ...(opts?.discuss ? ["Discuss"] : [])], initial: "",
 			approval: { tool: request.tool, cwd: approvalText(request.cwd), reason: approvalText(card?.explanation ?? decision.reason),
 				summary: approvalSummary(request), content: buildApprovalContent(request, decision), scopes, recommended,

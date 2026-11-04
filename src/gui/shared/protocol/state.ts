@@ -23,7 +23,7 @@ export interface GuiApproval {
 	summary: string;
 	content: ApprovalDisplayLine[];
 	scopes: ApprovalScopeOption[];
-	recommended: ApprovalScope;
+	recommended: ApprovalScope | null;
 	card?: ApprovalCard;
 	advisorUnavailable?: boolean;
 	advisorFailure?: string;

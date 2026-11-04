@@ -127,3 +127,33 @@ test("工具审批共用非模态入口，用户可收窄 AI 建议，意见与�
 		expect(submitted).toHaveLength(1);
 	} finally { release(); channel.close(); }
 });
+
+test("AI推荐拒绝时不预选批准，需主动选范围才能覆盖建议", async ({ page }) => {
+	const channel = await replayTranscript(page, { ...guiSnapshot(), running: true });
+	const submitted: GuiAction[] = [];
+	await page.route("http://127.0.0.1:43177/api/action", async route => {
+		const { value } = route.request().postDataJSON() as { value: GuiAction };
+		if (value.action === "dialog") submitted.push(value);
+		await route.fulfill({ json: null });
+	});
+	const pending: GuiDialog = { id: "deny-recommendation", kind: "approval", title: "核对构建", message: "", initial: "", deadline: null,
+		options: ["Allow once", "Deny"], approval: {
+			tool: "process_run", cwd: "D:/fixture", reason: "本次目标需要确认", summary: '["bun","build"]', content: [], recommended: null,
+			card: { title: "核对构建", explanation: "本次目标需要确认", decision: "deny", recommendation: "Deny",
+				recommendationReason: "核对后再执行", feedbackPlaceholder: "补充说明",
+				actions: [{ choice: "Allow once", label: "只运行这次构建" }, { choice: "Deny", label: "本次不构建" }] },
+			scopes: [{ scope: "once", choice: "Allow once", label: "仅本次", detail: "当前构建" }],
+		} };
+	try {
+		channel.accept({ type: "dialogs", value: [pending] });
+		const bar = page.locator(".approval-bar");
+		await expect(bar).toBeVisible();
+		await expect(bar.getByRole("radio")).not.toBeChecked();
+		await expect(bar.getByRole("button", { name: "选择范围后仍要执行", exact: true })).toBeDisabled();
+		await expect(bar.getByRole("button", { name: "拒绝 · 本次不构建 · AI推荐", exact: true })).toBeEnabled();
+		await bar.getByRole("radio").check();
+		await bar.getByRole("button", { name: "只运行这次构建", exact: true }).click();
+		await expect.poll(() => submitted.length).toBe(1);
+		expect(submitted[0]).toEqual({ action: "dialog", id: pending.id, value: "Allow once" });
+	} finally { channel.close(); }
+});
