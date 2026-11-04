@@ -11,7 +11,7 @@ it("卡片只能包含已提供动作，每个恰好一次，推荐必须在其�
 	expect(parseApprovalCard(JSON.stringify(card), choices).title).toBe(card.title);
 	expect(cardChoices([...choices, "Deny with instruction"])).toEqual(choices);
 	for (const invalid of [
-		{ ...card, recommendation: "execute" },
+		{ ...card, recommendation: "execute" }, { ...card, decision: "auto" },
 		{ ...card, actions: [...card.actions, { choice: "execute", label: "运行任意代码" }] },
 		{ ...card, actions: [card.actions[0], card.actions[0], card.actions[2], card.actions[3]] },
 		{ ...card, title: "x".repeat(101) }, { ...card, explanation: "" },
@@ -29,11 +29,13 @@ it("顾问只读取真实范围与已完成历史，所有输入字段都省略�
 		units: [{ action: "execute", target: { kind: "command", value: '{"env":{"TOKEN":"private-value"}}', effective_value: "git status" }, remember: { session: true, persistent: false } }] };
 	const decision: Extract<ApprovalDecision, { kind: "ask" }> = { kind: "ask", reason: "default", items: request.units.map(unit => ({ unit, reason: "default" })) };
 	const payload = approvalAdvisorInput(request, decision, ["Allow once", "Allow for session", "Deny"], "", {
-		task: "检查状态", requestHash: "same", history: [{ requestHash: "same", tool: "process_run", decision: "approved", scope: "once" }],
+		task: "检查状态", context: ["assistant: 验证后提交"], evidence: ["Tests 42 passed"], presence: { state: "away" }, requestHash: "same", history: [{ requestHash: "same", tool: "process_run", decision: "approved", scope: "once" }],
 	});
 	expect(JSON.stringify(payload)).toContain('"sameRequest":true');
 	expect(JSON.stringify(payload)).not.toContain("private-value");
 	expect(JSON.stringify(payload)).toContain("envValues");
+	expect(JSON.stringify(payload)).toContain("Tests 42 passed");
+	expect(payload).toMatchObject({ presence: { state: "away" }, recentContext: ["assistant: 验证后提交"] });
 });
 
 it("文件正文不进入顾问，超长进程参数明确标为截断", () => {
@@ -43,4 +45,9 @@ it("文件正文不进入顾问，超长进程参数明确标为截断", () => {
 	expect(JSON.stringify(approvalAdvisorInput(request, decision, ["Allow once", "Deny"], "", input))).not.toContain("private-body");
 	const command: ApprovalRequest = { tool: "process_run", cwd: request.cwd, detail: { argv: ["program", "x".repeat(13000)], env: {} }, units: [] };
 	expect(approvalAdvisorInput(command, decision, ["Allow once", "Deny"], "", input)).toMatchObject({ truncated: true });
+});
+
+it("自主决定保留在合法卡片中，拒绝任意决定字符串", () => {
+	expect(parseApprovalCard(JSON.stringify({ ...card, decision: "allow" }), choices)).toMatchObject({ decision: "allow" });
+	expect(parseApprovalCard(JSON.stringify({ ...card, decision: "deny" }), choices)).toMatchObject({ decision: "deny" });
 });

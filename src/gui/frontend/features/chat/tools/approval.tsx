@@ -57,8 +57,7 @@ export function ApprovalBar({ dialog, send, disabled }: { dialog: GuiDialog; sen
 					<span>{card ? `${label(option.choice, option.label)} · ` : ""}{option.label}{card?.recommendation === option.choice && <small> · AI 建议</small>}</span>
 				</label>)}
 			</fieldset>
-			{card && <p className="tool-note">AI 建议：{label(card.recommendation, card.recommendation)}。{clean(card.recommendationReason)}</p>}
-			{permission.advisorUnavailable && <p className="tool-note">审批顾问暂不可用，已回退为普通审批；操作仍在等待确认。</p>}
+			{permission.advisorUnavailable && <p className="tool-note">审批顾问暂不可用{permission.advisorFailure ? `（${permission.advisorFailure}）` : ""}，已回退为普通审批；操作仍在等待确认。</p>}
 			<p className="approval-bar-range">{clean(selected?.detail ?? "请选择授权范围")}</p>
 			<p className="tool-note">{scope === "persistent" ? "将保存所示授权规则。" : ""}不重跑整段代码；明确拒绝规则和文件版本检查仍生效。</p>
 		</> : codeact && <>

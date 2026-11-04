@@ -8,7 +8,9 @@ import { registerExtension } from "../../helpers/extension.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 const advise = vi.hoisted(() => vi.fn());
-vi.mock("../../../src/harness/approval/advisor.ts", () => ({ adviseApproval: advise }));
+vi.mock("../../../src/harness/approval/advisor.ts", async importOriginal => ({
+	...await importOriginal<typeof import("../../../src/harness/approval/advisor.ts")>(), adviseApproval: advise,
+}));
 const temp = useTempDir("approval-runtime-");
 preserveEnv("PI_APPROVAL_GATE_CONFIG");
 beforeEach(async () => {
@@ -27,7 +29,7 @@ function fixture(auditFails = false) {
 	let leaf = "original", session = "session";
 	const controller = new AbortController();
 	const ctx = { cwd: temp.path, mode: "gui", hasUI: true, signal: controller.signal, ui: dialogs.context(),
-		sessionManager: { getSessionId: () => session, getBranch: () => [{ type: "message", id: leaf }] } };
+		sessionManager: { getSessionId: () => session, getBranch: () => [{ type: "message", id: leaf, message: { role: "user", content: "检查项目并验证后提交" } }] } };
 	const extension = registerExtension(pi => approvalGate(pi, { mode: "gui", show: (_ui, ...args) => dialogs.approve(...args) }), {
 		appendEntry: (_type: string, data: unknown) => { if (auditFails) throw new Error("audit unavailable"); audit.push(data); },
 	});
@@ -132,6 +134,7 @@ it("顾问超时不拖住审批，取消可移除卡片", async () => {
 	const f = fixture(), running = f.call();
 	await vi.waitFor(() => expect(f.dialogs.list()).toHaveLength(1));
 	expect(f.dialogs.list()[0]?.approval?.advisorUnavailable).toBe(true);
+	expect(f.dialogs.list()[0]?.approval?.advisorFailure).toBe("模型响应超时");
 	f.cancel(); expect(await running).toMatchObject({ block: true });
 });
 
@@ -184,4 +187,67 @@ it("重建扩展后只恢复审批经验，不恢复一次许可", async () => {
 	const second = fixture(), next = second.call(operation(["git", "status", "--short"]));
 	await second.respond("Deny"); expect(await next).toMatchObject({ block: true });
 	expect(advise.mock.calls[1]?.[5].history).toMatchObject([{ decision: "approved", scope: "once", sameFamily: true, count: 1 }]);
+});
+
+it("自主模式明确放行只批准本次，不弹卡、不保存长期规则或人工批准经验", async () => {
+	await writeFile(process.env.PI_APPROVAL_GATE_CONFIG ?? "", '{"advisor":{"enabled":true,"autonomous":true}}');
+	advise.mockResolvedValue({ decision: "allow", explanation: "本地检查符合任务", recommendation: "Always allow similar" });
+	const f = fixture();
+	expect(await f.call()).toBeUndefined(); expect(f.dialogs.list()).toEqual([]);
+	expect(f.audit).toMatchObject([{ actor: "advisor", decision: "approved", scope: "once" }]);
+	await expect(readFile(path.join(temp.path, "rules.jsonc"))).rejects.toThrow();
+	await expect(readFile(path.join(temp.path, "rules.jsonc.experiences.json"))).rejects.toThrow();
+	expect(await f.call()).toBeUndefined(); expect(advise).toHaveBeenCalledTimes(2);
+});
+
+it("人在时拿不准才显示人工卡片，自主关闭时即使模型allow仍等待人", async () => {
+	await writeFile(process.env.PI_APPROVAL_GATE_CONFIG ?? "", '{"advisor":{"enabled":true,"autonomous":true}}');
+	advise.mockResolvedValue({ decision: "ask", title: "选择目标", explanation: "需要确认目标" });
+	const f = fixture(), first = f.call();
+	await f.respond("Deny"); expect(await first).toMatchObject({ block: true });
+	await writeFile(process.env.PI_APPROVAL_GATE_CONFIG ?? "", '{"advisor":{"enabled":true,"autonomous":false}}');
+	advise.mockResolvedValue({ decision: "allow", title: "检查", explanation: "可检查" });
+	const next = f.call(); await f.respond("Allow once"); expect(await next).toBeUndefined();
+});
+
+it("离开时自主模式不等待人工；明确拒绝和模型故障不会放行", async () => {
+	const { updateApprovalPresence } = await import("../../../src/harness/approval/presence.ts");
+	updateApprovalPresence(900);
+	try {
+		await writeFile(process.env.PI_APPROVAL_GATE_CONFIG ?? "", '{"advisor":{"enabled":true,"autonomous":true}}');
+		advise.mockResolvedValue({ decision: "deny", explanation: "范围不合适" });
+		const f = fixture(); expect(await f.call()).toMatchObject({ block: true }); expect(f.dialogs.list()).toEqual([]);
+		await f.clear(); advise.mockResolvedValue({ decision: "ask", explanation: "未知" });
+		expect(await f.call()).toMatchObject({ block: true }); expect(f.dialogs.list()).toEqual([]);
+		await f.clear(); advise.mockRejectedValue(new Error("offline"));
+		expect(await f.call()).toMatchObject({ block: true });
+		await f.clear(); advise.mockResolvedValue({ decision: "allow", explanation: "符合任务" });
+		expect(await f.call()).toBeUndefined();
+	} finally { updateApprovalPresence(0); }
+});
+
+it("顾问收到近期执行证据，而不是被迫猜测测试是否跑过", async () => {
+	await writeFile(process.env.PI_APPROVAL_GATE_CONFIG ?? "", '{"advisor":{"enabled":true,"autonomous":true}}');
+	advise.mockResolvedValue({ decision: "allow", explanation: "已验证的任务步骤" });
+	const f = fixture();
+	await f.result({ toolName: "process_run", toolCallId: "test", input: { argv: ["vitest", "run"] }, content: [{ type: "text", text: "Tests 42 passed" }], details: { exit_code: 0 }, isError: false });
+	expect(await f.call()).toBeUndefined();
+	expect(advise.mock.calls[0]?.[5].evidence[0]).toContain("Tests 42 passed");
+});
+
+it("等待人工期间离开，撤回卡片并让AI重新作最终决定", async () => {
+	const { updateApprovalPresence } = await import("../../../src/harness/approval/presence.ts");
+	updateApprovalPresence(0);
+	await writeFile(process.env.PI_APPROVAL_GATE_CONFIG ?? "", '{"advisor":{"enabled":true,"autonomous":true}}');
+	advise.mockResolvedValueOnce({ decision: "ask", title: "确认", explanation: "选择目标" })
+		.mockResolvedValueOnce({ decision: "allow", explanation: "按任务限定目标继续" });
+	const f = fixture(), running = f.call();
+	await vi.waitFor(() => expect(f.dialogs.list()).toHaveLength(1));
+	updateApprovalPresence(900);
+	try {
+		await expect(running).resolves.toBeUndefined();
+		expect(f.dialogs.list()).toEqual([]);
+		expect(advise.mock.calls[1]?.[5].presence.state).toBe("away");
+		expect(f.audit).toMatchObject([{ actor: "advisor", scope: "once" }]);
+	} finally { updateApprovalPresence(0); }
 });

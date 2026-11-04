@@ -13,24 +13,27 @@ export type ApprovalScope = "once" | "session" | "persistent";
 export interface ApprovalCard {
 	title: string;
 	explanation: string;
+	decision?: "allow" | "ask" | "deny";
 	recommendation: ApprovalChoice;
 	recommendationReason: string;
 	actions: { choice: ApprovalChoice; label: string }[];
 	feedbackPlaceholder: string;
 }
-export interface ApprovalReply { choice: ApprovalChoice; feedback?: string }
+export interface ApprovalReply { choice: ApprovalChoice; feedback?: string; actor?: "advisor" }
 export interface ApprovalScopeOption { scope: ApprovalScope; choice: ApprovalChoice; label: string; detail: string }
 export interface ApprovalReceipt {
 	decision: "approved" | "rejected" | "cancelled";
 	scope?: ApprovalScope;
 	feedback?: string;
 	persistence_failed?: boolean;
+	actor?: "user" | "advisor";
 }
 export interface ApprovalDialogOptions {
 	timeout?: number;
 	signal?: AbortSignal;
 	card?: ApprovalCard;
 	advisorUnavailable?: boolean;
+	advisorFailure?: string;
 	discuss?: boolean;
 	/** 在保存授权前复核会话、分支、配置及取消状态。 */
 	validate?: () => Promise<boolean>;
@@ -73,14 +76,15 @@ export async function handleAskDecision(
 	const dialog = { ...(config.ui.timeout_ms > 0 ? { timeout: config.ui.timeout_ms } : {}), ...opts };
 	const reply = await interaction.approve(request, decision, options, dialog);
 	if (!reply || !options.includes(reply.choice) || !await valid()) return cancelled();
+	if (reply.actor === "advisor" && reply.choice !== ALLOW_ONCE && reply.choice !== DENY) return cancelled();
 	let feedback = reply.feedback?.trim().slice(0, 2000) || undefined;
 	if (reply.choice === DENY_WITH_INSTRUCTION && feedback === undefined) {
 		feedback = (await interaction.input("Instruction for agent", "Why deny, or what should happen instead?", dialog))?.trim().slice(0, 2000) || undefined;
 		if (!await valid()) return cancelled();
 	}
 	if (reply.choice === DENY || reply.choice === DENY_WITH_INSTRUCTION) return {
-		kind: "blocked", reason: `User denied this tool call. Do not retry without a new user instruction.${feedback ? `\nUser feedback:\n${feedback}` : ""}`,
-		receipt: { decision: "rejected", ...(feedback ? { feedback } : {}) },
+		kind: "blocked", reason: `${reply.actor === "advisor" ? "Approval advisor denied" : "User denied"} this tool call. Do not retry without a new user instruction.${feedback ? `\n${reply.actor === "advisor" ? "Advisor reason" : "User feedback"}:\n${feedback}` : ""}`,
+		receipt: { decision: "rejected", actor: reply.actor ?? "user", ...(feedback ? { feedback } : {}) },
 	};
 	let scope: ApprovalScope = reply.choice === ALLOW_SESSION ? "session" : reply.choice === ALLOW_PERSISTENT ? "persistent" : "once";
 	const units = decision.items.map(item => item.unit);
@@ -96,5 +100,5 @@ export async function handleAskDecision(
 			notify(interaction, `审批规则未保存，仅批准本次：${error instanceof Error ? error.message : String(error)}`, "warning");
 		}
 	}
-	return { kind: "approved", receipt: { decision: "approved", scope, ...(feedback ? { feedback } : {}), ...(persistenceFailed ? { persistence_failed: true } : {}) } };
+	return { kind: "approved", receipt: { decision: "approved", actor: reply.actor ?? "user", scope, ...(feedback ? { feedback } : {}), ...(persistenceFailed ? { persistence_failed: true } : {}) } };
 }

@@ -6,7 +6,8 @@ export type BackendRequest = { kind: "action" | "query" | "resource" | "activeSe
 
 export type BackendControl = GuiControl
 	| { kind: "subscribe" | "unsubscribe" }
-	| { kind: "notice"; text: string };
+	| { kind: "notice"; text: string }
+	| { kind: "presence"; idleSeconds: number };
 
 export type BackendCommand = BackendRequest | BackendControl | { kind: "dispose" };
 

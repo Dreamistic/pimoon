@@ -4,7 +4,8 @@
 	"advisor": {
 		"enabled": true,
 		"model": "openai-codex/gpt-6.1-sol",
-		"timeout_ms": 8000
+		"timeout_ms": 30000,
+		"autonomous": false
 	},
 	"ui": {
 		"timeout_ms": 0,

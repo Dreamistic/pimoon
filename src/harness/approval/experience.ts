@@ -17,6 +17,7 @@ export interface ApprovalExperience {
 	feedback?: string;
 	summary?: string;
 	count?: number;
+	actor?: "user" | "advisor";
 	sameFamily?: boolean;
 }
 interface StoredExperience {
@@ -47,7 +48,7 @@ export class ApprovalExperiences {
 	}
 
 	async remember(request: ApprovalRequest, receipt: ApprovalReceipt): Promise<void> {
-		if (receipt.decision === "cancelled") return;
+		if (receipt.decision === "cancelled" || receipt.actor === "advisor") return;
 		const operation = (queues.get(this.file) ?? Promise.resolve()).catch(() => {}).then(async () => {
 			const entries = await this.load();
 			const workspace = approvalFingerprint(request.cwd), requestHash = approvalFingerprint(request);

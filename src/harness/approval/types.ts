@@ -107,6 +107,7 @@ export interface ApprovalGateConfig {
 		enabled: boolean;
 		model: string;
 		timeout_ms: number;
+		autonomous?: boolean;
 	};
 	ui: {
 		timeout_ms: number;
