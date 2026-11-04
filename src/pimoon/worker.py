@@ -163,7 +163,8 @@ protected_paths = tuple(candidate for p in config.get('protected_paths', [])
 observer = Observations()
 agent_print = config.get('observe', False)
 namespace = {'__builtins__': builtins, 'json': json, 'native_read': native_read,
-             'batch': lambda name, jobs, limit=6: bridge('batch', name=name, jobs=jobs, limit=limit),
+             'batch': lambda name, jobs, limit=None: bridge('batch', name=name, jobs=jobs,
+                 limit=(2 if name == 'process_run' else 6) if limit is None else limit),
              'observe': observer.observe, 'get_observation': observer.get}
 function_names = set()
 

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { checkReadablePath } from './paths.ts';
+import { DEFAULT_PROCESS_TIMEOUT_SECONDS, limitProcessTimeout } from './codeact/process-budget.ts';
 
 export const OP = { INIT:1, EXEC:2, REPLY:3, CANCEL:4, CLOSE:5, PING:6, NATIVE:7,
   READY:101, DONE:102, CALL:103, NATIVE_RESULT:107, PONG:108, ERROR:109, METRICS:110 };
@@ -142,7 +143,10 @@ export class Runtime {
       try{
         if(stopReason||signal?.aborted)throw Error('Cancelled');
         const tool=context.tools.find(t=>t.name===name);if(!tool)throw Error('Unknown tool: '+name);
-        const outcome=await context.executeTool(name,args,{signal:toolController.signal});toolId=outcome.toolCall?.id;
+        const remainingMs=this.timeoutMs-(performance.now()-start);
+        const input=name==='process_run'?limitProcessTimeout(args,remainingMs):args;
+        if(input!==args)emit('process_timeout_capped',{...tags,requested_seconds:args.timeout??DEFAULT_PROCESS_TIMEOUT_SECONDS,effective_seconds:input.timeout,remaining_ms:remainingMs});
+        const outcome=await context.executeTool(name,input,{signal:toolController.signal});toolId=outcome.toolCall?.id;
         const content=outcome.result.content||[];
         // 图片不经 Python 字符串化，随父结果保留原始内容块。
         images.push(...content.filter(c=>c.type==='image'));
@@ -195,8 +199,9 @@ export class Runtime {
           let value;
           if(message.kind==='call')value=await invoke(message.name,message.args);
           else if(message.kind==='batch'){
-            if(!['read','find','grep','ls'].includes(message.name))throw Error('batch name must be a tool: read/find/grep/ls, not a task label');
+            if(!['read','find','grep','ls','process_run'].includes(message.name))throw Error('batch name must be a tool: read/find/grep/ls/process_run, not a task label');
             if(!Array.isArray(message.jobs)||message.jobs.length>256||!Number.isInteger(message.limit)||message.limit<1||message.limit>16)throw Error('invalid batch bounds');
+            if(message.name==='process_run'&&message.limit>4)throw Error('process_run batch concurrency limit must be <=4');
             if(message.jobs.some(job=>!job||typeof job!=='object'||Array.isArray(job)||'tool' in job||'args' in job))throw Error('batch jobs must be keyword-argument dicts for name, without tool/args wrappers');
             const batchId=randomUUID(),started=performance.now(),beforeFailures=internalFailures;
             batches++;
@@ -204,7 +209,7 @@ export class Runtime {
             value=Array(message.jobs.length);let cursor=0,active=0,peak=0,completed=0;
             try{
               await Promise.all(Array.from({length:Math.min(message.limit,value.length)},async()=>{
-                while(cursor<value.length){const index=cursor++;active++;peak=Math.max(peak,active);
+                while(cursor<value.length&&!stopReason&&!signal?.aborted){const index=cursor++;active++;peak=Math.max(peak,active);
                   try{value[index]={ok:true,value:await invoke(message.name,message.jobs[index],{batch_id:batchId,batch_index:index})};}
                   catch(error){value[index]={ok:false,error:error.message};}
                   finally{active--;completed++;}

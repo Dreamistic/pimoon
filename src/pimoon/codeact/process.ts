@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import which from "which";
+import { DEFAULT_PROCESS_TIMEOUT_SECONDS } from "./process-budget.ts";
 
 export interface ProcessInput {
 	argv: string[];
@@ -53,7 +54,7 @@ export async function runProcess(input: ProcessInput, workspace: string, signal?
 		};
 		const abort = () => stop("cancelled");
 		signal?.addEventListener("abort", abort, { once: true });
-		const timer = setTimeout(() => stop("timeout"), (input.timeout ?? 300) * 1000);
+		const timer = setTimeout(() => stop("timeout"), (input.timeout ?? DEFAULT_PROCESS_TIMEOUT_SECONDS) * 1000);
 		child.on("error", error => { status = "spawn_error"; spawnError = error.message; });
 		child.on("close", code => {
 			clearTimeout(timer); signal?.removeEventListener("abort", abort);

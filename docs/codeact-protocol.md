@@ -53,10 +53,12 @@ valid=[r for r in rows if r["ok"]]
 
 ## 预算与验证
 
-单块最多 30 分钟；批处理最多 256 项、16 并发，只支持同一种只读函数。模型每轮请求预算仍为 20。总输出约 40k 字符，保留最多 1 Mi 字符。
+单块最多 30 分钟；每批最多 256 项，同一种函数的调用有序返回。read/find/grep/ls 默认 6、最多 16 并发；process_run 默认 2、最多 4 并发，仅用于明确独立的进程任务。有依赖、共享写入或重复测速采样继续串行。进程逐项校验和审批，取消后不再派发排队项。
+
+进程超时按代码块剩余预算预留五秒清理时间；正常的命令超时只返回函数错误，变量仍保留。外层代码块超时、用户取消和崩溃仍可重建解释器，不能承诺恢复变量或回滚写入。模型每轮请求预算仍为 20。总输出约 40k 字符，保留最多 1 Mi 字符。
 
 节省来自减少声明重复、中间数据驻留和多步编排，不能把内部调用数减少直接当成计费或耗时收益。当前没有提供新版与旧版的供应商费用对比。
 
-定向验证：`tests/pimoon/codeact-parser.test.ts`、`codeact-stream.test.ts`、`codeact-stop.test.ts`、`text-codeact.test.ts`、`codeact-process.test.ts`、`codeact-http.test.ts`、`codeact-headless.test.ts` 与 `runtime.test.mjs`。使用真实 SDK、Python/Rust、npm CLI、JVM 合成 Wrapper 和本地 HTTP/代理服务；不运行实际 Android 构建、不请求付费模型、不启动桌面窗口。
+定向验证：`tests/pimoon/codeact-parser.test.ts`、`codeact-stream.test.ts`、`codeact-stop.test.ts`、`text-codeact.test.ts`、`codeact-process.test.ts`、`codeact-http.test.ts`、`codeact-headless.test.ts`、`process-budget.test.ts`、`process-batch-sdk.test.ts`、`process-orchestration.test.mjs` 与 `runtime.test.mjs`。使用真实 SDK、Python/Rust、npm CLI、JVM 合成 Wrapper 和本地 HTTP/代理服务；不运行实际 Android 构建、不请求付费模型、不启动桌面窗口。
 
 所有验证通过 `node scripts/test-isolated.mjs ...` 隔离配置、访问凭据及临时目录。

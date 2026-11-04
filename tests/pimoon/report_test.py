@@ -137,6 +137,17 @@ class ReplayReportTests(unittest.TestCase):
         self.assertEqual(report['summary']['python_outcomes'], {'success': 1})
         self.assertIn('任务成功', text)
 
+    def test_process_budget_cap_keeps_timings_without_exporting_arguments(self):
+        self.write_events([self.event('process_timeout_capped', 1, requested_seconds=200,
+                          effective_seconds=40, remaining_ms=45000, argv=['PRIVATE_ARG'], code='PRIVATE_CODE')])
+        report = build_report(self.home, timeline=True)
+        event = report['turns'][0]['timeline'][0]
+        self.assertEqual(event['requested_seconds'], 200)
+        self.assertEqual(event['effective_seconds'], 40)
+        self.assertEqual(event['remaining_ms'], 45000)
+        self.assertEqual(report['summary']['process_timeout_caps'], 1)
+        self.assertNotIn('PRIVATE_', json.dumps(report))
+
     def test_empty_home_is_a_valid_empty_report(self):
         report = build_report(self.home)
         self.assertEqual(report['events'], 0)

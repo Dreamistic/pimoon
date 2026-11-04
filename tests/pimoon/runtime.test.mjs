@@ -265,7 +265,7 @@ test('batch 区分工具名与任务标题，执行前拒绝任务包装及非�
   let calls=0;
   const ctx={tools:[tool],executeTool:async()=>{calls++;throw Error('must not execute invalid batch');}};
   const cases=[
-   ['batch(name="查找 Clash 配置", jobs=[{"tool":"find","args":{"query":"clash | mihomo"}}], limit=3)',/batch name must be a tool: read\/find\/grep\/ls, not a task label/],
+   ['batch(name="查找 Clash 配置", jobs=[{"tool":"find","args":{"query":"clash | mihomo"}}], limit=3)',/batch name must be a tool: read\/find\/grep\/ls\/process_run, not a task label/],
    ['batch("write", [{"path":"blocked.txt"}])',/batch name must be a tool/],
    ['batch("bash", [{"command":"blocked"}])',/batch name must be a tool/],
    ...['{"tool":"find","args":{"query":"clash"}}','{"args":{"query":"clash"}}','None','[]','"clash"'].map(job=>[

@@ -8,7 +8,7 @@ SCALARS = set('''schema run pid seq at mono_ms type application_run_id session_i
  tool_call_id parent_tool_call_id code_call_id bridge_call_id bridge_index batch_id batch_index runtime_id
  reason tool provider model status stop_reason stream_stop usage_status aborted elapsed_ms startup_ms requests cancelled outcome is_error usage_reported
  prewarmed python_pid python_version previous_python_pid state_restored had_state completed_writes_rolled_back
- jobs completed failed peak_concurrency concurrency_limit output_text_chars telemetry_complete
+ jobs completed failed peak_concurrency concurrency_limit requested_seconds effective_seconds remaining_ms output_text_chars telemetry_complete
  body_inspected author app_version privacy jev node platform arch output_limit_chars retention_limit_chars
  request_budget code_timeout_ms batch_max_jobs batch_max_concurrency telemetry_enqueue_ms telemetry_pending_bytes'''.split())
 METRICS = set('''outcome metrics_complete ok error_type host_ms python_ms compile_ms compile_cache_hit bridge_wait_ms
@@ -224,6 +224,7 @@ def summarize(events):
         'bridge_wait_ms': distribution(item.get('metrics', {}).get('bridge_wait_ms') for item in codes),
         'batch_ms': distribution(item.get('elapsed_ms') for item in by_type['batch_end']),
         'runtime_startup_ms': distribution(item.get('startup_ms') for item in by_type['runtime_ready'] + by_type['runtime_reinitialized']),
+        'process_timeout_caps': len(by_type['process_timeout_capped']),
         'transport_denials': dict(Counter(item.get('reason', 'unknown') for item in by_type['transport_denied'])),
         'tool_blocks': dict(Counter(item.get('reason', 'unknown') for item in by_type['tool_blocked'])),
         'tool_failure_count': sum(item.get('metrics', {}).get('tool_failure_count', 0) for item in codes),
