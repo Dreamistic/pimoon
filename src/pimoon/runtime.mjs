@@ -142,7 +142,7 @@ export class Runtime {
       emit('bridge_tool_start',tags);
       try{
         if(stopReason||signal?.aborted)throw Error('Cancelled');
-        const tool=context.tools.find(t=>t.name===name);if(!tool)throw Error('Unknown tool: '+name);
+        const tool=context.tools.find(t=>t.name===name);if(!tool)throw Error(`Function unavailable: ${name}. Enabled functions: ${context.tools.map(t=>t.name).join(', ')||'none'}. Check function permissions; do not bypass them.`);
         const remainingMs=this.timeoutMs-(performance.now()-start);
         const input=name==='process_run'?limitProcessTimeout(args,remainingMs):args;
         if(input!==args)emit('process_timeout_capped',{...tags,requested_seconds:args.timeout??DEFAULT_PROCESS_TIMEOUT_SECONDS,effective_seconds:input.timeout,remaining_ms:remainingMs});
@@ -200,6 +200,7 @@ export class Runtime {
           if(message.kind==='call')value=await invoke(message.name,message.args);
           else if(message.kind==='batch'){
             if(!['read','find','grep','ls','process_run'].includes(message.name))throw Error('batch name must be a tool: read/find/grep/ls/process_run, not a task label');
+            if(!context.tools.some(t=>t.name===message.name))throw Error(`Function unavailable: ${message.name}. Enabled functions: ${context.tools.map(t=>t.name).join(', ')||'none'}. Check function permissions; do not bypass them.`);
             if(!Array.isArray(message.jobs)||message.jobs.length>256||!Number.isInteger(message.limit)||message.limit<1||message.limit>16)throw Error('invalid batch bounds');
             if(message.name==='process_run'&&message.limit>4)throw Error('process_run batch concurrency limit must be <=4');
             if(message.jobs.some(job=>!job||typeof job!=='object'||Array.isArray(job)||'tool' in job||'args' in job))throw Error('batch jobs must be keyword-argument dicts for name, without tool/args wrappers');
