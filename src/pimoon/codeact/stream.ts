@@ -1,8 +1,20 @@
 import { randomUUID } from "node:crypto";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
-import { createAssistantMessageEventStream, type ToolCall } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, type AssistantMessage, type ToolCall } from "@earendil-works/pi-ai";
 import { CodeActParser, type CodeActChunk } from "./parser.ts";
 import { codeactTranscript, type CodeActMessage } from "./transcript.ts";
+
+const stopSequence = Symbol("codeact.stop_sequence");
+
+/** 取消必须完成收尾；超时不启动代码。 */
+async function stoppedResult(result: Promise<AssistantMessage>): Promise<AssistantMessage> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([result, new Promise<never>((_resolve, reject) => {
+			timer = setTimeout(() => reject(new Error("停止模型流未能完成，代码未执行。")), 5000);
+		})]);
+	} finally { if (timer !== undefined) clearTimeout(timer); }
+}
 
 /** 替换模型传输协议，不改 SDK 内部的审批、工具事件、取消和会话持久化。 */
 export function codeactStream(provider: StreamFn): StreamFn {
@@ -15,16 +27,21 @@ export function codeactStream(provider: StreamFn): StreamFn {
 				stopReason: "stop", timestamp: Date.now(),
 			};
 			const controller = new AbortController();
-			const abort = () => controller.abort();
+			const abort = () => controller.abort(options?.signal?.reason);
 			options?.signal?.addEventListener("abort", abort, { once: true });
 			if (options?.signal?.aborted) abort();
 			let settled = false;
 			try {
 				const request = codeactTranscript(context);
 				const source = await provider(model, request.context, { ...options, signal: controller.signal });
+				let providerFinished = false, locallyStopped = false;
+				const result = source.result().then(final => { providerFinished = true; return final; });
+				// 解析提前失败时也会取消源流；其终态拒绝不能变成未处理的 Promise。
+				void result.catch(() => {});
 				const parser = new CodeActParser();
 				const thinking = new Map<number, number>();
 				const textReceived = new Map<number, string>();
+				let receivedText = "";
 				let textIndex: number | undefined, callIndex: number | undefined;
 				let call: ToolCall | undefined;
 				const closeText = () => {
@@ -66,6 +83,7 @@ export function codeactStream(provider: StreamFn): StreamFn {
 				};
 				const acceptText = (index: number, delta: string) => {
 					textReceived.set(index, (textReceived.get(index) ?? "") + delta);
+					receivedText += delta;
 					if (request.enabled) accept(parser.feed(delta));
 					else appendText(delta);
 				};
@@ -105,37 +123,65 @@ export function codeactStream(provider: StreamFn): StreamFn {
 							output.push({ type: "thinking_end", contentIndex: index, content: part.thinking, partial: message });
 						}
 					}
+					if (parser.closed) {
+						// 先让已经排队的终态结算，不能把已失败的响应改判为主动截停。
+						await Promise.resolve();
+						if (!providerFinished && !controller.signal.aborted) {
+							locallyStopped = true;
+							controller.abort(stopSequence);
+							break;
+						}
+					}
 				}
-				const final = await source.result();
+				const final = await (locallyStopped ? stoppedResult(result) : result);
+				const sequenceStopped = locallyStopped && controller.signal.reason === stopSequence
+					&& !options?.signal?.aborted && final.stopReason === "aborted";
+				const nativeComplete = ["completed", "stop", "end_turn", "stop_sequence"].includes(final.rawStopReason ?? "");
+				const incompleteStop = sequenceStopped && !nativeComplete;
 				settled = true;
 				const content = message.content;
 				Object.assign(message, final, { content });
+				if (sequenceStopped && final.rawStopReason !== undefined && !nativeComplete) {
+					throw new Error("模型返回未完成终态，代码未执行。");
+				}
 				// Responses 的 reasoning 签名可能在终态补齐，必须使用最终块。
 				for (const [sourceIndex, index] of thinking) {
 					const original = final.content[sourceIndex], part = content[index];
 					if (original?.type === "thinking" && part?.type === "thinking") Object.assign(part, original);
 				}
-				if (final.stopReason === "error" || final.stopReason === "aborted") {
+				if (final.stopReason === "error" || final.stopReason === "aborted" && !sequenceStopped) {
 					output.push({ type: "error", reason: final.stopReason, error: message });
 				} else {
 					for (const [index, part] of final.content.entries()) {
 						if (part.type === "toolCall") throw new Error("文本 CodeAct 协议不接受 API 原生工具调用，代码未执行。");
-						if (part.type === "text" && part.text !== (textReceived.get(index) ?? "")) throw new Error("模型正文终态与流式内容不一致，代码未执行。");
+						if (!sequenceStopped && part.type === "text" && part.text !== (textReceived.get(index) ?? "")) throw new Error("模型正文终态与流式内容不一致，代码未执行。");
+					}
+					if (sequenceStopped) {
+						const finalText = final.content.filter(part => part.type === "text").map(part => part.text).join("");
+						if (!finalText.startsWith(receivedText.slice(0, parser.consumed))) throw new Error("模型正文终态与流式内容不一致，代码未执行。");
+						message.codeactStop = { sequence: "</execute>", usage: final.usage.totalTokens > 0 ? incompleteStop ? "partial" : "complete" : "unavailable" };
+						delete message.errorMessage;
+						if (incompleteStop) delete message.responseId;
+						message.rawStopReason = "codeact_stop_sequence";
 					}
 					if (request.enabled && (final.stopReason !== "length" || parser.closed)) accept(parser.finish());
 					closeText();
 					let remaining = parser.closed ? parser.consumed : Infinity;
 					message.codeactContent = final.content.flatMap((part): CodeActMessage["content"] => {
-						if (part.type !== "text") return [part];
+						if (part.type !== "text") return incompleteStop ? [] : [part];
 						const text = part.text.slice(0, remaining);
 						remaining -= text.length;
-						return text ? [{ ...part, text }] : [];
+						if (!text) return [];
+						// 未收到正常终态时，不重放未完成的供应商签名和 phase。
+						const { textSignature: _signature, ...unsigned } = part;
+						return [{ ...(incompleteStop ? unsigned : part), text }];
 					});
 					// 保留供应商终态与用量；length 即使已闭合也交由 SDK 拒绝执行。
 					if (final.stopReason === "pending") throw new Error("模型响应尚未完成，代码未执行。");
-					const reason = call && final.stopReason === "stop" ? "toolUse" : final.stopReason;
-					message.stopReason = reason;
-					output.push({ type: "done", reason, message });
+					if (sequenceStopped) message.stopReason = "toolUse";
+					else message.stopReason = call && final.stopReason === "stop" ? "toolUse" : final.stopReason;
+					if (message.stopReason === "aborted") throw new Error("模型响应尚未完成，代码未执行。");
+					output.push({ type: "done", reason: message.stopReason, message });
 				}
 			} catch (error) {
 				message.stopReason = options?.signal?.aborted ? "aborted" : "error";

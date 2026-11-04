@@ -6,6 +6,7 @@ import { TelemetryWriter } from "./telemetry-writer.ts";
 import { applicationRunId, bindSessionTrace, clearSessionTrace, sessionTrace, type ExecutionTrace } from "./trace.ts";
 import { getAssistantPerformance } from "../harness/message-performance/types.ts";
 import packageInfo from "../../package.json" with { type: "json" };
+import type { CodeActMessage } from "./codeact/transcript.ts";
 
 const run = applicationRunId;
 export const telemetryDirectory = path.join(pimoonHome, "telemetry", run);
@@ -72,10 +73,12 @@ export function pimoonTelemetry(pi: ExtensionAPI): void {
 	});
 	pi.on("message_end", (event, ctx) => {
 		if (event.message.role !== "assistant") return;
-		const message = event.message;
+		const message: CodeActMessage = event.message;
 		const span = spans.get(ctx.sessionManager.getSessionId());
 		record("model_end", { ...labels(ctx), provider: message.provider, model: message.model, elapsed_ms: span?.request ? performance.now() - span.requestStart : null,
 			usage: message.usage, usage_reported: message.usage.totalTokens > 0, stop_reason: message.stopReason,
+			usage_status: message.codeactStop?.usage ?? (message.usage.totalTokens > 0 ? "complete" : "unavailable"),
+			stream_stop: message.codeactStop ? "stop_sequence" : undefined,
 			performance: getAssistantPerformance(message), tool_calls: message.content.filter(part => part.type === "toolCall").map(part => ({ id: part.id, name: part.name })),
 			error: message.errorMessage ? fingerprint(message.errorMessage) : undefined });
 	});

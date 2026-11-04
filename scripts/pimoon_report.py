@@ -6,7 +6,7 @@ from pathlib import Path
 
 SCALARS = set('''schema run pid seq at mono_ms type application_run_id session_id agent_run_id model_request_id
  tool_call_id parent_tool_call_id code_call_id bridge_call_id bridge_index batch_id batch_index runtime_id
- reason tool provider model status stop_reason aborted elapsed_ms startup_ms requests cancelled outcome is_error usage_reported
+ reason tool provider model status stop_reason stream_stop usage_status aborted elapsed_ms startup_ms requests cancelled outcome is_error usage_reported
  prewarmed python_pid python_version previous_python_pid state_restored had_state completed_writes_rolled_back
  jobs completed failed peak_concurrency concurrency_limit output_text_chars telemetry_complete
  body_inspected author app_version privacy jev node platform arch output_limit_chars retention_limit_chars
@@ -202,6 +202,8 @@ def summarize(events):
         'batches_without_end': missing_ends(events, 'batch_start', 'batch_end', 'batch_id'),
         'reported_tokens': sum(item.get('usage', {}).get('totalTokens', 0) for item in ends if item.get('usage_reported')),
         'unreported_usage': sum(not item.get('usage_reported') for item in ends),
+        'incomplete_usage': sum(item.get('usage_status') in {'partial', 'unavailable'} for item in ends),
+        'stop_sequence_responses': sum(item.get('stream_stop') == 'stop_sequence' for item in ends),
         'provider_errors': sum(item.get('stop_reason') == 'error' for item in ends),
         'direct_tool_calls': len(direct), 'nested_tool_calls': len(nested),
         'tool_errors': sum(bool(item.get('is_error')) or item.get('tool_facts', {}).get('status') == 'error' for item in tools),

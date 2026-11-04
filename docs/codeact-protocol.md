@@ -37,7 +37,11 @@ if len(valid)==len(paths):
 
 解析器跨任意分片处理 CRLF 和 Unicode，忽略 Markdown 围栏及文本 thinking 中的示例。标记不支持属性；行首的完整结束标记在 Python 多行字符串中也保留，遇到该需求应拆分字符串。识别到行首 `</execute>` 即确认闭合，同行文字、空白和后续分片全部丢弃，不要求再等换行。真正缺失、缩进或损坏的结束标记不会自动补齐；源码上限为 1 Mi 字符。
 
-**本版不提前执行。** 闭合时可发出内部调用事件，但等待供应商正常终态才执行，以保留真实用量、推理签名及取消/输出超限的语义。不会像参考 Agent 一样立即断流；提前调度仍须单独验证持久提交点、断流终态、用量归属与禁止重放。
+**本地停止序列已启用。** 当前 Codex Responses SDK 没有原生 `stop` 字段，因此不向端点添加该参数。解析器识别到行首完整 `</execute>` 后，通过独立取消信号截断当前模型流；等待宿主取消收尾（最多五秒），再由原有 SDK 工具管线执行。它不是用户取消，不中止整个 agent，也不重放代码；缺少结束标记、用户取消、已知失败/超限或收尾超时仍不执行。已经自然结束的请求不再中断，同批次已收到的供应商终态也会检查。
+
+截流前若没有收到正常终态，用量可能只有一部分或完全缺失。`codeactStop.usage` 区分 `complete/partial/unavailable`，原始已报告数值不猜测补全；消息统计显示“用量未完整统计”，费用显示 `—`，本地报告也区分截流次数与不完整用量。若完整终态和用量已在缓冲区内，则保留它们。
+
+未正常结束的供应商 message id/phase、response id 和加密推理条目不带入下一次模型请求，以免重放不完整状态；Python 变量和函数仍保留。客户端取消旨在减少无用接收与等待，不保证服务器立即停止推理或减少相同数量的计费 token。
 
 ## 无 print 反馈规则
 
@@ -67,4 +71,4 @@ send(text="second")
 
 协议初版的本地 o200k_base 合成估算（不含共同宿主目录，不代表供应商计费，后续规则调整需重新计数）：入口声明/协议与指导语从 322 降至 297 token；两次短调用的旧原生参数与 print 包装约 20 token，新文本块约 16；十二次循环调用的源码只省约一个 print 包装 token。不能据此宣称整轮费用或耗时降低相同比例；自动反馈相对原先静默执行也会增加必要的输出，主要收益应来自 Python 内筛选、复用和减少模型往返。
 
-验证入口：`tests/pimoon/codeact-parser.test.ts`、`codeact-stream.test.ts`、`text-codeact.test.ts` 与 `runtime.test.mjs`。用本地固定响应服务完成真实 SDK、Python/Rust 和文件读写，不请求付费模型、不启动桌面窗口。
+验证入口：`tests/pimoon/codeact-parser.test.ts`、`codeact-stream.test.ts`、`codeact-stop.test.ts`、`text-codeact.test.ts` 与 `runtime.test.mjs`。停止测试使用真实 Codex SDK 的 SSE 解码器与合成内存流，覆盖取消读取、完整终态、输出超限、收尾超时及单次执行。用本地固定响应服务完成真实 SDK、Python/Rust 和文件读写，不请求付费模型、不启动桌面窗口。

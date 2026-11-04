@@ -66,6 +66,18 @@ class ReplayReportTests(unittest.TestCase):
         self.assertEqual(len(report['turns'][0]['timeline']), 13)
         self.assertNotIn('PRIVATE_QUERY', json.dumps(report))
 
+    def test_stop_sequence_keeps_partial_usage_distinct_from_complete_usage(self):
+        self.write_events([
+            self.event('model_end', 1, stream_stop='stop_sequence', usage_status='unavailable', usage_reported=False, usage={'totalTokens': 0}),
+            self.event('model_end', 2, stream_stop='stop_sequence', usage_status='partial', usage_reported=True, usage={'totalTokens': 12}),
+            self.event('model_end', 3, usage_status='complete', usage_reported=True, usage={'totalTokens': 20}),
+        ])
+        summary = build_report(self.home)['summary']
+        self.assertEqual(summary['stop_sequence_responses'], 2)
+        self.assertEqual(summary['incomplete_usage'], 2)
+        self.assertEqual(summary['unreported_usage'], 1)
+        self.assertEqual(summary['reported_tokens'], 32)
+
     def test_missing_ends_and_unknown_outcomes_are_not_success(self):
         records = [self.event('model_request', 1, model_request_id='same', session_id='one'),
                    self.event('model_end', 2, model_request_id='same', session_id='two'),

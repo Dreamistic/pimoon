@@ -16,7 +16,8 @@ export const ReplyMetrics = memo(function ReplyMetrics({ scope = "本轮", speed
 		<span>输出 {number(metrics.output)}</span>
 		<span>缓存读取 {number(metrics.cacheRead)}</span>
 		<span>缓存写入 {number(metrics.cacheWrite)}</span>
-		<Hint content="预估费用 · USD"><span>${metrics.cost.toFixed(4)}</span></Hint>
+		<Hint content={metrics.usageIncomplete ? "停止序列截流，部分用量与费用未返回；数值仅含已报告部分。" : "预估费用 · USD"}><span>{metrics.usageIncomplete ? "费用 —" : `$${metrics.cost.toFixed(4)}`}</span></Hint>
+		{metrics.usageIncomplete && <span>用量未完整统计</span>}
 		<Hint content="正文生成速度 · 不含首字等待"><span aria-description="本段正文 tokens 减去首片段 tokens，除以首末片段到达间隔">速度 {speed === null ? "—" : `${speed.toFixed(1)} tok/s`}</span></Hint>
 	</footer>;
 });

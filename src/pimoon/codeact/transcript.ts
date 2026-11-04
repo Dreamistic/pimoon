@@ -5,6 +5,7 @@ const protocol = "Write one Python block outside Markdown fences: <execute> on i
 /** 保留供应商的原始文本分块与签名，避免把一个 Responses message 重建成多个重复 ID。 */
 export interface CodeActMessage extends AssistantMessage {
 	codeactContent?: AssistantMessage["content"];
+	codeactStop?: { sequence: "</execute>"; usage: "complete" | "partial" | "unavailable" };
 }
 
 /** SDK 内保留工具事件用于审批与持久化；模型 API 只接收文本协议和原始图片。 */
@@ -16,7 +17,7 @@ export function codeactTranscript(context: TranscriptContext): { context: Transc
 			return rest;
 		}
 		if (message.role === "assistant") {
-			const { codeactContent, ...rest }: CodeActMessage = message;
+			const { codeactContent, codeactStop: _stop, ...rest }: CodeActMessage = message;
 			if (codeactContent && !["error", "aborted", "length"].includes(message.stopReason)) {
 				const content = codeactContent.flatMap((part): AssistantMessage["content"] => {
 					if (part.type !== "thinking") return [part];

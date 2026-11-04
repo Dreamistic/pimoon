@@ -10,7 +10,7 @@ const context = (enabled = true) => normalizeContext({ messages: [{ role: "syste
 function message(): AssistantMessage {
 	return { role: "assistant", content: [], api: model.api, provider: model.provider, model: model.id, timestamp: Date.now(), stopReason: "stop", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
 }
-function provider(text: string, reason: "stop" | "length" | "aborted" = "stop", gate?: Promise<void>): StreamFn {
+function provider(text: string, reason: "stop" | "length" | "aborted" = "stop"): StreamFn {
 	return (_model, request) => {
 		expect(getCurrentTools(request.messages)).toEqual([]);
 		const stream = createAssistantMessageEventStream();
@@ -32,7 +32,7 @@ function provider(text: string, reason: "stop" | "length" | "aborted" = "stop", 
 				stream.push({ type: "text_delta", contentIndex: 1, delta, partial });
 			}
 			stream.push({ type: "text_end", contentIndex: 1, content: text, partial });
-			await gate;
+			await Promise.resolve();
 			thought.thinkingSignature = "late-signed-fixture";
 			const textPart = partial.content[1];
 			if (textPart?.type === "text") textPart.textSignature = '{"v":1,"id":"msg-fixture","phase":"commentary"}';
@@ -46,22 +46,19 @@ function provider(text: string, reason: "stop" | "length" | "aborted" = "stop", 
 	};
 }
 
-it("执行块先产生内部事件，但等待供应商终态与真实用量；代码后缀不进入历史", async () => {
-	let release = () => {};
-	const gate = new Promise<void>(resolve => { release = resolve; });
-	const stream = await codeactStream(provider("说明\n<execute>\nvalue='😀\\n原文'\nvalue\n</execute>\n臆测结果", "stop", gate))(model, context());
+it("已经自然结束的流保留完整用量与签名，不重复中断；代码后缀不进入历史", async () => {
+	const stream = await codeactStream(provider("说明\n<execute>\nvalue='😀\\n原文'\nvalue\n</execute>\n臆测结果"))(model, context());
 	const events = [];
 	for await (const event of stream) {
 		events.push(event);
 		if (event.type === "toolcall_end") {
 			expect(event.toolCall.arguments.code).toBe("value='😀\\n原文'\nvalue\n");
-			expect(event.partial.usage.totalTokens).toBe(0);
-			release();
 		}
 	}
 	const result = await stream.result();
 	expect(result.stopReason).toBe("toolUse");
 	expect(result.usage).toMatchObject({ input: 27, output: 13, totalTokens: 40 });
+	expect("codeactStop" in result).toBe(false);
 	expect(result.content[0]).toMatchObject({ type: "thinking", thinkingSignature: "late-signed-fixture" });
 	const history = context(); history.messages.push(result);
 	const replay = codeactTranscript(history).context.messages.at(-1);
