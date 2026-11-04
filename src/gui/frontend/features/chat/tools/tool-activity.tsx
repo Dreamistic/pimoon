@@ -35,7 +35,7 @@ function StandardToolActivity({ tool }: { tool: Activity }) {
 					const error = call.status === "error" ? errorSummary(call) : "";
 					return <div key={call.id} data-nested-tool-call-id={call.id}>
 						<strong>{call.name}</strong> · {call.status === "ok" ? "完成" : call.status === "error" ? "失败" : active ? "执行中" : "未完成"}
-						{call.durationMs !== undefined && <span> · {call.durationMs} ms</span>}
+						{call.durationMs !== undefined && <span> · {Math.round(call.durationMs)} ms</span>}
 						{call.arguments !== undefined && <ParameterValue value={call.arguments} />}
 						{error && <p role="alert">{error}</p>}
 					</div>;

@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { replaceConfigFile } from "../harness/config-file.ts";
+import { migrateToolSettings } from "./tool-settings.ts";
 
 /** 应用标识与 SDK 的兼容边界；从不沿用调用者的 .pi 配置。 */
 export const pimoonHome = path.resolve(process.env.PIMOON_HOME ?? path.join(process.env.APPDATA ?? os.homedir(), "pimoon"));
@@ -26,3 +28,8 @@ if (!fs.existsSync(settings)) fs.writeFileSync(settings, JSON.stringify({
 	cacheWarming: "off", compaction: { enabled: false }, retry: { enabled: false },
 	defaultProjectTrust: "never", extensions: [], packages: [],
 }, null, 2), { mode: 0o600 });
+else {
+	const original = fs.readFileSync(settings, "utf8");
+	const migrated = migrateToolSettings(original);
+	if (migrated !== original) await replaceConfigFile(settings, original, migrated);
+}

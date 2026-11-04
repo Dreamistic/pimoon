@@ -102,13 +102,15 @@ describe("CodeAct 执行容器", () => {
 		const doc = parseHTML(renderWithMemory(createElement(ToolActivity, { tool: value }), new Map([["tool:code-1", true], ["nested:code-1/1", true]]))).document;
 		expect(doc.querySelector(".diff-block")?.textContent).toContain("+1 new");
 	});
-	it("运行时展开，源码和输出默认折叠；耗时使用实际记录", () => {
-		const doc = renderTool({ ...tool, durationMs: 20 });
+	it("运行时展开，源码和输出默认折叠；父子耗时只显示整数毫秒", () => {
+		const doc = renderTool({ ...tool, durationMs: 385.7544999999809,
+			nestedCalls: { complete: false, calls: [{ id: "code-1/1", name: "find", status: "ok", durationMs: 3.056299999996554 }] } });
 		expect(doc.querySelector('.codeact-activity > [data-slot="collapsible"]')?.getAttribute("data-state")).toBe("open");
 		expect(doc.querySelector(".codeact-output")).toBeNull();
 		expect(doc.querySelector(".tool-parameters")?.getAttribute("data-state")).toBe("closed");
-		expect(doc.querySelector(".codeact-activity .activity-summary")?.textContent).toContain("20 ms");
-		expect(doc.querySelector('[data-nested-tool-call-id="code-1/1"] .activity-summary')?.textContent).toContain("10 ms");
+		expect(doc.querySelector(".codeact-activity .activity-summary")?.textContent).toContain("386 ms");
+		expect(doc.querySelector('[data-nested-tool-call-id="code-1/1"] .activity-summary')?.textContent).toContain("3 ms");
+		expect(doc.querySelector(".codeact-activity")?.textContent).not.toMatch(/\d+\.\d+ ms/);
 		expect(doc.querySelectorAll("[data-tool-call-id]")).toHaveLength(1);
 	});
 	it("成功收起、失败展开、用户展开状态优先；停止不覆盖已完成子调用", () => {

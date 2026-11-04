@@ -8,6 +8,7 @@ import type { ToolSelectionController } from "../../../src/harness/tool-defaults
 import { startModelServer } from "../../cli/model-server.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
 import { createRuntimeResources } from "../../pimoon/runtime-resources.ts";
+import { migrateToolSettings } from "../../../src/pimoon/tool-settings.ts";
 
 const temp = useTempDir("pimoon-functions-session-");
 preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_OFFLINE");
@@ -42,6 +43,15 @@ const requestText = () => JSON.stringify(server.requests.at(-1)?.messages);
 function expectNoNativeTools() { expect(server.requests.at(-1)?.tools ?? []).toEqual([]); }
 
 describe("CodeAct 固定执行与函数权限", () => {
+	it("升级旧版默认配置后新会话保留进程权限并生成真实函数目录", async () => {
+		const file = path.join(agentDir, "settings.json");
+		const settings: Record<string, unknown> = JSON.parse(await readFile(file, "utf8"));
+		await writeFile(file, migrateToolSettings(JSON.stringify({ ...settings, defaultTools: ["read", "bash", "write", "codemode"], codemode: { mode: "only" } })));
+		const { session, controller } = await start();
+		expect(selected(controller).sort()).toEqual(["process_run", "read", "write"]);
+		await session.prompt("Use migrated functions");
+		expectNoNativeTools(); expect(requestText()).toContain("process_run(argv:");
+	});
 	it("不补齐任何执行工具，不改写用户默认函数", async () => {
 		const { session, controller } = await start();
 		expect(selected(controller).sort()).toEqual(["process_run", "read", "write"]);

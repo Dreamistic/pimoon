@@ -48,7 +48,7 @@ export function ActivityState({ state, label = toolStates[state], facts, duratio
 	return <span className="activity-state" data-state={state}>
 		<span className="activity-details">
 			{facts && <span className="activity-facts">{facts}</span>}
-			{durationMs !== undefined && <span className="activity-facts">{durationMs} ms</span>}
+			{durationMs !== undefined && <span className="activity-facts">{Math.round(durationMs)} ms</span>}
 			<span className={state === "completed" ? "sr-only" : "activity-state-label"}>{label}</span>
 		</span>
 		<ActivityIcon state={state} />

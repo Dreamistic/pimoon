@@ -72,7 +72,7 @@ TUI 的 `/tools` 用 Enter 或空格切换，Ctrl+S 保存全局默认值。GUI 
 
 SDK 在下次模型请求时记录当前分支的工具声明，恢复与导航采用该记录。切换模型保留工具选择。
 
-桌面 CodeAct 固定启用，不注册 `codemode` 工具；Bash/PowerShell 不进入函数集合。`defaultTools` 在桌面控制 I/O 函数，空集合不关闭纯 Python。分支函数权限独立保存在 `codeact_functions` 条目。新版本不迁移旧工具历史，请新建会话；新能力可在函数面板或 Vanilla 预设启用。详见 [CodeAct](../codeact/README.md)。
+桌面 CodeAct 固定启用，不注册 `codemode` 工具；Bash/PowerShell 不进入函数集合。`defaultTools` 在桌面控制 I/O 函数，空集合不关闭纯 Python。分支函数权限独立保存在 `codeact_functions` 条目。启动时一次性升级全局默认配置：`bash` 替换为 `process_run`（保留 `+` / `-`），删除 `codemode` 名称及配置，不新增网络等其他权限。已有 `codeact_functions` 和旧工具历史不改写；已缺失进程权限的会话需在函数面板启用“进程”或选择 Vanilla 预设，旧原生工具历史建议新建会话。详见 [CodeAct](../codeact/README.md)。
 
 ## 配置来源
 

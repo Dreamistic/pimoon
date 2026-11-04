@@ -9,11 +9,13 @@ const execute = promisify(execFile);
 
 it.each([
 	{ name: "首次启动", original: undefined, expected: ["read", "write", "edit", "find", "grep", "ls", "process_run", "http", "websearch", "webfetch"] },
-	{ name: "旧版原始默认列表", original: '// keep comment\n{"defaultTools":["read","write","edit","find","grep","ls","codemode"],"defaultModel":"custom",}', expected: ["read", "write", "edit", "find", "grep", "ls", "codemode"] },
-	{ name: "缺失入口的旧版桌面列表", original: '{"defaultTools":["read","bash","edit","write","grep","find","ls"]}', expected: ["read", "bash", "edit", "write", "grep", "find", "ls"] },
+	{ name: "旧版文件列表移除废弃入口且不补进程权限", original: '// keep comment\n{"defaultTools":["read","write","edit","find","grep","ls","codemode"],"defaultModel":"custom",}', expected: ["read", "write", "edit", "find", "grep", "ls"] },
+	{ name: "旧版进程权限迁移", original: '{"defaultTools":["read","bash","edit","write","grep","find","ls","codemode"],"codemode":{"mode":"only"}}', expected: ["read", "process_run", "edit", "write", "grep", "find", "ls"] },
+	{ name: "迁移不重复已有进程函数", original: '{"defaultTools":["read","bash","process_run"]}', expected: ["read", "process_run"] },
+	{ name: "增减配置保留启停意图", original: '{"defaultTools":["+bash","-bash","+codemode","-codemode","+read"]}', expected: ["+process_run", "-process_run", "+read"] },
 	{ name: "自定义能力原样保留，不补执行入口", original: '{"defaultTools":["read"]}', expected: ["read"] },
-	{ name: "已有入口", original: '{"defaultTools":["read","codemode"]}', expected: ["read", "codemode"] },
-	{ name: "废弃工具名不自动迁移", original: '{"defaultTools":["codemode"]}', expected: ["codemode"] },
+	{ name: "只有读取权限不补进程权限", original: '{"defaultTools":["read","codemode"]}', expected: ["read"] },
+	{ name: "只有废弃入口变为空权限列表", original: '{"defaultTools":["codemode"]}', expected: [] },
 	{ name: "显式关闭工具", original: '{"defaultTools":[]}', expected: [] },
 ])("$name 的工具默认值", async ({ original, expected }) => {
 	const base = path.resolve(".tmp/tests/pimoon-profile");
@@ -29,6 +31,7 @@ it.each([
 	const text = await fs.readFile(settings, "utf8");
 	const value: unknown = parse(text);
 	expect(value).toHaveProperty("defaultTools", expected);
+	expect(value).not.toHaveProperty("codemode");
 	if (original?.includes("keep comment")) {
 		expect(text).toContain("// keep comment");
 		expect(value).toHaveProperty("defaultModel", "custom");

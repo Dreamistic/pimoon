@@ -46,14 +46,14 @@ TUI 输入 `/tools`，选择工具后按 `Ctrl+S` 保存全局默认值。GUI �
 
 ```json
 {
-  "defaultTools": ["read", "find", "grep", "ls", "write", "edit", "bash"]
+  "defaultTools": ["read", "find", "grep", "ls", "write", "edit", "process_run"]
 }
 ```
 
-显式列表替换默认集合。只写 `+name` 或 `-name` 时，在默认集合上增减。例如启用脚本调用：
+显式列表替换默认集合。只写 `+name` 或 `-name` 时，在默认集合上增减。例如启用原始 HTTP 请求：
 
 ```json
-{ "defaultTools": ["+codemode"] }
+{ "defaultTools": ["+http"] }
 ```
 
 工具选择控制模型可用接口。操作审批见[审批模块](../reference/approval-gate/README.md)。
