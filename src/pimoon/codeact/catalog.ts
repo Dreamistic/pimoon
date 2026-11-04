@@ -9,11 +9,12 @@ export function functionCatalog(functions: readonly FunctionInfo[]): string {
 	return functions.map(fn => {
 		const schema: unknown = fn.parameters;
 		const output = fn.outputSchema === undefined ? "str" : pythonType(fn.outputSchema);
-		if (!isRecord(schema)) return `${callableName(fn.name)}() -> ${output}: ${fn.description}`;
+		const returns = returnNotes(fn.outputSchema);
+		if (!isRecord(schema)) return [`${callableName(fn.name)}() -> ${output}: ${fn.description}`, ...returns].join("\n");
 		const required = new Set(Array.isArray(schema.required) ? schema.required : []);
 		const properties = isRecord(schema.properties) ? schema.properties : {};
 		const signature = `${callableName(fn.name)}(${Object.entries(properties).map(([name, value]) => `${name}${required.has(name) ? "" : "?"}: ${pythonType(value)}`).join(", ")}) -> ${output}: ${fn.description}`;
-		return [signature, ...parameterNotes(properties)].join("\n");
+		return [signature, ...parameterNotes(properties), ...returns].join("\n");
 	}).join("\n");
 }
 
@@ -50,6 +51,17 @@ function parameterNotes(properties: Record<string, unknown>, prefix = ""): strin
 		const nested = value.type === "array" && isRecord(value.items) ? value.items : value;
 		return isRecord(nested.properties) ? [...notes, ...parameterNotes(nested.properties, `${key}${value.type === "array" ? "[]" : ""}.`)] : notes;
 	});
+}
+
+/** 返回值语义来自 schema；不在目录中按函数名维护另一份规则。 */
+function returnNotes(schema: unknown): string[] {
+	if (!isRecord(schema)) return [];
+	const description = typeof schema.description === "string" ? schema.description : "";
+	const choices = schema.anyOf ?? schema.oneOf;
+	return [
+		...(description ? [`  returns ${pythonType(schema)}: ${description}`] : []),
+		...(Array.isArray(choices) ? choices.flatMap(returnNotes) : []),
+	];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

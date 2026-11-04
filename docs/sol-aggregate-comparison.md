@@ -64,6 +64,15 @@
 - 每会话检查 missing.json 引发的内部读取失败是预期业务分支，与上述两次 JSON 解析误用分开看。executionErrors 是事件计数，不是任务失败率。
 - 这次更直接的优化候选是避免 read 展示文本与原始 JSON 的混用，再复测是否能减少修复轮次；没有据本实验改动函数接口或切换原生执行协议。
 
+## 后续防误用改动
+
+- 保留 `read` 的展示返回值，在真实 output schema 中说明它不是原文；函数目录现在保留顶层及联合分支的返回说明，提示 JSON/CSV 解析使用已有 `native_read(path)`。
+- 提示词将可用目录的限制明确为宿主工具，不再含糊限制 Python 内置辅助函数和标准库。没有新增工具、模式或自动转换。
+- 对展示文本引发的 `JSONDecodeError` 附加诊断，保留原始异常；真正损坏的原始 JSON 继续报原来的错误。不自动剥标签、重读、重试或重放写入。
+- 离线 SDK/Python 流程覆盖错误复现、原文读取后一次执行块完成 12 张发票汇总、预期缺失文件，以及原文标签、Unicode、CRLF 保真。定向 5 个测试文件共 60 项及全项目类型检查通过。
+
+这不是新的真实 Sol 速度或误用率实验；以上三轮数据不变，不能声称已经少一轮或进一步提速。原文读取与编辑前版本观测的区别见 [CodeAct 使用说明](reference/codeact/README.md)。
+
 ## 原始记录与复现
 
 本地结果 `.tmp/tests/live-tools/run-dQ6o8p/results.json`；同目录 manifest 保存模型、参数、源码输入指纹和 `sourceAuthUnchanged=true`。合成 transcript 留在隔离会话目录，不提交原始轨迹或凭据。

@@ -247,6 +247,9 @@ while True:
                     display_result(value)
         except BaseException as failure:
             error_type = type(failure).__name__
+            if (isinstance(failure, json.JSONDecodeError) and isinstance(failure.doc, str)
+                    and failure.doc.startswith('<read ') and failure.doc.rstrip().endswith('</read>')):
+                failure.add_note('JSON input looks like a rendered read view, not raw JSON.')
             error = traceback.format_exc(limit=6)
         finally:
             namespace.pop(RESULT_NAME, None)

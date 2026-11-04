@@ -17,6 +17,14 @@ rows = [json.loads(line) for line in Path("events.jsonl").read_text(encoding="ut
 
 `read(...)`、`grep(...)`、`edit(...)`、`webfetch(...)` 等是注入的函数，也可通过 `functions.read(...)` 调用。函数参数使用关键字；目录中的 `?` 表示省略，不是传 `None`。关闭 I/O 函数不关闭 Python。下一块执行前同步函数集合，保留其他变量；旧函数引用不能绕过当前权限。
 
+`read(path=...)` 的文本返回值是带 `<read>`、范围和上下文的展示结果，不是原始文件字符串，不能直接交给 JSON/CSV 解析器。`native_read(path)` 返回不带展示包装的 UTF-8 原文，限普通文件 4 MiB：
+
+```python
+invoice = json.loads(native_read("invoice.json"))
+```
+
+返回值语义由真实 output schema 进入函数目录。把展示结果当 JSON 解析时保留 `JSONDecodeError` 并附诊断，不自动剥标签、重读或重试；原文中的同名标签、Unicode 和换行不改写。原文读取仍受路径保护，也不替代修改已有文件前的 `read` 版本观测。
+
 普通本地文件读写和下载可以离开工作区；凭据、系统写入和应用安全配置仍受保护，网络及设备路径不能当作普通本地文件直接访问。已有文件通过 read 后的 write/edit 修改并检测版本冲突；原生 Python 只允许新建文件，不直接覆盖已有文件。原生删除、重命名和改权限需转为明确审批的 process_run 操作。这些检查不是强安全沙箱，也不是任意读取隐私文件的授权。
 
 ## 审批继续
