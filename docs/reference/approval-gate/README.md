@@ -70,4 +70,10 @@
 
 `/approval-check <bash command>` 只解释 Bash 策略，不执行命令。GUI 支持“先聊一下，不执行”：文字问题和有界交流上下文交给同一顾问，更新说明后仍等待明确动作；提问不保存授权，不进入审批决定历史。自然语言不直接改变权限。自然语言修改计划和授权规则建议留待后续。
 
+## 本地诊断
+
+`PIMOON_HOME/telemetry/<run>/backend-<pid>.jsonl` 的 `approval_diagnostic` 按会话、工具调用ID和请求散列关联：policy记录生效模型、自主开关和策略散列；advisor_start记录在场状态及上下文/执行证据条数；advisor_end记录AI决定和耗时；advisor_failure记录错误类别；present/takeover记录人工展示及离开接管；resolved记录实际结果、actor与范围；invalidated记录上下文失效。审批关闭也记录policy，不把“无卡片”误当作AI放行。
+
+不记录命令参数、完整路径、提示词、卡片正文、意见或错误原文。日志不充当授权依据。
+
 审批请求和完成事件驱动系统通知。实现见 `src/harness/approval/`，装配见 `src/harness/extensions/approval-gate.ts`。

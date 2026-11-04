@@ -8,13 +8,15 @@ import { registerExtension } from "../../helpers/extension.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 const advise = vi.hoisted(() => vi.fn());
+const diagnostic = vi.hoisted(() => vi.fn());
+vi.mock("../../../src/harness/approval/diagnostics.ts", () => ({ approvalDiagnostic: diagnostic }));
 vi.mock("../../../src/harness/approval/advisor.ts", async importOriginal => ({
 	...await importOriginal<typeof import("../../../src/harness/approval/advisor.ts")>(), adviseApproval: advise,
 }));
 const temp = useTempDir("approval-runtime-");
 preserveEnv("PI_APPROVAL_GATE_CONFIG");
 beforeEach(async () => {
-	advise.mockReset();
+	advise.mockReset(); diagnostic.mockReset();
 	process.env.PI_APPROVAL_GATE_CONFIG = path.join(temp.path, "approval.jsonc");
 	await writeFile(process.env.PI_APPROVAL_GATE_CONFIG, JSON.stringify({
 		advisor: { enabled: false }, remember: { persistent_store: path.join(temp.path, "rules.jsonc") },
@@ -250,4 +252,21 @@ it("等待人工期间离开，撤回卡片并让AI重新作最终决定", async
 		expect(advise.mock.calls[1]?.[5].presence.state).toBe("away");
 		expect(f.audit).toMatchObject([{ actor: "advisor", scope: "once" }]);
 	} finally { updateApprovalPresence(0); }
+});
+
+it("诊断区分自主放行、人工展示与超时，不抄录操作正文", async () => {
+	await writeFile(process.env.PI_APPROVAL_GATE_CONFIG ?? "", '{"advisor":{"enabled":true,"autonomous":true}}');
+	advise.mockResolvedValue({ decision: "allow", explanation: "private-explanation" });
+	const f = fixture(); expect(await f.call(operation(["git", "status", "private-argument"]))).toBeUndefined();
+	const events = diagnostic.mock.calls.map(args => args[4]);
+	expect(events).toContainEqual(expect.objectContaining({ phase: "policy", autonomous: true, decision: "ask" }));
+	expect(events).toContainEqual(expect.objectContaining({ phase: "advisor_start", model: expect.stringContaining("sol"), contextCount: 1 }));
+	expect(events).toContainEqual(expect.objectContaining({ phase: "advisor_end", decision: "allow" }));
+	expect(events).toContainEqual(expect.objectContaining({ phase: "resolved", actor: "advisor", scope: "once" }));
+	expect(JSON.stringify(diagnostic.mock.calls)).not.toMatch(/private-explanation|private-argument/);
+	await writeFile(process.env.PI_APPROVAL_GATE_CONFIG ?? "", '{"advisor":{"enabled":true,"autonomous":false,"timeout_ms":100}}');
+	advise.mockReturnValue(new Promise(() => {}));
+	const pending = f.call(); await f.respond("Deny"); await pending;
+	expect(diagnostic.mock.calls.map(args => args[4])).toContainEqual(expect.objectContaining({ phase: "advisor_failure", reason: "timeout" }));
+	expect(diagnostic.mock.calls.map(args => args[4])).toContainEqual(expect.objectContaining({ phase: "present", fallback: true }));
 });

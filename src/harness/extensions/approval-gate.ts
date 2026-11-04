@@ -4,6 +4,7 @@ import { createApprovalGate, blockForDenyRule } from "../approval/runtime/gate.t
 import { approvalFingerprint } from "../approval/runtime/pending.ts";
 import { approvalBinding, type ApprovalPresenter } from "../approval/pi/proposal.ts";
 import { adviseApproval, ApprovalAdvisorError, advisorFailureText } from "../approval/advisor.ts";
+import { approvalDiagnostic, type ApprovalDiagnostic } from "../approval/diagnostics.ts";
 import { approvalPresence } from "../approval/presence.ts";
 import { approvalTaskContext } from "../approval/advisor-context.ts";
 import { ApprovalExperiences, type ApprovalExperience } from "../approval/experience.ts";
@@ -42,15 +43,24 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 	pi.on("tool_call", async (event, ctx) => {
 		if (!isApprovalToolCall(event)) return;
 		const config = await loadApprovalGateConfig();
-		if (!config.enabled) return;
+		if (!config.enabled) {
+			approvalDiagnostic(ctx.sessionManager.getSessionId(), event.toolCallId, approvalFingerprint(event.input), event.toolName,
+				{ phase: "policy", enabled: false, autonomous: config.advisor?.autonomous === true, advisorEnabled: config.advisor?.enabled === true,
+					model: config.advisor?.model ?? "", decision: "allow", policyHash: approvalFingerprint(config) });
+			return;
+		}
 		const request = await buildApprovalRequest(event, ctx.cwd);
 		if (!request) return;
 		const experiences = new ApprovalExperiences(config.remember.persistent_store);
 		const currentPolicy = approvalFingerprint(config);
 		if (closedPolicy !== currentPolicy) { closed.clear(); closedPolicy = currentPolicy; }
 		const key = approvalFingerprint(request);
-		if (closed.has(key)) return { block: true, reason: "Approval closed. Wait for a new user instruction; do not retry or bypass." };
+		const eventCallId = event.toolCallId;
+		const diagnostic = (value: ApprovalDiagnostic) => approvalDiagnostic(ctx.sessionManager.getSessionId(), eventCallId, key, request.tool, value);
+		if (closed.has(key)) { diagnostic({ phase: "invalidated", reason: "already_closed" }); return { block: true, reason: "Approval closed. Wait for a new user instruction; do not retry or bypass." }; }
 		const decision = await gate.inspect(request, config);
+		diagnostic({ phase: "policy", enabled: config.enabled, autonomous: config.advisor?.autonomous === true,
+			advisorEnabled: config.advisor?.enabled === true, model: config.advisor?.model ?? "", decision: decision.kind, policyHash: currentPolicy });
 		if (decision.kind === "deny") return { block: true, reason: blockForDenyRule(decision).reason };
 		if (decision.kind === "ask") {
 			// 并发调用逐个展示；前一个保存规则后，下一个在 authorize 内重新检查。
@@ -62,10 +72,11 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 			const valid = async () => !signal.aborted && approvalBinding(ctx) === binding
 				&& approvalFingerprint(event.input) === inputHash && approvalFingerprint(await loadApprovalGateConfig()) === policy;
 			let requested = false, approved = false;
+			const approvalStarted = performance.now();
 			try {
 				await previous;
 				if (closed.has(key)) return { block: true, reason: "Approval closed. Wait for a new user instruction; do not retry or bypass." };
-				if (!await valid()) return { block: true, reason: "Approval cancelled or context changed. No permission granted." };
+				if (!await valid()) { diagnostic({ phase: "invalidated", reason: "context_changed" }); return { block: true, reason: "Approval cancelled or context changed. No permission granted." }; }
 				const outcome = await gate.authorize(request, config, ctx.hasUI || config.advisor?.autonomous ? {
 					async approve(current, asked, options, opts) {
 						const discussion: string[] = [];
@@ -77,19 +88,27 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 							if (config.advisor?.enabled) {
 								const timeout = new AbortController(), advisorSignal = AbortSignal.any([signal, timeout.signal]);
 								const timer = setTimeout(() => timeout.abort(), config.advisor.timeout_ms);
+								const advisorStarted = performance.now();
 								try {
 									const stored = await experiences.relevant(current).catch(() => []);
 									const previous = stored.filter(entry => !history.some(item => item.requestHash === entry.requestHash));
+									const context = approvalTaskContext(ctx), relevantHistory = [...previous, ...history].slice(-12);
+									diagnostic({ phase: "advisor_start", autonomous: config.advisor.autonomous === true,
+										model: config.advisor.model, presence: presence.state, contextCount: context.length,
+										evidenceCount: evidence.length, historyCount: relevantHistory.length, discussionCount: discussion.length });
 									const pending = adviseApproval(current, asked, options, config.advisor, ctx,
-										{ task, requestHash: key, history: [...previous, ...history].slice(-12), signal: advisorSignal, discussion, presence, context: approvalTaskContext(ctx), evidence: [...evidence] });
+										{ task, requestHash: key, history: relevantHistory, signal: advisorSignal, discussion, presence, context, evidence: [...evidence] });
 									card = await Promise.race([pending, new Promise<never>((_resolve, reject) => {
 										if (advisorSignal.aborted) reject(new Error("Advisor cancelled."));
 										else advisorSignal.addEventListener("abort", () => reject(new Error("Advisor cancelled.")), { once: true });
 									})]);
+									diagnostic({ phase: "advisor_end", decision: card.decision ?? "missing", recommendation: card.recommendation,
+										elapsedMs: performance.now() - advisorStarted });
 								} catch (error) {
 									advisorUnavailable = true;
-									advisorFailure = advisorFailureText(timeout.signal.aborted ? "timeout"
-										: error instanceof ApprovalAdvisorError ? error.reason : "unavailable");
+									const reason = timeout.signal.aborted ? "timeout" : error instanceof ApprovalAdvisorError ? error.reason : "unavailable";
+									advisorFailure = advisorFailureText(reason);
+									diagnostic({ phase: "advisor_failure", reason, elapsedMs: performance.now() - advisorStarted });
 								}
 								finally { clearTimeout(timer); timeout.abort(); }
 							}
@@ -101,6 +120,7 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 									choice: card.decision === "allow" ? "Allow once" : "Deny", actor: "advisor", feedback: card.explanation,
 								};
 							}
+							diagnostic({ phase: "present", presence: approvalPresence().state, fallback: advisorUnavailable });
 							const dialog = { ...opts, ...(card ? { card } : {}), advisorUnavailable, ...(advisorFailure ? { advisorFailure } : {}), discuss: Boolean(card) };
 							if (present && canPresent(ctx, present)) {
 								const waiting = new AbortController();
@@ -112,7 +132,7 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 									reply = await present.show(ctx.ui, current, asked, options, { ...dialog,
 										signal: AbortSignal.any([signal, waiting.signal]) });
 								} finally { clearInterval(timer); }
-								if (waiting.signal.aborted && !signal.aborted) continue;
+								if (waiting.signal.aborted && !signal.aborted) { diagnostic({ phase: "takeover", presence: approvalPresence().state }); continue; }
 								if (reply?.choice !== "Discuss") return reply;
 								if (!reply.feedback?.trim() || !await valid()) return;
 								discussion.push(`AI: ${card?.explanation ?? ""}`, `User: ${reply.feedback.slice(0, 2000)}`);
@@ -128,6 +148,8 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 					notify: (message, type) => ctx.ui.notify(message, type),
 				} : undefined, { signal, validate: valid });
 				approved = outcome.kind === "approved";
+				diagnostic({ phase: "resolved", outcome: outcome.receipt?.decision ?? outcome.kind,
+					actor: outcome.receipt?.actor ?? "policy", scope: outcome.receipt?.scope ?? "", elapsedMs: performance.now() - approvalStarted });
 				const receipt = outcome.receipt;
 				if (receipt) {
 					const experience: ApprovalExperience = { requestHash: key, tool: request.tool, decision: receipt.decision, actor: receipt.actor ?? "user", summary: approvalSummary(request),
@@ -144,6 +166,7 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 				}
 				if (outcome.kind === "blocked") { closed.add(key); return { block: true, reason: outcome.reason }; }
 			} catch {
+				diagnostic({ phase: "invalidated", reason: "exception" });
 				closed.add(key);
 				return { block: true, reason: "Approval unavailable. No permission granted; wait for a new user instruction." };
 			} finally {
