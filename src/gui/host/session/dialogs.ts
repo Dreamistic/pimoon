@@ -23,10 +23,13 @@ export class GuiDialogs {
 
 	async approve(...[request, decision, options, opts]: Parameters<ApprovalInteractionPort["approve"]>): Promise<ApprovalReply | undefined> {
 		const scopes = approvalScopes(request, decision, options);
-		const response = await this.request({ kind: "approval", title: "操作审批", message: "", options: [...scopes.map(scope => scope.choice), DENY], initial: "",
-			approval: { tool: request.tool, cwd: approvalText(request.cwd), reason: approvalText(opts?.proposal?.reason ?? decision.reason),
-				summary: approvalSummary(request), content: buildApprovalContent(request, decision), scopes,
-				recommended: opts?.proposal?.scope ?? "once" } }, opts);
+		const card = opts?.card;
+		const recommended = scopes.find(scope => scope.choice === card?.recommendation)?.scope ?? "once";
+		const response = await this.request({ kind: "approval", title: card?.title ?? "操作审批", message: "", options: [...scopes.map(scope => scope.choice), DENY, ...(opts?.discuss ? ["Discuss"] : [])], initial: "",
+			approval: { tool: request.tool, cwd: approvalText(request.cwd), reason: approvalText(card?.explanation ?? decision.reason),
+				summary: approvalSummary(request), content: buildApprovalContent(request, decision), scopes, recommended,
+				...(card ? { card } : {}), ...(opts?.advisorUnavailable ? { advisorUnavailable: true } : {}), ...(opts?.discuss ? { discuss: true } : {}) } }, opts);
+		if (opts?.discuss && response.value === "Discuss") return { choice: "Discuss", feedback: response.feedback ?? "" };
 		const choice = options.find(choice => choice === response.value);
 		return choice ? { choice, ...(response.feedback ? { feedback: response.feedback } : {}) } : undefined;
 	}
@@ -81,6 +84,7 @@ export class GuiDialogs {
 		if (value !== null && pending.dialog.kind === "confirm" && value !== "yes") throw new Error("无效确认。");
 		if (pending.dialog.kind === "codeact" && value !== null && value !== "yes" && value !== "no") throw new Error("无效执行确认。");
 		if (feedback !== undefined && (!(pending.dialog.kind === "approval" && value !== null || pending.dialog.kind === "codeact" && value === "no") || feedback.length > 2000)) throw new Error("无效拒绝意见。");
+		if (value === "Discuss" && !feedback?.trim()) throw new Error("请先填写要交流的内容。");
 		pending.finish(value ?? undefined, feedback?.trim());
 	}
 

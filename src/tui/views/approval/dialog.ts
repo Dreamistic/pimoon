@@ -4,7 +4,7 @@ import { borderedPanelContentWidth, renderBorderedPanel } from "../../components
 import { approvalText, buildApprovalContent, type ApprovalDisplayLine, type ApprovalLineStyle } from "../../../harness/approval/presentation.ts";
 import {
 	ALLOW_ONCE, ALLOW_PERSISTENT, ALLOW_SESSION, DENY_WITH_INSTRUCTION, approvalScopes,
-	type ApprovalChoice, type ApprovalDialogOptions, type ApprovalOptions, type ApprovalReply, type ApprovalProposal,
+	type ApprovalChoice, type ApprovalDialogOptions, type ApprovalOptions, type ApprovalReply, type ApprovalCard,
 } from "../../../harness/approval/runtime/interaction.ts";
 import type { ApprovalDecision, ApprovalRequest } from "../../../harness/approval/types.ts";
 
@@ -23,7 +23,7 @@ export async function openApprovalDialog(
 	const choice = await ui.custom<string | undefined>(
 		(tui, theme, _keybindings, done) => new ApprovalDialog(
 			request, decision, options, theme,
-			() => tui.terminal.rows, () => tui.requestRender(), done, dialogOptions?.timeout, dialogOptions?.signal, dialogOptions?.proposal,
+			() => tui.terminal.rows, () => tui.requestRender(), done, dialogOptions?.timeout, dialogOptions?.signal, dialogOptions?.card,
 		),
 		{ overlay: true, overlayOptions: { anchor: "center", width: "90%", minWidth: 80, maxHeight: "90%", margin: 1 } },
 	);
@@ -53,12 +53,12 @@ export class ApprovalDialog implements Component {
 		private readonly done: (choice: string | undefined) => void,
 		timeoutMs?: number,
 		private readonly signal?: AbortSignal,
-		proposal?: ApprovalProposal,
+		card?: ApprovalCard,
 	) {
 		signal?.addEventListener("abort", this.abort, { once: true });
 		this.selectedChoice = options[0];
 		this.content = [
-			...(proposal ? [{ text: approvalText(proposal.reason), style: "text" as const }] : []),
+			...(card ? [{ text: approvalText(`${card.title}\n${card.explanation}\n${card.recommendationReason}`), style: "text" as const }] : []),
 			...approvalScopes(request, decision, options).map(scope => ({ text: approvalText(`${scope.choice}: ${scope.detail}`), style: "dim" as const })),
 			...buildApprovalContent(request, decision),
 		];

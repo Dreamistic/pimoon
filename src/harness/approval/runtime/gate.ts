@@ -10,10 +10,9 @@ export function createApprovalGate(stores = new ApprovalStores(), sessionRules: 
 		return file.forSession(sessionRules);
 	};
 	return {
-		async inspect(request: ApprovalRequest, config: ApprovalGateConfig, once = false): Promise<ApprovalDecision> {
+		async inspect(request: ApprovalRequest, config: ApprovalGateConfig): Promise<ApprovalDecision> {
 			if (!config.enabled) return { kind: "allow" };
-			const decision = evaluateGatePolicy(request, config, once ? { matchesAllowRule: () => false } : await open(config));
-			return once && decision.kind === "ask" ? { kind: "allow" } : decision;
+			return evaluateGatePolicy(request, config, await open(config));
 		},
 		async authorize(request: ApprovalRequest, config: ApprovalGateConfig, interaction?: ApprovalInteractionPort, opts?: ApprovalDialogOptions): Promise<ApprovalOutcome> {
 			if (!config.enabled) return { kind: "approved" };

@@ -1,6 +1,11 @@
 {
 	"$schema": "../schemas/approval-gate.schema.json",
 	"enabled": true,
+	"advisor": {
+		"enabled": true,
+		"model": "openai-codex/gpt-6.1-sol",
+		"timeout_ms": 8000
+	},
 	"ui": {
 		"timeout_ms": 0,
 		"non_interactive": "block"

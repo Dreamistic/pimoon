@@ -15,9 +15,12 @@ const options = ["Allow once", "Allow for session", "Always allow similar", "Den
 describe("统一审批条", () => {
 	it("实际操作与 AI 说明分离，范围由后端生成且响应只消费一次", async () => {
 		const dialogs = ui();
-		const pending = dialogs.approve(request, decision, options, { proposal: { reason: "检查状态，不修改文件", scope: "session" } });
+		const pending = dialogs.approve(request, decision, options, { card: { title: "检查工作区状态", explanation: "检查状态，不修改文件", recommendation: "Allow for session",
+				recommendationReason: "本任务需要重复检查", feedbackPlaceholder: "补充本次要求",
+				actions: [{ choice: "Allow once", label: "只检查这次" }, { choice: "Allow for session", label: "本会话允许检查" },
+					{ choice: "Always allow similar", label: "记住这项检查" }, { choice: "Deny", label: "先不检查" }] } });
 		const dialog = dialogs.list()[0]; if (!dialog) throw new Error("missing approval");
-		expect(dialog.kind).toBe("approval"); expect(dialog.title).toBe("操作审批");
+		expect(dialog.kind).toBe("approval"); expect(dialog.title).toBe("检查工作区状态");
 		expect(dialog.approval?.content.map(line => line.text).join("\n")).toContain('["git","status"]');
 		expect(dialog.approval?.recommended).toBe("session");
 		expect(dialog.approval?.scopes.map(scope => scope.scope)).toEqual(["once", "session", "persistent"]);
@@ -30,14 +33,15 @@ describe("统一审批条", () => {
 	it("所有工具使用相同结构，不出现旧选择弹窗；Unicode 保留，控制序列清理", async () => {
 		const dialogs = ui();
 		const pending = dialogs.approve({ ...request, detail: { argv: ["程序", "\u001b[31m中文🧪\u001b[0m\nSensitive units:"], env: {} } }, decision, ["Allow once", "Deny"],
-			{ proposal: { reason: "<script>not html</script> 中文🧪", scope: "once" } });
+			{ card: { title: "操作审批", explanation: "<script>not html</script> 中文🧪", recommendation: "Deny",
+				recommendationReason: "未知程序", feedbackPlaceholder: "补充意见", actions: [{ choice: "Allow once", label: "仅运行这次" }, { choice: "Deny", label: "暂不运行" }] } });
 		const dialog = dialogs.list()[0]; if (!dialog) throw new Error("missing approval");
 		const doc = parseHTML(renderWithMemory(createElement(ApprovalBar, { dialog, disabled: false, send: async () => true }))).document;
 		expect(doc.querySelector(".approval-bar-reason")?.textContent).toContain("<script>not html</script>");
 		expect(doc.querySelector("script,[role=dialog]")).toBeNull();
 		expect(doc.querySelectorAll('input[type="radio"]')).toHaveLength(1);
 		expect(doc.querySelector(".approval-bar")?.textContent).toContain("此操作尚未执行");
-		expect(doc.querySelector(".approval-bar-range")?.textContent).toContain("下一次相同调用");
+		expect(doc.querySelector(".approval-bar-range")?.textContent).toContain("当前暂停的操作");
 		expect(() => dialogs.respond(dialog.id, "Always allow similar")).toThrow();
 		dialogs.respond(dialog.id, "Deny", "使用只读工具");
 		expect(await pending).toEqual({ choice: "Deny", feedback: "使用只读工具" });
@@ -65,4 +69,17 @@ describe("统一审批条", () => {
 		expect(await pending).toEqual({ choice: "Deny", feedback: "不要修改配置" });
 		expect(dialogs.list()).toEqual([]);
 	});
+});
+
+it("卡内交流必须有文字，不消费原授权，不能在普通审批伪造交流动作", async () => {
+	const dialogs = ui();
+	const pending = dialogs.approve(request, decision, options, { discuss: true });
+	const id = dialogs.list()[0]?.id; if (!id) throw new Error("missing dialog");
+	expect(() => dialogs.respond(id, "Discuss", "  ")).toThrow();
+	dialogs.respond(id, "Discuss", "会改文件吗");
+	expect(await pending).toEqual({ choice: "Discuss", feedback: "会改文件吗" });
+	const normal = dialogs.approve(request, decision, options);
+	const normalId = dialogs.list()[0]?.id; if (!normalId) throw new Error("missing dialog");
+	expect(() => dialogs.respond(normalId, "Discuss", "伪造")).toThrow();
+	dialogs.respond(normalId, "Deny"); await normal;
 });

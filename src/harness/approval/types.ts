@@ -103,6 +103,11 @@ export interface ApprovalRule {
 
 export interface ApprovalGateConfig {
 	enabled: boolean;
+	advisor?: {
+		enabled: boolean;
+		model: string;
+		timeout_ms: number;
+	};
 	ui: {
 		timeout_ms: number;
 		non_interactive: "block" | "allow";

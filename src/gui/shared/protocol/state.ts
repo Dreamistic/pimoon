@@ -5,7 +5,7 @@ import type { AutoTitleState } from "../../../harness/extensions/auto-title.ts";
 import type { CodexSpeed } from "../../../harness/codex-speed/state.ts";
 import type { UsageSnapshot } from "../../../harness/usage/types.ts";
 import type { SubagentDetails } from "../../../harness/subagent/types.ts";
-import type { ApprovalScope, ApprovalScopeOption } from "../../../harness/approval/runtime/interaction.ts";
+import type { ApprovalCard, ApprovalScope, ApprovalScopeOption } from "../../../harness/approval/runtime/interaction.ts";
 import type { ApprovalDisplayLine } from "../../../harness/approval/presentation.ts";
 import type { GuiEntry, GuiMessage, GuiNestedCalls, GuiToolOutput } from "../messages/types.ts";
 import type { GuiToolSelectionItem } from "../config/mcp.ts";
@@ -24,6 +24,9 @@ export interface GuiApproval {
 	content: ApprovalDisplayLine[];
 	scopes: ApprovalScopeOption[];
 	recommended: ApprovalScope;
+	card?: ApprovalCard;
+	advisorUnavailable?: boolean;
+	discuss?: boolean;
 }
 export interface GuiDialog {
 	id: string;

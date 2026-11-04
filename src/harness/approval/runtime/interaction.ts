@@ -7,10 +7,17 @@ export const ALLOW_SESSION = "Allow for session";
 export const ALLOW_PERSISTENT = "Always allow similar";
 export const DENY = "Deny";
 export const DENY_WITH_INSTRUCTION = "Deny with instruction";
-export type ApprovalChoice = typeof ALLOW_ONCE | typeof ALLOW_SESSION | typeof ALLOW_PERSISTENT | typeof DENY | typeof DENY_WITH_INSTRUCTION;
+export type ApprovalChoice = typeof ALLOW_ONCE | typeof ALLOW_SESSION | typeof ALLOW_PERSISTENT | typeof DENY | typeof DENY_WITH_INSTRUCTION | "Discuss";
 export type ApprovalOptions = readonly [ApprovalChoice, ...ApprovalChoice[]];
 export type ApprovalScope = "once" | "session" | "persistent";
-export interface ApprovalProposal { reason: string; scope: ApprovalScope }
+export interface ApprovalCard {
+	title: string;
+	explanation: string;
+	recommendation: ApprovalChoice;
+	recommendationReason: string;
+	actions: { choice: ApprovalChoice; label: string }[];
+	feedbackPlaceholder: string;
+}
 export interface ApprovalReply { choice: ApprovalChoice; feedback?: string }
 export interface ApprovalScopeOption { scope: ApprovalScope; choice: ApprovalChoice; label: string; detail: string }
 export interface ApprovalReceipt {
@@ -22,7 +29,9 @@ export interface ApprovalReceipt {
 export interface ApprovalDialogOptions {
 	timeout?: number;
 	signal?: AbortSignal;
-	proposal?: ApprovalProposal;
+	card?: ApprovalCard;
+	advisorUnavailable?: boolean;
+	discuss?: boolean;
 	/** 在保存授权前复核会话、分支、配置及取消状态。 */
 	validate?: () => Promise<boolean>;
 }
@@ -43,7 +52,7 @@ export function approvalOptions(config: ApprovalGateConfig, decision: Extract<Ap
 
 export function approvalScopes(request: ApprovalRequest, decision: Extract<ApprovalDecision, { kind: "ask" }>, options: ApprovalOptions): ApprovalScopeOption[] {
 	const units = decision.items.map(item => item.unit);
-	const scopes: ApprovalScopeOption[] = [{ scope: "once", choice: ALLOW_ONCE, label: "仅本次", detail: "仅批准所示操作的下一次相同调用，不重跑整段代码。" }];
+	const scopes: ApprovalScopeOption[] = [{ scope: "once", choice: ALLOW_ONCE, label: "仅本次", detail: "仅批准当前暂停的操作，确认后继续，不重跑整段代码。" }];
 	if (options.includes(ALLOW_SESSION)) scopes.push({ scope: "session", choice: ALLOW_SESSION, label: "本会话相同操作", detail: describeAllowRules(createExactAllowRules(request, units)) });
 	if (options.includes(ALLOW_PERSISTENT)) scopes.push({ scope: "persistent", choice: ALLOW_PERSISTENT, label: "以后按所示规则", detail: describeAllowRules(createSimilarAllowRules(request, units)) });
 	return scopes.filter(option => options.includes(option.choice));

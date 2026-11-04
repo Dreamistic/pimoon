@@ -9,6 +9,7 @@ import { telemetryRunsDirectory, userHistoryPath, resourceCacheDirectory } from 
 import { agentHome, pimoonHome } from "../../src/pimoon/profile.ts";
 import { checkReadablePath, checkWritablePath } from "../../src/pimoon/paths.ts";
 import { registerExtension } from "../helpers/extension.ts";
+import { bindAuxiliaryRequest } from "../../src/pimoon/auxiliary-request.ts";
 
 const endpoint = "https://chatgpt.com/backend-api/codex/responses";
 const payload = JSON.stringify({ model: "gpt-6-astra", input: "SYNTHETIC_PROMPT_SENTINEL_7b20" });
@@ -21,6 +22,22 @@ beforeEach(() => {
 afterAll(() => { globalThis.fetch = original; });
 
 describe("模型请求边界", () => {
+	it("Sol 辅助请求有独立绑定，不替换 Astra 主模型绑定，且不能重放", async () => {
+		const request = { model: "gpt-6.1-sol", input: "approval-fixture" };
+		bindAuxiliaryRequest(request, { id: "gpt-6.1-sol", provider: "openai-codex" }, "approval-session");
+		await fetch(endpoint, { method: "POST", body: JSON.stringify(request) });
+		await fetch(endpoint, { method: "POST", body: payload });
+		await expect(fetch(endpoint, { method: "POST", body: JSON.stringify(request) })).rejects.toThrow("未绑定");
+		expect(transport).toHaveBeenCalledTimes(2);
+	});
+	it("辅助绑定仍拒绝空会话与非订阅模型", async () => {
+		const request = { model: "other", input: "approval-fixture" };
+		bindAuxiliaryRequest(request, { id: "other", provider: "other" }, "session");
+		await expect(fetch(endpoint, { method: "POST", body: JSON.stringify(request) })).rejects.toThrow("未绑定");
+		bindAuxiliaryRequest(request, { id: "other", provider: "openai-codex" }, "");
+		await expect(fetch(endpoint, { method: "POST", body: JSON.stringify(request) })).rejects.toThrow("未绑定");
+		expect(transport).not.toHaveBeenCalled();
+	});
 	it("检查 Zstd 正文但不改变发送内容，并禁止重定向", async () => {
 		const body = new Uint8Array(zstdCompressSync(payload));
 		await fetch(endpoint, { method: "POST", body, headers: { "content-encoding": "zstd" } });

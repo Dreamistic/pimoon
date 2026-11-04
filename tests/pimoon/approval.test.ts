@@ -14,14 +14,14 @@ import { startModelServer } from "../cli/model-server.ts";
 import { createRuntimeResources } from "./runtime-resources.ts";
 
 afterEach(() => vi.unstubAllEnvs());
-async function fixture(reply: (step: number, request: unknown) => string) {
+async function fixture(reply: (step: number, request: unknown) => string, advisor = false) {
 	const base = path.resolve(".tmp/tests/approval-integration"); await fs.mkdir(base, { recursive: true });
 	const root = await fs.mkdtemp(path.join(base, "case-"));
 	const cwd = path.join(root, "workspace"), agentDir = path.join(root, "agent");
 	await fs.mkdir(cwd); await fs.mkdir(agentDir);
 	vi.stubEnv("PIMOON_RESOURCE_DIR", await createRuntimeResources(root));
 	const config = path.join(root, "approval.jsonc");
-	await fs.writeFile(config, JSON.stringify({ remember: { persistent_store: path.join(root, "rules.jsonc") } }));
+	await fs.writeFile(config, JSON.stringify({ advisor: { enabled: advisor, model: "fixture/test" }, remember: { persistent_store: path.join(root, "rules.jsonc") } }));
 	vi.stubEnv("PI_APPROVAL_GATE_CONFIG", config);
 	const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
 	let step = 0;
@@ -49,91 +49,86 @@ async function fixture(reply: (step: number, request: unknown) => string) {
 }
 const execution = (code: string) => `<execute>\n${code}\n</execute>`;
 const append = `process_run(argv=${JSON.stringify([process.execPath, "-e", 'require("node:fs").appendFileSync("effect.txt","once")'])})`;
-function propose(request: unknown): string {
-	const id = /request_id.{0,20}?([a-f0-9]{8}-[a-f0-9-]{27})/.exec(JSON.stringify(request))?.[1];
-	if (!id) throw new Error("Model did not receive an approval request id");
-	return execution(`decision=approval(request_id=${JSON.stringify(id)}, reason="只在隔离目录写入测试标记", scope="once")\nassert isinstance(decision,dict)\ndecision`);
-}
-
-it("真实 CodeAct 先拦截、再提案，批准不自动执行；只重试具体调用，不重放此前副作用", async () => {
-	const operation = append.replace("argv=", "timeout=1800, argv=");
-	const f = await fixture((step, request) => step === 0 ? execution(`write(path="earlier.txt",content="keep")\n${operation}`)
-		: step === 1 ? propose(request) : step === 2 ? execution(`${operation}\n${operation}`) : "done");
+it("真实 CodeAct 在原调用等待；批准后继续后续语句，不重放此前副作用", async () => {
+	const f = await fixture(step => step === 0 ? execution(`write(path="earlier.txt",content="keep")\n${append}\nwrite(path="later.txt",content="continued")`) : "done");
 	try {
-		expect(f.runtime.session.getCallableToolNames()).not.toContain("approval");
 		const running = f.runtime.session.prompt("Run the isolated approval fixture.");
 		await vi.waitFor(() => expect(f.dialogs.list()).toHaveLength(1), { timeout: 10_000 });
-		const dialog = f.dialogs.list()[0]; if (!dialog?.approval) throw new Error("missing proposal");
-		expect(f.server.requests).toHaveLength(2); expect(dialog.kind).toBe("approval");
-		expect(f.runtime.session.getCallableToolNames()).toContain("approval");
-		expect(JSON.stringify(f.server.requests[0])).toContain("Present a blocked request");
-		expect(JSON.stringify(f.server.requests[1])).toContain("Present a blocked request");
+		const dialog = f.dialogs.list()[0]; if (!dialog?.approval) throw new Error("missing approval");
+		expect(f.server.requests).toHaveLength(1);
+		expect(f.runtime.session.getCallableToolNames()).not.toContain("approval");
 		expect(await fs.readFile(path.join(f.cwd, "earlier.txt"), "utf8")).toBe("keep");
 		await expect(fs.access(path.join(f.cwd, "effect.txt"))).rejects.toThrow();
 		f.dialogs.respond(dialog.id, "Allow once", "仅本次，不代表今后允许");
 		await running;
 		expect(await fs.readFile(path.join(f.cwd, "effect.txt"), "utf8")).toBe("once");
-		expect(await fs.readFile(path.join(f.cwd, "earlier.txt"), "utf8")).toBe("keep");
-		expect(f.server.requests).toHaveLength(4);
-		expect(JSON.stringify(f.server.requests[2])).toContain("仅本次，不代表今后允许");
-		expect(JSON.stringify(f.server.requests[3])).toContain("approval_required");
+		expect(await fs.readFile(path.join(f.cwd, "later.txt"), "utf8")).toBe("continued");
+		expect(f.server.requests).toHaveLength(2);
+		expect(JSON.stringify(f.server.requests[1])).toContain("仅本次，不代表今后允许");
 		expect(f.dialogs.list()).toEqual([]);
 	} finally { await f.close(); }
 });
 
-it("旧会话批量检查 Git、ADB 和 APK 后仍能发现审批入口并提交提案", async () => {
-	const jobs = [{ argv: ["git", "status", "--short", "--branch"] }, { argv: ["adb", "devices", "-l"] },
-		{ argv: ["rg", "--files", "--hidden", "-g", "*.apk", "-g", "!node_modules", "-g", "!.git"] }];
-	const f = await fixture((step, request) => step === 0 ? execution(`results=batch("process_run",${JSON.stringify(jobs)})\nfor i,row in enumerate(results):\n    print(i,row)`)
-		: step === 1 ? propose(request) : "done");
+it("批量相同调用只需一次会话授权，进程各执行一次", async () => {
+	const argv = [process.execPath, "-e", 'require("node:fs").writeFileSync("batch.txt","ok")'];
+	const f = await fixture(step => step === 0 ? execution(`batch("process_run",${JSON.stringify([{ argv }, { argv }])})`) : "done");
 	try {
-		const running = f.runtime.session.prompt("Check the fixture commands; request approval when blocked.");
+		const running = f.runtime.session.prompt("Run the isolated batch.");
 		await vi.waitFor(() => expect(f.dialogs.list()).toHaveLength(1), { timeout: 10_000 });
-		const request = JSON.stringify(f.server.requests[1]);
-		expect(request).toContain("Present a blocked request");
-		expect(new Set([...request.matchAll(/request_id.{0,20}?([a-f0-9]{8}-[a-f0-9-]{27})/g)].map(match => match[1])).size).toBe(3);
-		expect(request).toContain("Next block: approval");
-		const dialog = f.dialogs.list()[0]; if (!dialog) throw new Error("missing batch proposal");
-		f.dialogs.respond(dialog.id, "Deny", "这是隔离回归，不运行外部程序");
-		await running;
-		expect(f.server.requests).toHaveLength(3);
-		expect(JSON.stringify(f.server.requests[2])).toContain("这是隔离回归，不运行外部程序");
+		const id = f.dialogs.list()[0]?.id; if (!id) throw new Error("missing approval");
+		f.dialogs.respond(id, "Allow for session"); await running;
+		expect(await fs.readFile(path.join(f.cwd, "batch.txt"), "utf8")).toBe("ok");
+		expect(f.dialogs.list()).toEqual([]); expect(f.server.requests).toHaveLength(2);
 	} finally { await f.close(); }
 });
 
-it("拒绝意见进入下一次模型请求，AI 可按真实范围自主沉淀记忆，不产生授权", async () => {
+it("拒绝意见进入下一次模型请求，AI 按真实范围沉淀记忆而不产生授权", async () => {
 	let destination = "";
 	const lesson = "---\nname: 审批反馈示例\ndescription: 修改隔离项目配置前读取\ntype: feedback\n---\n用户拒绝本次写入，要求先提供方案。不是永久禁令或执行许可。\n";
-	const f = await fixture((step, request) => step === 0 ? execution(append) : step === 1 ? propose(request)
-		: step === 2 ? execution(`write(path=${JSON.stringify(destination)},content=${JSON.stringify(lesson)})`) : "done");
+	const f = await fixture(step => step === 0 ? execution(append)
+		: step === 1 ? execution(`write(path=${JSON.stringify(destination)},content=${JSON.stringify(lesson)})`) : "done");
 	try {
 		const scope = (await new MemoryStore(path.join(pimoonHome, "memory")).scopes(f.cwd)).find(scope => scope.kind === "project");
 		if (!scope) throw new Error("missing memory scope");
 		destination = path.join(scope.directory, "entries/approval-feedback.md");
 		const running = f.runtime.session.prompt("Exercise rejection feedback in the isolated fixture.");
 		await vi.waitFor(() => expect(f.dialogs.list()).toHaveLength(1), { timeout: 10_000 });
-		await expect(fs.access(destination)).rejects.toThrow();
-		const dialog = f.dialogs.list()[0]; if (!dialog) throw new Error("missing proposal");
-		f.dialogs.respond(dialog.id, "Deny", "先提供方案，本次不要写入");
-		await running;
+		const id = f.dialogs.list()[0]?.id; if (!id) throw new Error("missing approval");
+		f.dialogs.respond(id, "Deny", "先提供方案，本次不要写入"); await running;
 		await expect(fs.access(path.join(f.cwd, "effect.txt"))).rejects.toThrow();
-		expect(JSON.stringify(f.server.requests[2])).toContain("先提供方案，本次不要写入");
+		expect(JSON.stringify(f.server.requests[1])).toContain("先提供方案，本次不要写入");
 		expect(await fs.readFile(destination, "utf8")).toBe(lesson);
-		expect(await fs.readFile(path.join(scope.directory, "MEMORY.md"), "utf8")).toContain("审批反馈示例");
 		await expect(fs.access(path.join(f.root, "rules.jsonc"))).rejects.toThrow();
 	} finally { await f.close(); }
 });
 
-it("停止等待会立即撤销 UI；迟到的批准不能执行或生成记忆", async () => {
-	const f = await fixture((step, request) => step === 0 ? execution(append) : step === 1 ? propose(request) : "done");
+it("停止等待立即撤销卡片，迟到批准不能执行", async () => {
+	const f = await fixture(step => step === 0 ? execution(append) : "done");
 	try {
-		const running = f.runtime.session.prompt("Wait for approval in the isolated fixture.");
+		const running = f.runtime.session.prompt("Wait for isolated approval.");
 		await vi.waitFor(() => expect(f.dialogs.list()).toHaveLength(1), { timeout: 10_000 });
-		const id = f.dialogs.list()[0]?.id; if (!id) throw new Error("missing proposal");
+		const id = f.dialogs.list()[0]?.id; if (!id) throw new Error("missing approval");
 		await f.runtime.session.abort(); await running;
 		expect(f.dialogs.list()).toEqual([]);
 		expect(() => f.dialogs.respond(id, "Allow once")).toThrow();
 		await expect(fs.access(path.join(f.cwd, "effect.txt"))).rejects.toThrow();
-		await expect(fs.access(path.join(f.root, "rules.jsonc"))).rejects.toThrow();
+	} finally { await f.close(); }
+});
+
+it("辅助模型实际经过注册表调用，动态卡片返回后继续原进程且不请求主模型提案", async () => {
+	const card = { title: "本次写入测试标记", explanation: "只在隔离工作区写标记；进程仍使用宿主权限。",
+		recommendation: "Allow once", recommendationReason: "仅本次验证", feedbackPlaceholder: "补充要求",
+		actions: [{ choice: "Allow once", label: "本次写入" }, { choice: "Allow for session", label: "本会话允许同一操作" },
+			{ choice: "Always allow similar", label: "保存所示精确规则" }, { choice: "Deny", label: "不写入" }] };
+	const f = await fixture(step => step === 0 ? execution(append) : step === 1 ? JSON.stringify(card) : "done", true);
+	try {
+		const running = f.runtime.session.prompt("验证动态审批卡。");
+		await vi.waitFor(() => expect(f.dialogs.list()[0]?.title).toBe(card.title), { timeout: 10_000 });
+		const dialog = f.dialogs.list()[0]; if (!dialog?.approval?.card) throw new Error("missing generated card");
+		expect(f.server.requests).toHaveLength(2);
+		expect(dialog.approval.card.actions[0]?.label).toBe("本次写入");
+		f.dialogs.respond(dialog.id, "Allow once"); await running;
+		expect(await fs.readFile(path.join(f.cwd, "effect.txt"), "utf8")).toBe("once");
+		expect(f.server.requests).toHaveLength(3);
 	} finally { await f.close(); }
 });

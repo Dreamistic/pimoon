@@ -44,7 +44,7 @@ Tree-sitter 将 Shell 输入拆为简单命令、嵌套替换、静态 `-c` 子�
 
 ## 记忆规则
 
-默认规则文件为 `~/.pi/agent/state/approval-gate.rules.jsonc`。
+默认规则文件为 `PIMOON_HOME/agent/state/approval-gate.rules.jsonc`。
 
 - `exact_command`、`command_prefix` 必须包含 cwd。
 - `exact_path`、`path_glob` 只按路径匹配。

@@ -7,6 +7,15 @@
 	"properties": {
 		"$schema": { "type": "string" },
 		"enabled": { "type": "boolean", "default": true },
+		"advisor": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"enabled": { "type": "boolean" },
+				"model": { "type": "string", "pattern": "^[^/]+/.+$" },
+				"timeout_ms": { "type": "integer", "minimum": 100, "maximum": 30000 }
+			}
+		},
 		"ui": {
 			"type": "object",
 			"additionalProperties": false,
@@ -21,7 +30,7 @@
 			"properties": {
 				"allow_session": { "type": "boolean", "default": true },
 				"allow_persistent": { "type": "boolean", "default": true },
-				"persistent_store": { "type": "string", "minLength": 1, "default": "~/.pi/agent/state/approval-gate.rules.jsonc" }
+				"persistent_store": { "type": "string", "minLength": 1, "default": "state/approval-gate.rules.jsonc" }
 			}
 		},
 		"tools": {

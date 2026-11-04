@@ -92,6 +92,7 @@ function completeSchemaValidator(): SchemaValidateFunction {
 	};
 	schema.required = ["enabled", "ui", "remember", "tools", "ask_rules", "deny_rules"];
 	for (const [name, required] of Object.entries({
+		advisor: ["enabled", "model", "timeout_ms"],
 		ui: ["timeout_ms", "non_interactive"],
 		remember: ["allow_session", "allow_persistent", "persistent_store"],
 		tools: ["bash", "write", "edit", "webfetch"],
