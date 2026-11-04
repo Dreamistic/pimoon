@@ -14,7 +14,7 @@
 - 同一会话保留 Python 变量和导入；新会话隔离。关闭应用、取消执行、会话淘汰后不会恢复 Python 内存，文件写入不会回滚。
 - 默认工作区是 `%APPDATA%/pimoon/workspace`。可在左侧选择可信项目；建议先用副本。
 - 默认启用 Python、工作区文件、`bash`、`websearch` 和 `webfetch` 宿主能力。工具面板的底层开关控制 CodeAct 可调用的能力；关闭 CodeAct 会同时关闭这些能力，不回落到直调。旧的默认列表和会话会自动补齐 `codemode`，不额外启用未选择的进程或网络工具；显式空列表仍无工具。保留的上游工具不因此成为已交付能力。
-- Git、构建、测试通过 Python 中的 `bash(command="...")` 执行；搜索和网页使用 `websearch(...)`、`webfetch(...)`。Windows 需要已安装 Git Bash；命令使用宿主权限，推送、安装依赖和破坏性操作沿用审批规则。Python 的直接进程与网络调用仍受限，路径与 Python audit 检查**不是强安全沙箱**。
+- Git、构建、测试通过 Python 中的 `bash(command="...")` 执行；`workdir` 可指定工作区外的普通目录，受保护凭据路径仍禁止作为工作目录。搜索和网页使用 `websearch(...)`、`webfetch(...)`。Windows 需要已安装 Git Bash；命令使用宿主权限，推送、安装依赖和破坏性操作沿用审批规则，`workdir` 不是命令的读写沙箱。Python 的直接进程与网络调用仍受限，路径与 Python audit 检查**不是强安全沙箱**。
 - **JEV 未接入本桌面版本，不会向它发送聊天。** Discord 状态同步默认关闭。
 
 ## 数据与访问凭据
@@ -55,6 +55,8 @@ node node_modules/vitest/vitest.mjs run tests/pimoon/boundary.test.ts
 node tests/desktop/pimoon-smoke.mjs          # 隐藏窗口、零模型请求
 node tests/desktop/pimoon-smoke.mjs --model  # 合成真实订阅调用，消耗额度
 ```
+
+应用运行中不要覆盖其目录。可先构建 `bun scripts/build.mjs desktop --dir`，再运行 `node scripts/build-pimoon-portable.mjs --output dist/pimoon-next` 生成独立新版；保存并退出旧应用后，运行 `dist/pimoon-next/pimoon.exe`。原启动脚本仍指向 `dist/pimoon`；要继续使用该脚本，请退出所有版本后重新执行默认封装命令。仅修改源码或新建会话不会更新已加载的桌面后端。
 
 原生构建使用已有 Rust 工具链，可设置 `PIMOON_RUST_BIN`。目录封装复用本机 Electron 运行时，可设置 `PIMOON_ELECTRON_DIST`；不修改来源目录。开发依赖目前为本机上游依赖目录的 junction，勿在该 junction 中安装或升级；独立安装依赖时请使用新目录。
 

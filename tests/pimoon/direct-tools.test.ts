@@ -79,6 +79,9 @@ external=Path(${JSON.stringify(external)})
 assert external.read_text()=="external fixture"
 assert native_read(str(external))=="external fixture"
 assert "external fixture" in read(path=str(external))
+assert "external.txt" in ls(path=str(external.parent))
+assert "external.txt" in str(find(query="external", path=[str(external.parent)]))
+assert "external fixture" in str(grep(query="external fixture", path=[str(external)]))
 print("external checked")` } }, { text: "done" });
 			await runtime.session.prompt("Analyze an external fixture in persistent Python and use the integrated read function.");
 			expect(runtime.session.messages.filter(message => message.role === "toolResult").at(-1)?.isError).toBe(false);

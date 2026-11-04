@@ -16,7 +16,7 @@ interface RuntimeTags extends ExecutionTrace {
 
 import { codemodeAllowedTools as allowed, codemodeHiddenDeclarations, codemodeSelection } from "../codemode/loadout.ts";
 import { codemodeCatalog } from "../codemode/catalog.ts";
-const description = "CodeAct: the only execution entry. Use persistent Python variables, conditions and functions to process data and orchestrate host functions. Call enabled host functions with keyword arguments; ? marks optional arguments (omit, do not pass None). The final top-level expression is displayed automatically (except None); _ retains its full value. Assign intermediate results, process them in Python, then end with only the evidence needed for the next decision. Example: rows=find(query='README')['matches']; rows[:3]. print is optional for progress; no top-level return. Images are forwarded unchanged. batch(name, jobs, limit=6) runs independent read/find/grep/ls jobs concurrently (max 16), returning ordered {ok,value|error} items. observe(value, fields=[...], limit=8) projects tables. Output: 40k chars; _last_output retains up to 1 Mi chars. Analyze files in Python, not bash-launched Python. Reads may leave the workspace; writes stay inside. Protected credential paths are blocked. No direct network, subprocess or FFI. Use enabled bash/websearch/webfetch functions for process/network access; host approvals still apply. Errors raise or appear in structured results. Cancellation/restart clears variables, not completed writes. native_read(path): UTF-8 <=4 MiB.";
+const description = "CodeAct: the only execution entry. Use persistent Python variables, conditions and functions to process data and orchestrate host functions. Call enabled host functions with keyword arguments; ? marks optional arguments (omit, do not pass None). The final top-level expression is displayed automatically (except None); _ retains its full value. Assign intermediate results, process them in Python, then end with only the evidence needed for the next decision. Example: rows=find(query='README')['matches']; rows[:3]. print is optional for progress; no top-level return. Images are forwarded unchanged. batch(name, jobs, limit=6) runs independent read/find/grep/ls jobs concurrently (max 16), returning ordered {ok,value|error} items. observe(value, fields=[...], limit=8) projects tables. Output: 40k chars; _last_output retains up to 1 Mi chars. Analyze files in Python, not bash-launched Python. Reads and shell working directories may leave the workspace; Python/file-tool writes stay inside. Protected credential paths are blocked. No direct network, subprocess or FFI. Use enabled bash/websearch/webfetch functions for process/network access; host approvals still apply. Errors raise or appear in structured results. Cancellation/restart clears variables, not completed writes. native_read(path): UTF-8 <=4 MiB.";
 
 /** 用官方工具管线接真实 Python，不更改 SDK 解释器或绕过宿主审批。 */
 export default function codemode(pi: ExtensionAPI): void {
@@ -97,7 +97,7 @@ export default function codemode(pi: ExtensionAPI): void {
 		try {
 			for (const file of paths) {
 				if (typeof file !== "string") throw new Error("无效路径。");
-				if (["read", "find", "grep", "ls"].includes(event.toolName)) await checkReadablePath(ctx.cwd, file, protectedCredentialPaths);
+				if (["read", "find", "grep", "ls", "bash"].includes(event.toolName)) await checkReadablePath(ctx.cwd, file, protectedCredentialPaths);
 				else await checkWorkspacePath(ctx.cwd, file);
 			}
 		}

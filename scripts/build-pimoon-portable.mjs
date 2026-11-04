@@ -2,8 +2,15 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
+import {parseArgs} from 'node:util';
+const {values}=parseArgs({options:{output:{type:'string'}}});
 const source=process.env.PIMOON_ELECTRON_DIST ?? 'D:/Program/o-pi/app';
-const output=path.resolve('dist/pimoon');
+const output=path.resolve(values.output ?? 'dist/pimoon');
+const within=(parent,child)=>{
+ const relative=path.relative(path.resolve(parent),path.resolve(child));
+ return relative==='' || relative!=='..' && !relative.startsWith('..'+path.sep) && !path.isAbsolute(relative);
+};
+if(within(source,output) || within(output,source))throw new Error('封装输出不能与 Electron 来源目录重叠。');
 await fs.mkdir(output,{recursive:true});
 for(const item of await fs.readdir(source,{withFileTypes:true})) {
  if(item.name==='resources')continue;

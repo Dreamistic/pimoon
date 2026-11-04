@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import { promisify } from "node:util";
 import { afterEach, expect, it, vi } from "vitest";
 import { SessionManager, createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices } from "@earendil-works/pi-coding-agent";
@@ -29,10 +30,13 @@ it("Git、搜索和网页只通过 CodeAct 执行，直调被拒绝，嵌套调�
 	await fs.mkdir(base, { recursive: true });
 	const folder = await fs.mkdtemp(path.join(base, "case-"));
 	const cwd = path.join(folder, "workspace"), agentDir = path.join(folder, "agent");
-	const repo = path.join(cwd, "repo");
+	const repo = path.join(cwd, "repo"), externalRepo = path.join(folder, "external-repo");
+	const protectedDir = path.join(os.homedir(), ".ssh");
 	await fs.mkdir(repo, { recursive: true }); await fs.mkdir(agentDir);
-	await execute("git", ["init", "--quiet"], { cwd: repo, windowsHide: true });
+	await fs.mkdir(externalRepo); await fs.mkdir(protectedDir, { recursive: true });
+	for (const directory of [repo, externalRepo]) await execute("git", ["init", "--quiet"], { cwd: directory, windowsHide: true });
 	await fs.writeFile(path.join(repo, "sentinel.txt"), "keep");
+	await fs.writeFile(path.join(externalRepo, "external.txt"), "keep external");
 	vi.stubEnv("PIMOON_RESOURCE_DIR", await createRuntimeResources(folder));
 	const { default: codemode } = await import("../../src/harness/extensions/codemode.ts");
 	const config = defaultWebToolsConfig();
@@ -53,14 +57,20 @@ it("Git、搜索和网页只通过 CodeAct 执行，直调被拒绝，嵌套调�
 		{ tool: "codemode", args: { code: 'print(bash(command="git status --short", workdir="repo"))' } },
 		{ tool: "bash", args: { command: "git clean -fd", workdir: "repo" } },
 		{ tool: "codemode", args: { code: 'print(bash(command="git clean -fd", workdir="repo"))' } },
-		{ tool: "bash", args: { command: "git status --short", workdir: ".." } },
-		{ tool: "codemode", args: { code: 'print(bash(command="git status --short", workdir=".."))' } },
+		{ tool: "bash", args: { command: "git status --short", workdir: "../external-repo" } },
+		{ tool: "codemode", args: { code: 'print(bash(command="git status --short", workdir="../external-repo"))' } },
 		{ tool: "websearch", args: { query: "fixture docs" } },
 		{ tool: "codemode", args: { code: 'print(websearch(query="fixture docs"))' } },
 		{ tool: "webfetch", args: { url: "https://93.184.216.34/docs" } },
 		{ tool: "codemode", args: { code: 'print(webfetch(url="https://93.184.216.34/docs"))' } },
 		{ tool: "webfetch", args: { url: "http://127.0.0.1/private" } },
 		{ tool: "codemode", args: { code: 'print(webfetch(url="http://127.0.0.1/private"))' } },
+		{ tool: "bash", args: { command: "git status --short", workdir: externalRepo } },
+		{ tool: "codemode", args: { code: `bash(command="git status --short", workdir=${JSON.stringify(externalRepo)})` } },
+		{ tool: "bash", args: { command: "git clean -fd", workdir: externalRepo } },
+		{ tool: "codemode", args: { code: `bash(command="git clean -fd", workdir=${JSON.stringify(externalRepo)})` } },
+		{ tool: "bash", args: { command: "git status --short", workdir: protectedDir } },
+		{ tool: "codemode", args: { code: `bash(command="git status --short", workdir=${JSON.stringify(protectedDir)})` } },
 	];
 	const server = await startModelServer(request => jobs[request.messages.filter(message => message.role === "tool").length] ?? { text: "done" });
 	await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "test", codemode: { mode: "only" }, retry: { enabled: false }, compaction: { enabled: false } }));
@@ -91,16 +101,20 @@ it("Git、搜索和网页只通过 CodeAct 执行，直调被拒绝，嵌套调�
 			for (const name of ["bash", "websearch", "webfetch"]) expect(hidden.has(name)).toBe(true);
 			const results = runtime.session.messages.filter(message => message.role === "toolResult");
 			expect(results).toHaveLength(jobs.length);
-			expect(results.map(result => result.isError)).toEqual([true, false, true, true, true, true, true, false, true, false, true, true]);
+			expect(results.map(result => result.isError)).toEqual([true, false, true, true, true, false, true, false, true, false, true, true, true, false, true, true, true, true]);
 			for (const result of results.filter((_, index) => index % 2 === 0)) expect(JSON.stringify(result.content)).toContain("codemode");
 			expect(JSON.stringify(results[1]?.content)).toContain("?? sentinel.txt");
 			expect(JSON.stringify(results[3]?.content)).toMatch(/approval|审批/i);
-			expect(JSON.stringify(results[5]?.content)).toContain("工作区");
+			expect(JSON.stringify(results[5]?.content)).toContain("?? external.txt");
 			expect(JSON.stringify(results[7]?.content)).toContain("fixture search result");
 			expect(JSON.stringify(results[9]?.content)).toContain("fixture web content");
 			expect(JSON.stringify(results[11]?.content)).toMatch(/approval|审批/i);
 			expect(network.fetch.mock.calls.every(([url]) => url.hostname !== "127.0.0.1")).toBe(true);
+			expect(JSON.stringify(results[13]?.content)).toContain("?? external.txt");
+			expect(JSON.stringify(results[15]?.content)).toMatch(/approval|审批/i);
+			expect(JSON.stringify(results[17]?.content)).toContain("凭据");
 			expect(await fs.readFile(path.join(repo, "sentinel.txt"), "utf8")).toBe("keep");
+			expect(await fs.readFile(path.join(externalRepo, "external.txt"), "utf8")).toBe("keep external");
 		} finally { await runtime.dispose(); }
 	} finally { await server.close(); }
 });

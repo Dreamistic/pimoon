@@ -2,7 +2,26 @@
 
 2026-11-03，Windows x64。
 
-## CodeAct 唯一执行入口（当前）
+## 跨工作区访问与独立新版封装（2026-11-04）
+
+- 确认正在运行的 `dist/pimoon` 仍是旧包；源码此前已允许普通文件跨工作区读取，新建会话不会更新已加载的后端。本次未覆盖运行中的目录。
+- CodeAct 的 `bash.workdir` 改为普通目录访问检查，允许相对及绝对路径指向其他项目；凭据路径仍拒绝，命令审批不变。Python 与文件修改工具的写入边界不变；shell 命令使用宿主权限，工作目录不是读写沙箱。
+- 封装器新增 `--output`，可生成独立新版，拒绝输出目录与 Electron 来源目录重叠。完整构建及封装通过，产物为 `dist/pimoon-next/pimoon.exe`。旧启动脚本仍指向 `dist/pimoon`，需退出旧应用后显式启动新版。
+- 当前工作树（包含此前未提交的性能草稿）验证通过：全项目 TypeScript 类型检查；4 个定向 Vitest 文件、15 项测试；30 项真实 Python/Rust 执行器测试。覆盖外部 `read/find/grep/ls`、Python/native_read、外部相对/绝对 shell 工作目录、凭据保护、写入边界与破坏性命令审批。
+- 另外比对新版 Python 资源与源码，并使用新版打包资源验证外部读取、外部写入拒绝和凭据拒绝；确认后端包含新工作目录策略。临时产物检查脚本首次因等待已 unref 的子进程退出而返回 13；补充检查脚本的事件循环保活后重跑返回 0。
+- 全部测试使用 `.tmp/tests` 下隔离的 PIMOON_HOME、HOME、USERPROFILE、APPDATA、LOCALAPPDATA 与 TEMP/TMP。未启动桌面窗口、未调用付费模型；真实 GUI 重启后的手动验证尚未执行。
+
+定向命令（先隔离上述环境变量）：
+
+```powershell
+node node_modules/typescript/bin/tsc --noEmit
+node node_modules/vitest/vitest.mjs run tests/pimoon/direct-tools.test.ts tests/pimoon/shell-tools.test.ts tests/pimoon/boundary.test.ts tests/pimoon/portable-build.test.ts
+node --test tests/pimoon/runtime.test.mjs
+bun scripts/build.mjs desktop --dir
+node scripts/build-pimoon-portable.mjs --output dist/pimoon-next
+```
+
+## CodeAct 唯一执行入口
 
 - 模型请求只声明 `codemode`；文件、进程、网络宿主工具仅供 Python 内部调用。直接工具调用在执行边界被拒绝，嵌套调用仍经过审批、工作区校验、取消与遥测。
 - 原有底层工具选择保留为宿主能力开关。旧默认列表、恢复会话及 SDK 变更工具集合时补齐 CodeAct，不额外启用未选择的宿主能力；关闭入口同时关闭这些能力，显式空列表不启用工具。未交付的上游工具不能通过选择器启用。
