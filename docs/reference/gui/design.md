@@ -8,7 +8,7 @@
 
 深色基础底为 `#18181A`，顶栏 `#1D1D1F`，侧栏 `#242426`，输入器与浮层 `#2C2C2E`，控件薄填充使用 `#444446`。原生窗口与页面共用 `src/gui/shared/theme.ts`。
 
-`frontend/ui/theme/palette.ts` 使用 OKLab 混色与对比度校正生成语义颜色。组件通过 `frontend/ui/theme/theme.css` 的变量取色。代码高亮和差异保留语义配色。
+`frontend/ui/theme/palette.ts` 使用 OKLab 混色与对比度校正生成语义颜色。组件通过 `frontend/ui/theme/theme.css` 的变量取色。代码高亮使用独立、鲜明的七类语义配色，深浅色下校正阅读对比度，不随主题色改变色相。聊天与 CodeAct 代码在流式生成时即上色；差异继续保留增删语义色。
 
 ## 表面
 

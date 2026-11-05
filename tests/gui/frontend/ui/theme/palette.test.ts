@@ -17,6 +17,10 @@ for (const mode of ["light", "dark"] as const) {
 			for (const text of ["foreground", "muted-foreground", "destructive", "success", "warning"] as const)
 				expect(contrast(palette[text], palette[surface]), `${text} on ${surface}`).toBeGreaterThanOrEqual(4.5);
 		}
+		for (const token of ["syntax-comment", "syntax-keyword", "syntax-string", "syntax-function", "syntax-number", "syntax-attribute", "syntax-variable"] as const) {
+			for (const surface of ["background", "panel-base"] as const)
+				expect(contrast(palette[token], palette[surface]), `${token} on ${surface}`).toBeGreaterThanOrEqual(4.5);
+		}
 		expect(contrast(palette["user-foreground"], palette["user-background"])).toBeGreaterThanOrEqual(4.5);
 		expect(contrast(palette["user-link"], palette["user-background"])).toBeGreaterThanOrEqual(4.5);
 	});

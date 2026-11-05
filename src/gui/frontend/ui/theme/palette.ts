@@ -58,6 +58,8 @@ export function generatePalette(mode: "light" | "dark", themeColor: string) {
 	const scrollbarBackgrounds = [...surfaces, userBackground];
 	const scrollbar = (minimum: number) => readable(mix(background, primary, 0.04), scrollbarBackgrounds, dark, minimum);
 
+	const syntax = (darkColor: string, lightColor: string) => readable(hex(dark ? darkColor : lightColor), [background, panel], dark);
+
 	return {
 		background, foreground,
 		primary, "primary-foreground": primaryForeground,
@@ -95,9 +97,12 @@ export function generatePalette(mode: "light" | "dark", themeColor: string) {
 		"user-border": alpha(primary, dark ? 0.18 : 0.14),
 		"user-surface": composite(alpha(white, dark ? 0.08 : 0.44), userBackground),
 		"user-selection": alpha(primary, dark ? 0.22 : 0.18),
-		"syntax-keyword": hex(dark ? "#CE9AC5" : "#925080"),
-		"syntax-string": hex(dark ? "#A1C39B" : "#39784D"),
-		"syntax-function": hex(dark ? "#98BBD9" : "#396B9A"),
-		"syntax-number": hex(dark ? "#D6B087" : "#9A603A"),
+		"syntax-comment": syntax("#94A3B8", "#6B7280"),
+		"syntax-keyword": syntax("#7DD3FC", "#1D4ED8"),
+		"syntax-string": syntax("#34D399", "#047857"),
+		"syntax-function": syntax("#A5B4FC", "#7C3AED"),
+		"syntax-number": syntax("#F472B6", "#B45309"),
+		"syntax-attribute": syntax("#FCD34D", "#2563EB"),
+		"syntax-variable": syntax("#C084FC", "#6D28D9"),
 	};
 }

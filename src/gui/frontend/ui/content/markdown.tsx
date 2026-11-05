@@ -53,7 +53,7 @@ function MarkdownCode({ children }: ComponentProps<"pre">) {
 	if (!isValidElement<{ children?: string; className?: string }>(child)) return <pre>{children}</pre>;
 	const language = child.props.className?.replace(/^language-/, "") ?? "text";
 	if (language.toLowerCase() === "mermaid") return <MermaidBlock text={child.props.children ?? ""} streaming={streaming} />;
-	return <CodeBlock text={child.props.children ?? ""} label={language === "text" ? "代码" : language} language={language} highlight={!streaming} />;
+	return <CodeBlock text={child.props.children ?? ""} label={language === "text" ? "代码" : language} language={language} />;
 }
 
 export const MarkdownText = memo(function MarkdownText({ text, streaming = false }: { text: string; streaming?: boolean }) {

@@ -7,12 +7,17 @@
 .code-toolbar button svg { width: 1em; height: 1em; }
 .code-block pre { margin: 0; padding: 0.875rem; max-block-size: 60dvh; overflow: auto; border: 0; border-radius: 0; background: transparent; white-space: pre; overflow-wrap: normal; line-height: 1.65; tab-size: 4; }
 .code-block code { font-size: var(--text-code); }
-:is(.code-block, .file-diff) .token:is(.comment, .prolog, .doctype) { color: var(--muted-foreground); font-style: italic; }
-:is(.code-block, .file-diff) .token:is(.keyword, .tag, .atrule, .boolean) { color: var(--syntax-keyword); }
-:is(.code-block, .file-diff) .token:is(.string, .attr-value, .char, .builtin) { color: var(--syntax-string); }
-:is(.code-block, .file-diff) .token:is(.function, .class-name) { color: var(--syntax-function); }
-:is(.code-block, .file-diff) .token:is(.number, .constant, .symbol, .property, .attr-name) { color: var(--syntax-number); }
-:is(.code-block, .file-diff) .token:is(.operator, .punctuation) { color: var(--muted-foreground); }
+:is(.code-block, .file-diff) .token:is(.comment, .prolog, .doctype, .cdata) { color: var(--syntax-comment); font-style: italic; }
+:is(.code-block, .file-diff) .token:is(.keyword, .atrule) { color: var(--syntax-keyword); }
+:is(.code-block, .file-diff) .token:is(.string, .attr-value, .char, .regex) { color: var(--syntax-string); }
+:is(.code-block, .file-diff) .token:is(.function, .class-name, .tag, .selector) { color: var(--syntax-function); }
+:is(.code-block, .file-diff) .token:is(.number, .boolean, .constant, .symbol) { color: var(--syntax-number); }
+:is(.code-block, .file-diff) .token:is(.property, .attr-name, .builtin, .decorator, .annotation) { color: var(--syntax-attribute); }
+:is(.code-block, .file-diff) .token:is(.variable, .parameter, .interpolation) { color: var(--syntax-variable); }
+:is(.code-block, .file-diff) .token:is(.operator, .punctuation) { color: var(--foreground); }
+:is(.code-block, .file-diff) .token.important { color: var(--syntax-keyword); font-weight: 600; }
+:is(.code-block, .file-diff) .token.bold { font-weight: 600; }
+:is(.code-block, .file-diff) .token.italic { font-style: italic; }
 :is(.code-block, .file-diff) .token:is(.inserted, .prefix.inserted) { color: var(--success); }
 :is(.code-block, .file-diff) .token:is(.deleted, .prefix.deleted) { color: var(--destructive); }
 :is(.code-block, .file-diff) .token.coord { color: var(--syntax-function); }

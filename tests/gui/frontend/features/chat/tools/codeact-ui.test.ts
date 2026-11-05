@@ -62,6 +62,7 @@ describe("CodeAct 目的、结果与确认", () => {
 		const preparing = renderTool({ ...tool, state: "preparing", nestedCalls: { complete: true, calls: [] } });
 		expect(preparing.querySelector(".activity-summary")?.textContent).toContain("生成代码");
 		expect(preparing.querySelector("pre")?.textContent).toContain('read(path="a.ts")');
+		expect(preparing.querySelector(".token.string")?.textContent).toBe('"a.ts"');
 		const waiting = renderTool({ ...tool, state: "pending", args: { desc: "请求变更", confirmationPending: true } });
 		expect(waiting.querySelector(".activity-summary")?.textContent).toContain("等待确认");
 		const rejected = renderTool({ ...tool, state: "stopped", durationMs: 0, output: { kind: "inline", value: { content: [], details: { metrics: { outcome: "confirmation_rejected", executed: false } } } } });
