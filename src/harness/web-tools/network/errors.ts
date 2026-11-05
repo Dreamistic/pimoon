@@ -3,8 +3,9 @@ export function classifyNetworkError(error: unknown, userSignal?: AbortSignal): 
 	if (userSignal?.aborted) return "ABORTED";
 	if (codeText.includes("timeout") || error instanceof DOMException && error.name === "TimeoutError") return "TIMEOUT";
 	if (codeText.includes("certificate") || codeText.includes("tls")) return "TLS_FAILED";
-	if (codeText.includes("dns") || codeText.includes("enotfound")) return "DNS_FAILED";
+	// 地址拒绝消息也包含 DNS；安全策略结果优先于普通解析失败。
 	if (codeText.includes("blocked") || codeText.includes("eacces")) return "BLOCKED_ADDRESS";
+	if (codeText.includes("dns") || codeText.includes("enotfound")) return "DNS_FAILED";
 	return "CONNECTION_FAILED";
 }
 

@@ -8,6 +8,7 @@ import * as undici from "undici";
 
 import type { WebToolsConfig } from "../../../src/harness/web-tools/config-types.ts";
 import { createNetworkDispatcher, networkConfigSignature } from "../../../src/harness/web-tools/network/dispatcher.ts";
+import { classifyNetworkError } from "../../../src/harness/web-tools/network/errors.ts";
 import {
 	inspectWebFetchTarget,
 	isAllowedResolvedAddress,
@@ -206,9 +207,9 @@ describe("webfetch network policy", () => {
 		const dispatcher = createNetworkDispatcher(proxyNetwork({ http_proxy: `http://127.0.0.1:${port}` }), undici);
 
 		try {
-			await expect(undici.fetch("http://private.example/", { dispatcher })).rejects.toMatchObject({
-				cause: { code: "EACCES" },
-			});
+			const error: unknown = await undici.fetch("http://private.example/", { dispatcher }).then(() => undefined, (cause: unknown) => cause);
+			expect(error).toMatchObject({ cause: { code: "EACCES" } });
+			expect(classifyNetworkError(error)).toBe("BLOCKED_ADDRESS");
 			expect(requests).toBe(0);
 		} finally {
 			await dispatcher.close();
