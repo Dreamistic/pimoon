@@ -115,3 +115,14 @@ Sol / low / SSE / runtime prompt。三个真实文件业务场景，各三轮、
 扩大检查曾有 58 个失败，不能隐藏该轮结果；与迁移相关的 GUI 主生命周期已在 104 项复测中全部通过。其余工作台/LSP和配置测试中已有旧路径/旧默认值断言，不把未复测的全目录检查宣称通过。未运行全量 E2E。
 
 支持范围仍为 Windows 桌面；在线模型效果证据仅 Sol，其他供应商不宣称已经线上验证。精细输出裁剪暂不开放，保留 execute 完整事务是明确的保守取舍。
+
+## 成品与更新状态
+
+- 正式源码提交 `c1c15b6`，通过 git archive 导出干净快照，只读借用依赖并复制原生执行器资源；没有打包工作区其他未提交报告/Runtime 改动。
+- 干净快照隔离 tsc 与 5 文件 63 项原生/MCP/权限恢复测试通过，Windows desktop --dir 构建及便携封装成功。
+- 成品用 ELECTRON_RUN_AS_NODE + PI_SUBAGENT_CHILD 启动 backend.mjs，无窗口。合成 OAuth 与预加载网络转发只用于隔离烟测，经过真实 Codex 请求边界（含 zstd 请求解压）、两次 SSE 响应、Python 写入及结果回填；两次请求都只声明 execute，文件内容 once。
+- 初次用本地 completions 地址被成品 Codex-only 网络边界拒绝，这是预期安全限制；之后使用精确 Codex URL 的合成网络夹具验证成功。API key 会覆盖订阅认证，烟测改用隔离合成 OAuth，无真实凭据或网络请求。
+- 成品后端、main/preload、Python 与 Rust 资源哈希与干净构建一致。产物登记在 `dist/pimoon-native-update/release.json`，源码版本 c1c15b6。
+- 当前旧版 pimoon 仍在运行，未强杀、未覆盖正在使用的目录。根目录 `启动 pimoon.cmd` 下次启动先运行更新器：有 pimoon.exe 进程则拒绝；退出后校验后端哈希，旧目录重命名保留，再将新目录换到 dist/pimoon；失败尝试恢复旧目录。
+- 已有 dist/pimoon-next 未覆盖，使用独立 pimoon-native-update。更新器“运行中拒绝、退出后替换、缺件拒绝、哈希不符拒绝”4 项通过，桌面子代理源码测试另 1 项通过。
+- 尚未声称运行中应用已升级：需退出所有 pimoon 窗口后，从根目录启动脚本再次启动；原文本会话需新建才能执行。直接点旧 exe 不会触发更新器。

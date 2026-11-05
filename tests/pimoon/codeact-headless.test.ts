@@ -7,7 +7,7 @@ import { expect, it } from "vitest";
 import { startModelServer } from "../cli/model-server.ts";
 import { createRuntimeResources } from "./runtime-resources.ts";
 
-it("桌面无界面子代理同样使用文本 CodeAct，不回落到原生工具", async () => {
+it("桌面无界面子代理只声明 execute，内部函数保持指定范围", async () => {
 	const base = path.resolve(".tmp/tests/codeact-headless"); await fs.mkdir(base, { recursive: true });
 	const folder = await fs.mkdtemp(path.join(base, "case-")), cwd = path.join(folder, "workspace"); await fs.mkdir(cwd);
 	const env: NodeJS.ProcessEnv = { ...process.env, PI_SUBAGENT_CHILD: "1", PI_OFFLINE: "1", PIMOON_RESOURCE_DIR: await createRuntimeResources(folder) };
@@ -16,8 +16,8 @@ it("桌面无界面子代理同样使用文本 CodeAct，不回落到原生工�
 	}
 	const agentDir = path.join(folder, "pimoon_home", "agent"); await fs.mkdir(agentDir);
 	env.PI_CODING_AGENT_DIR = agentDir;
-	const server = await startModelServer(request => JSON.stringify(request.messages).includes("<execute_result status=")
-		? { text: "fixture complete" } : { text: '<execute>\nfrom pathlib import Path\nPath("result.txt").write_text("child-codeact",encoding="utf-8")\n42\n</execute>' });
+	const server = await startModelServer(request => request.messages?.some(message => message.role === "tool")
+		? { text: "fixture complete" } : { tool: "execute", args: { code: 'from pathlib import Path\nPath("result.txt").write_text("child-codeact",encoding="utf-8")\n42', desc: "子代理验证" } });
 	await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "test", defaultTools: ["read", "write"], compaction: { enabled: false }, retry: { enabled: false } }));
 	await fs.writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: { baseUrl: server.url, api: "openai-completions", apiKey: "fixture", models: [{ id: "test", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } }));
 	const entry = path.join(folder, "entry.mjs");
@@ -27,7 +27,7 @@ it("桌面无界面子代理同样使用文本 CodeAct，不回落到原生工�
 		expect(result.stdout).toContain("fixture complete");
 		expect(await fs.readFile(path.join(cwd, "result.txt"), "utf8")).toBe("child-codeact");
 		expect(server.requests.length).toBeGreaterThanOrEqual(2);
-		for (const request of server.requests) expect(request.tools ?? []).toEqual([]);
-		expect(result.stdout).not.toContain('"type":"toolcall_start"');
+		for (const request of server.requests) if (Array.isArray(request.messages)) expect(request.tools?.map(tool => tool.function.name)).toEqual(["execute"]);
+		expect(result.stdout).toContain('"toolName":"execute"');
 	} finally { await server.close(); }
 }, 40_000);
