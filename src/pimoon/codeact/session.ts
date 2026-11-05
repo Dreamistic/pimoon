@@ -15,9 +15,9 @@ import type { CodeActMetadata } from "./metadata.ts";
 
 const internal = (name: string) => name !== "execute" && isCodeActFunction(name);
 const parameters = Type.Object({
-    code: Type.String({ minLength: 1, maxLength: 1024 * 1024, description: "Python source." }),
-    desc: Type.String({ minLength: 1, maxLength: 200, description: "Short purpose." }),
+    desc: Type.String({ minLength: 1, maxLength: 200, description: "Short purpose. Emit desc, confirm (if needed), then code." }),
     confirm: Type.Optional(Type.String({ minLength: 1, maxLength: 1000, description: "Ask only when user intent is uncertain; not tool permission." })),
+    code: Type.String({ minLength: 1, maxLength: 1024 * 1024, description: "Python source." }),
 }, { additionalProperties: false });
 
 /** 单一原生执行入口；内部 Python 函数沿用 SDK 权限与生命周期。 */

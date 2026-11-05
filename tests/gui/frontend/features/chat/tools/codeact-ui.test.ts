@@ -140,6 +140,19 @@ describe("CodeAct 执行容器", () => {
 });
 
 describe("原生 execute 卡片", () => {
+    it.each([
+        { desc: "检查配置" },
+        { desc: "检查配置", confirm: "是否修改配置？" },
+        { desc: "检查配置", confirm: "是否修改配置？", code: "print(" },
+    ])("增量参数 %j 先显示目的，确认原因不触发等待确认", args => {
+        const doc = renderTool({ id: "streaming-execute", name: "execute", state: "preparing", args, output: undefined });
+        expect(doc.querySelector(".activity-label")?.textContent).toBe("检查配置");
+        expect(doc.querySelector(".activity-summary")?.textContent).toContain("生成代码");
+        expect(doc.querySelector(".activity-summary")?.textContent).not.toContain("等待确认");
+        if ("confirm" in args) expect(doc.querySelector(".tool-note")?.textContent).toBe("确认原因：是否修改配置？");
+        if ("code" in args) expect(doc.querySelector("pre")?.textContent).toContain("print(");
+        else expect(doc.querySelector("pre")).toBeNull();
+    });
     it.each(["preparing", "pending", "running", "completed", "failed", "stopped"] as const)("状态 %s 使用 Python 执行容器，保留真实调用身份", state => {
         const doc = renderTool({ ...tool, name: "execute", state,
             args: { code: 'print("中文\\n<script>")', desc: "检查配置", confirmationPending: state === "pending" } });

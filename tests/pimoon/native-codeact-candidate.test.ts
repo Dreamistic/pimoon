@@ -9,6 +9,7 @@ import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
 import { GuiLiveTools } from "../../src/gui/host/projection/live-tools.ts";
 import { GuiPayloads } from "../../src/gui/host/projection/payloads.ts";
+import { GuiStream } from "../../src/gui/host/projection/stream.ts";
 import { GuiDialogs } from "../../src/gui/host/session/dialogs.ts";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -27,6 +28,10 @@ it("模型仅见 execute；Python 状态、多轮结果和内部审批调用身�
         expect(value.results().every(result => !result.isError)).toBe(true);
         for (const request of value.server.requests) {
             expect(request.tools?.map(tool => tool.function.name)).toEqual(["execute"]);
+            const schema = request.tools?.[0]?.function.parameters;
+            if (!schema || typeof schema !== "object" || !("properties" in schema)
+                || !schema.properties || typeof schema.properties !== "object") throw new Error("缺少 execute 参数声明");
+            expect(Object.keys(schema.properties)).toEqual(["desc", "confirm", "code"]);
             expect(JSON.stringify(request)).not.toContain("<execute_result");
         }
         const last = value.server.requests.at(-1);
@@ -293,24 +298,41 @@ it.each(["success", "python_error", "confirmation_rejected"] as const)("原生 %
     } finally { await value.close(); }
 });
 
-it("真实 SSE 分片 JSON 只更新源码预览，正常终态后才写入一次", async () => {
+it("真实 SSE 先投影目的和确认原因，再预览代码，正常终态并确认后才写入一次", async () => {
     const code = 'from pathlib import Path\nPath("streamed.txt").write_text("中文\\\\n\\"ok\\"", encoding="utf-8")';
-    const args = { code, desc: "流式代码" };
-    const json = JSON.stringify(args), split = json.indexOf("write_text") + 5;
-    const value = await fixture([{ tool: "execute", args, argumentChunks: [json.slice(0, split), json.slice(split)], intervalMs: 100 }, { text: "done" }]);
-    let previews = 0, executed = 0;
+    const args = { desc: "流式代码", confirm: "是否写入文件？", code };
+    const json = JSON.stringify(args), confirmStart = json.indexOf(',"confirm"'), codeStart = json.indexOf(',"code"'), split = json.indexOf("write_text") + 5;
+    let confirmations = 0, executed = 0;
+    const value = await fixture([{ tool: "execute", args,
+        argumentChunks: [json.slice(0, confirmStart), json.slice(confirmStart, codeStart), json.slice(codeStart, split), json.slice(split)],
+        intervalMs: 100 }, { text: "done" }], async () => { confirmations++; return { kind: "approved" }; });
+    const stream = new GuiStream(new GuiPayloads());
+    const previews: unknown[] = [];
     const probes: Promise<void>[] = [];
     const unsubscribe = value.runtime.session.subscribe(event => {
-        if (event.type === "message_update" && event.assistantMessageEvent.type === "toolcall_delta") {
-            previews++;
-            probes.push(fs.access(path.join(value.cwd, "streamed.txt")).then(() => { throw new Error("参数生成期间已写入"); }, () => {}));
+        if (event.type === "message_start") stream.start(event.message);
+        if (event.type === "message_update") {
+            const update = event.assistantMessageEvent;
+            if (update.type === "toolcall_start" || update.type === "toolcall_delta" || update.type === "toolcall_end") stream.update(update);
+            if (update.type === "toolcall_delta") {
+                const projected = stream.project();
+                if (projected?.role === "assistant") previews.push(structuredClone(projected.content));
+                expect(executed).toBe(0);
+                expect(confirmations).toBe(0);
+                probes.push(fs.access(path.join(value.cwd, "streamed.txt")).then(() => { throw new Error("参数生成期间已写入"); }, () => {}));
+            }
         }
         if (event.type === "tool_execution_start" && !event.parentToolCallId) executed++;
     });
     try {
         await value.runtime.session.prompt("Fixture.");
         await Promise.all(probes);
-        expect(previews).toBeGreaterThanOrEqual(2);
+        expect(previews).toHaveLength(4);
+        expect(previews[0]).toEqual([expect.objectContaining({ name: "execute", arguments: { desc: args.desc } })]);
+        expect(previews[1]).toEqual([expect.objectContaining({ arguments: { desc: args.desc, confirm: args.confirm } })]);
+        expect(previews[2]).toEqual([expect.objectContaining({ arguments: { desc: args.desc, confirm: args.confirm, code: expect.stringContaining("write") } })]);
+        expect(previews[3]).toEqual([expect.objectContaining({ arguments: args })]);
+        expect(confirmations).toBe(1);
         expect(executed).toBe(1);
         expect(await fs.readFile(path.join(value.cwd, "streamed.txt"), "utf8")).toBe('中文\\n"ok"');
         expect(value.results()[0]?.isError).toBe(false);
