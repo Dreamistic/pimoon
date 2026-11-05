@@ -82,14 +82,25 @@ export function findCompletedToolCallIds(messages: readonly AgentMessage[], excl
 	return completed;
 }
 
+// execute 承载 Python 状态与副作用来源，不能按普通查询工具整笔删除。
+function nativeExecutionIds(messages: readonly AgentMessage[]): Set<string> {
+	return new Set(messages.flatMap(message => message.role === "assistant"
+		? message.content.flatMap(block => block.type === "toolCall" && block.name === "execute" ? [block.id] : [])
+		: message.role === "toolResult" && message.toolName === "execute" ? [message.toolCallId] : []));
+}
+
 export function findPrunableToolCallIds(messages: readonly AgentMessage[]): Set<string> {
 	const completed = findCompletedToolCallIds(messages);
+	for (const id of nativeExecutionIds(messages)) completed.delete(id);
 	for (const message of completedCodeActResults(messages)) completed.delete(message.details.id);
 	for (const id of codeActPruneCandidates(messages)) completed.add(id);
 	return completed;
 }
 
 export function pruneToolTransactions(messages: readonly AgentMessage[], toolCallIds: ReadonlySet<string>): PruneResult {
+	// 历史裁剪检查点或显式 ID 也不能绕过执行事务保护。
+	const protectedIds = nativeExecutionIds(messages);
+	toolCallIds = new Set([...toolCallIds].filter(id => !protectedIds.has(id)));
 	const pruned: AgentMessage[] = [];
 	let removedAssistantMessages = 0;
 	let removedToolCalls = 0;
