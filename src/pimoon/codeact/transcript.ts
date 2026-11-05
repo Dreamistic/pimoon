@@ -1,6 +1,19 @@
 import { normalizeContext, type Message, type TranscriptContext } from "@earendil-works/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { isCodeActResultMessage } from "./types.ts";
 import type { CodeActMessage } from "./types.ts";
 export type { CodeActMessage } from "./types.ts";
+
+/** 执行结果只在模型投影中转换；持久化原文和裁剪恢复使用同一契约。 */
+export function codeactResultToUser(message: AgentMessage): AgentMessage {
+	if (!isCodeActResultMessage(message)) return message;
+	const content = typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
+	const text = content.filter(part => part.type === "text").map(part => part.text).join("\n");
+	return { role: "user", timestamp: message.timestamp, content: [
+		{ type: "text", text: `<execute_result status="${message.details.isError ? "error" : "ok"}">\n${text}\n</execute_result>` },
+		...content.filter(part => part.type === "image"),
+	] };
+}
 
 /** 模型只接收文本 CodeAct；SDK 的内部能力声明不进入请求。 */
 export function codeactTranscript(context: TranscriptContext, instructions = ""): TranscriptContext {

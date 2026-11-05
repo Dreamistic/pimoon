@@ -53,7 +53,8 @@ for (const app of apps) {
 	const bundle = path.join(base, `${app}.mjs`);
 	const built = await build({ metafile: true, stdin: { contents: `export { default as fileTools } from ${JSON.stringify(path.join(source, "src/harness/extensions/file-tools.ts"))};
 export { default as systemPrompt } from ${JSON.stringify(path.join(source, "src/harness/extensions/system-prompt.ts"))};
-export { estimateRequestTokens, estimateResponseTokens, responseUsageStatus, summarizeTokenAccounting, textTokens } from ${JSON.stringify(path.join(root, "src/pimoon/token-accounting.ts"))};
+export { estimateRequestTokens, estimateResponseTokens, summarizeTokenAccounting, textTokens } from ${JSON.stringify(path.join(root, "src/pimoon/token-accounting.ts"))};
+export { responseUsageStatus } from ${JSON.stringify(path.join(root, "src/pimoon/usage-status.ts"))};
 ${app === "pimoon" ? `export { CodeAct } from ${JSON.stringify(path.join(root, "src/pimoon/codeact/session.ts"))}; export { flushTelemetry } from ${JSON.stringify(path.join(root, "src/pimoon/telemetry.ts"))};` : ""}
 export async function disposeLsp() { const { lspManager } = await import(${JSON.stringify(path.join(source, "src/harness/lsp/index.ts"))}); await lspManager.reload(); }`, resolveDir: root }, outfile: bundle, bundle: true, platform: "node", format: "esm", packages: "external", logLevel: "silent" });
 	bundles[app] = bundle;

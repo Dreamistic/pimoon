@@ -15,6 +15,8 @@ export interface CodeActResult {
 	isError: boolean;
 	durationMs: number;
 	metrics: Record<string, unknown>;
+	/** 仅用于上下文投影；原始会话结果不改写。 */
+	pruned?: true;
 	nestedCalls?: NonNullable<ToolResultMessage["nestedCalls"]>;
 }
 

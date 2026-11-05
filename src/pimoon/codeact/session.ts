@@ -10,7 +10,8 @@ import { checkReadablePath, checkWritablePath, protectedControlPaths } from "../
 import { functionCatalog } from "./catalog.ts";
 import { codeactInstructions } from "./prompt.ts";
 import { codeactStream } from "./stream.ts";
-import { CODEACT_RESULT, codeactSource, isCodeActResult, type CodeActMessage, type CodeActResult } from "./types.ts";
+import { CODEACT_RESULT, codeactSource, type CodeActMessage, type CodeActResult } from "./types.ts";
+import { codeactResultToUser } from "./transcript.ts";
 
 type ExecutionEvent = Extract<AgentSessionEvent, { type: "tool_execution_start" | "tool_execution_update" | "tool_execution_end" }>;
 import { CODEACT_EXECUTION, type CodeActExecutionEvent } from "./events.ts";
@@ -45,15 +46,7 @@ export class CodeAct {
 			return `${codeactInstructions}\nFunctions:\n${functionCatalog(context.tools.filter(fn => isCodeActFunction(fn.name))) || "None."}`;
 		});
 		const convert = session.agent.convertToLlm;
-		session.agent.convertToLlm = messages => convert(messages.map(message => {
-			if (message.role !== "custom" || message.customType !== CODEACT_RESULT || !isCodeActResult(message.details)) return message;
-			const content = typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
-			const text = content.filter(part => part.type === "text").map(part => part.text).join("\n");
-			return { role: "user" as const, timestamp: message.timestamp, content: [
-				{ type: "text" as const, text: `<execute_result status="${message.details.isError ? "error" : "ok"}">\n${text}\n</execute_result>` },
-				...content.filter(part => part.type === "image"),
-			] };
-		}));
+		session.agent.convertToLlm = messages => convert(messages.map(codeactResultToUser));
 	}
 
 	private register(pi: ExtensionAPI): void {

@@ -24,6 +24,13 @@ describe("报告数据呈现", () => {
 		expect(doc.querySelector('[aria-label="工具输出"]')?.getAttribute("value")).toBe("50");
 	});
 
+	it("会话用量有缺失时明确显示已报告部分，不将已知费用称为总费用", () => {
+		const doc = documentOf(createElement(StatsReport, { value: { ...statsReport, usage: { ...statsReport.usage, incompleteAssistantTurns: 2 } } }));
+		expect(doc.querySelector(".report-metrics")?.textContent).toContain("已报告 Token");
+		expect(doc.querySelector(".report-metrics")?.textContent).toContain("已知估算费用");
+		expect(doc.querySelector(".report-note")?.textContent).toContain("无法据此得出完整 Token 或总费用");
+	});
+
 	it("缺失的上下文用量不伪装为零占用", () => {
 		const doc = documentOf(createElement(StatsReport, { value: { ...statsReport, context: { confidence: "estimated", items: [], notes: [] } } }));
 		expect(doc.querySelector('[aria-label="上下文占用"]')).toBeNull();

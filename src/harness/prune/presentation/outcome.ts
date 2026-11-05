@@ -59,7 +59,9 @@ export function formatPruneOutcome(outcome: PruneOperationOutcome): PruneNotice 
 }
 
 function formatSummary(result: PruneResultSummary): string {
-	return `${result.removedToolCalls} calls, ${result.removedToolResults} outputs, ${result.removedAssistantMessages} tool-only assistant messages`;
+	const codeact = result.prunedCodeActOutputs ? `${result.prunedCodeActOutputs} CodeAct outputs (code retained)` : "";
+	const native = result.removedToolCalls ? `${result.removedToolCalls} calls, ${result.removedToolResults} outputs, ${result.removedAssistantMessages} tool-only assistant messages` : "";
+	return [native, codeact].filter(Boolean).join("; ");
 }
 
 function formatCost(preview: PruneCostPreview): string {

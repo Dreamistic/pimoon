@@ -1,5 +1,3 @@
-import { availableParallelism } from "node:os";
-
 import { createTextTokenMatcher, splitTokens } from "../../code-index/text.ts";
 import { languageFromPath } from "../../syntax-tree/grammars.ts";
 import type { ScannedLine, TextContent } from "../../filesystem/contracts/content.ts";
@@ -15,9 +13,9 @@ import { compactGrepSkippedFiles, createGrepSkippedFiles, recordSkippedFile } fr
 import type { GrepScopeError, GrepSkippedFiles } from "./types.ts";
 import { GrepLineMatcher, type LineMatch } from "./regex-matcher.ts";
 import { WorkerTaskAbortedError } from "../../worker-runtime/worker-task-pool.ts";
+import { FILE_SCAN_CONCURRENCY, type GrepScanBudget } from "./scan-budget.ts";
 
 const MAX_ANCHORS_PER_FILE = 64;
-const FILE_SCAN_CONCURRENCY = Math.max(1, Math.min(8, Math.floor(availableParallelism() / 2)));
 export const MAX_STORED_TEXT_HITS = 10_000;
 export const MAX_STORED_LEXICAL_ANCHORS = 10_000;
 
@@ -44,6 +42,7 @@ export interface TextScannerContext {
 	readonly operation: FsOperationContext;
 	readonly retainTextMaxBytes?: number;
 	readonly contentCache?: GrepContentCacheLease;
+	readonly scanBudget?: GrepScanBudget;
 }
 
 interface PreparedTextQuery {
@@ -98,7 +97,10 @@ async function scanText(inventory: ScopeInventory, query: PreparedTextQuery, con
 		const cancellation = new AbortController();
 		const signal = context.operation.signal === undefined ? cancellation.signal
 			: AbortSignal.any([context.operation.signal, cancellation.signal]);
-		const scans = batch.map((file) => scanFile(file, query, { ...context, operation: { ...context.operation, signal } }));
+		const scans = batch.map((file) => {
+			const scan = () => scanFile(file, query, { ...context, operation: { ...context.operation, signal } });
+			return context.scanBudget ? context.scanBudget.run(scan, signal) : scan();
+		});
 		let scannedBatch: Awaited<ReturnType<typeof scanFile>>[];
 		try {
 			scannedBatch = await Promise.all(scans);

@@ -5,6 +5,21 @@ import { CodeActParser, type CodeActChunk } from "./parser.ts";
 import { codeactTranscript, type CodeActMessage } from "./transcript.ts";
 
 const stopSequence = Symbol("codeact.stop_sequence");
+export const USAGE_SETTLE_GRACE_MS = 250;
+
+/** 给同一响应的正常终态留有限窗口；不无限续等，也不发补账请求。 */
+async function settleGrace(result: Promise<AssistantMessage>, signal: AbortSignal): Promise<void> {
+	if (signal.aborted) return;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let abort = () => {};
+	try {
+		await Promise.race([result, new Promise<void>(resolve => {
+			abort = resolve;
+			signal.addEventListener("abort", abort, { once: true });
+			timer = setTimeout(resolve, USAGE_SETTLE_GRACE_MS);
+		})]);
+	} finally { clearTimeout(timer); signal.removeEventListener("abort", abort); }
+}
 
 /** 取消必须完成收尾；超时不启动代码。 */
 async function stoppedResult(result: Promise<AssistantMessage>): Promise<AssistantMessage> {
@@ -109,7 +124,7 @@ export function codeactStream(provider: StreamFn, instructions: () => string = (
 						const part = textIndex === undefined ? undefined : message.content[textIndex];
 						const original = event.partial.content[event.contentIndex];
 						if (part?.type === "text" && original?.type === "text" && original.textSignature !== undefined) part.textSignature = original.textSignature;
-					} else if (event.type === "thinking_start") {
+					} else if (event.type === "thinking_start" && !parser.closed) {
 						closeText();
 						const original = event.partial.content[event.contentIndex];
 						if (original?.type !== "thinking") throw new Error("模型思考块无效。");
@@ -117,7 +132,7 @@ export function codeactStream(provider: StreamFn, instructions: () => string = (
 						thinking.set(event.contentIndex, index);
 						message.content.push({ ...original, thinking: original.redacted ? original.thinking : "" });
 						output.push({ type: "thinking_start", contentIndex: index, partial: message });
-					} else if (event.type === "thinking_delta" || event.type === "thinking_end") {
+					} else if ((event.type === "thinking_delta" || event.type === "thinking_end") && !parser.closed) {
 						const index = thinking.get(event.contentIndex);
 						const part = index === undefined ? undefined : message.content[index];
 						if (index === undefined || part?.type !== "thinking") continue;
@@ -133,6 +148,7 @@ export function codeactStream(provider: StreamFn, instructions: () => string = (
 					if (parser.closed) {
 						// 先让已经排队的终态结算，不能把已失败的响应改判为主动截停。
 						await Promise.resolve();
+						if (!providerFinished && !controller.signal.aborted) await settleGrace(result, controller.signal);
 						if (!providerFinished && !controller.signal.aborted) {
 							locallyStopped = true;
 							controller.abort(stopSequence);
@@ -174,8 +190,8 @@ export function codeactStream(provider: StreamFn, instructions: () => string = (
 					if (final.stopReason !== "length" || parser.closed) accept(parser.finish());
 					closeText();
 					let remaining = parser.closed ? parser.consumed : Infinity;
-					message.codeactContent = final.content.flatMap((part): CodeActMessage["content"] => {
-						if (part.type !== "text") return incompleteStop ? [] : [part];
+					message.codeactContent = final.content.flatMap((part, sourceIndex): CodeActMessage["content"] => {
+						if (part.type !== "text") return incompleteStop || !thinking.has(sourceIndex) ? [] : [part];
 						const text = part.text.slice(0, remaining);
 						remaining -= text.length;
 						if (!text) return [];

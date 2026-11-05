@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { estimateRequestTokens, estimateResponseTokens, responseUsageStatus, summarizeTokenAccounting, textTokens } from "../../src/pimoon/token-accounting.ts";
+import { estimateRequestTokens, estimateResponseTokens, summarizeTokenAccounting, textTokens } from "../../src/pimoon/token-accounting.ts";
+import { responseUsageStatus } from "../../src/pimoon/usage-status.ts";
 import { codeactInstructions } from "../../src/pimoon/codeact/prompt.ts";
 import type { CodeActMessage } from "../../src/pimoon/codeact/types.ts";
 

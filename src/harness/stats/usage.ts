@@ -2,6 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Usage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { CacheStats, UsageStats } from "./types.ts";
+import { responseUsageStatus } from "../../pimoon/usage-status.ts";
 
 /** 对话轮次和命中率只统计 assistant，不包含后台请求。 */
 export function summarizeUsage(messages: readonly AgentMessage[]): { usage: UsageStats; cache: CacheStats } {
@@ -13,10 +14,12 @@ export function summarizeUsage(messages: readonly AgentMessage[]): { usage: Usag
 	let lastTurnTokens: number | undefined;
 	let lastCostUsd: number | undefined;
 	let latestHitRate: number | undefined;
-	let assistantTurns = 0;
+	let assistantTurns = 0, incompleteAssistantTurns = 0;
 	for (const message of messages) {
 		if (message.role !== "assistant") continue;
 		assistantTurns += 1;
+		const complete = responseUsageStatus(message) === "complete";
+		if (!complete) incompleteAssistantTurns++;
 		const usage = message.usage;
 		inputTokens += usage.input;
 		outputTokens += usage.output;
@@ -24,9 +27,9 @@ export function summarizeUsage(messages: readonly AgentMessage[]): { usage: Usag
 		cacheWriteTokens += usage.cacheWrite;
 		costUsd += usage.cost.total;
 		const promptTokens = usage.input + usage.cacheRead + usage.cacheWrite;
-		lastTurnTokens = promptTokens + usage.output;
-		lastCostUsd = usage.cost.total;
-		latestHitRate = promptTokens > 0 ? usage.cacheRead / promptTokens * 100 : undefined;
+		lastTurnTokens = complete ? promptTokens + usage.output : undefined;
+		lastCostUsd = complete ? usage.cost.total : undefined;
+		latestHitRate = complete && promptTokens > 0 ? usage.cacheRead / promptTokens * 100 : undefined;
 	}
 	const totalPromptTokens = inputTokens + cacheReadTokens + cacheWriteTokens;
 	const totalObservedTokens = totalPromptTokens + outputTokens;
@@ -34,7 +37,8 @@ export function summarizeUsage(messages: readonly AgentMessage[]): { usage: Usag
 		usage: {
 			inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalObservedTokens,
 			...(lastTurnTokens === undefined ? {} : { lastTurnTokens }),
-			...(assistantTurns > 0 ? { averageTokensPerAssistantTurn: totalObservedTokens / assistantTurns } : {}),
+			...(assistantTurns > 0 && incompleteAssistantTurns === 0 ? { averageTokensPerAssistantTurn: totalObservedTokens / assistantTurns } : {}),
+			...(incompleteAssistantTurns ? { incompleteAssistantTurns } : {}),
 			...(costUsd > 0 ? { costUsd } : {}),
 			...(lastCostUsd !== undefined && lastCostUsd > 0 ? { lastCostUsd } : {}),
 		},

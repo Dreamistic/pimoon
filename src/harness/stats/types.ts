@@ -33,6 +33,8 @@ export interface UsageStats {
 	averageTokensPerAssistantTurn?: number;
 	costUsd?: number;
 	lastCostUsd?: number;
+	/** 存在未完整返回的 assistant 用量时，总数与费用仅为已报告部分。 */
+	incompleteAssistantTurns?: number;
 	cacheWarming?: { requests: number; tokens: number; costUsd: number };
 }
 

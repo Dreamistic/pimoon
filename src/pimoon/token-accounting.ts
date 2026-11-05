@@ -3,6 +3,7 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { CodeActParser } from "./codeact/parser.ts";
 import { codeactInstructions } from "./codeact/prompt.ts";
 import type { CodeActMessage } from "./codeact/types.ts";
+import type { UsageStatus } from "./usage-status.ts";
 
 const options = { disallowedSpecial: new Set<string>() };
 export const textTokens = (text: string): number => countTokens(text, options);
@@ -25,7 +26,6 @@ export interface ResponseTokenEstimate {
 	tool_calls: number;
 	elapsed_ms: number;
 }
-export type UsageStatus = "complete" | "partial" | "unavailable";
 export interface TokenAccountingRecord {
 	input?: RequestTokenEstimate;
 	output?: ResponseTokenEstimate;
@@ -90,12 +90,6 @@ export function estimateResponseTokens(message: CodeActMessage): ResponseTokenEs
 		}
 	}
 	return { method: "o200k_base", visible_output: output, tool_calls: calls, elapsed_ms: performance.now() - started };
-}
-
-export function responseUsageStatus(message: CodeActMessage): UsageStatus {
-	if (message.codeactStop) return message.codeactStop.usage;
-	if (!Number.isFinite(message.usage.totalTokens) || message.usage.totalTokens <= 0) return "unavailable";
-	return ["error", "aborted", "pending"].includes(message.stopReason) ? "partial" : "complete";
 }
 
 /** 真实总量只在每次请求均有完整 usage 时存在；估算与供应商数字绝不混加。 */

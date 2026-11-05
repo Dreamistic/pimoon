@@ -16,6 +16,7 @@ import { mergeGrepSkippedFiles } from "./skipped.ts";
 import { GrepRegionizer } from "./regionizer.ts";
 import { analyzeSymbols } from "./symbol-analysis.ts";
 import { scanInventoryText } from "./text-scanner.ts";
+import { GrepScanBudget } from "./scan-budget.ts";
 import type { GrepParams, GrepScopeError, GrepStats, GrepSuccess } from "./types.ts";
 
 type GrepSkippedStats = NonNullable<GrepSuccess["stats"]["skipped_files"]>;
@@ -33,6 +34,7 @@ export interface GrepCommandContext {
 /** 正文缓存、语法缓存、解析器和活动调用共享所有者。 */
 export class GrepTool {
 	private readonly contentCache = new GrepContentCache();
+	private readonly scanBudget = new GrepScanBudget();
 	private readonly regionizer = new GrepRegionizer();
 	private readonly owner = new AbortController();
 	private disposed = false;
@@ -89,7 +91,7 @@ export class GrepTool {
 			filesystem: context.filesystem,
 			operation: context.operation,
 			retainTextMaxBytes: context.limits.grep_ast_max_file_bytes,
-			contentCache,
+			contentCache, scanBudget: this.scanBudget,
 		});
 		if (isFailed(scanned)) return scanned;
 		const scannedAt = performance.now();

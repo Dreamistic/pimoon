@@ -15,11 +15,12 @@ export function StatsReport({ value }: { value: StatsSnapshot }) {
 	return <div className="report-dashboard">
 		<div className="report-intro"><span className="report-badge">{session.status === "running" ? "运行中" : "会话快照"}</span><h2>{session.modelId ?? "尚未选择模型"}</h2><p>{session.modelProvider}{session.thinkingLevel && ` · 思考级别 ${session.thinkingLevel}`}</p></div>
 		<Metrics items={[
-			{ label: "累计 Token", value: <AnimatedNumber value={usage.totalObservedTokens} />, hint: "会话中已记录的用量" },
-			{ label: "估算费用", value: money(usage.costUsd), hint: session.usingSubscription ? "订阅套餐 · 非实际账单" : "USD · 非实际账单" },
+			{ label: usage.incompleteAssistantTurns ? "已报告 Token" : "累计 Token", value: <AnimatedNumber value={usage.totalObservedTokens} />, hint: "会话中已记录的用量" },
+			{ label: usage.incompleteAssistantTurns ? "已知估算费用" : "估算费用", value: money(usage.costUsd), hint: session.usingSubscription ? "订阅套餐 · 非实际账单" : "USD · 非实际账单" },
 			{ label: "用户轮次", value: <AnimatedNumber value={session.userTurns} /> },
 			{ label: "助手轮次", value: <AnimatedNumber value={session.assistantTurns} /> },
 		]} />
+		{usage.incompleteAssistantTurns ? <p className="report-note">有 {usage.incompleteAssistantTurns} 条回复用量未完整返回；这里只展示已报告部分，无法据此得出完整 Token 或总费用。</p> : null}
 		<Section title="上下文窗口">
 			<Bar label="上下文占用" value={context.percent} tone={context.percent != null && context.percent >= 80 ? "warning" : "accent"} />
 			<Facts items={[["当前 Token", number(context.totalTokens)], ["窗口容量", number(context.contextWindow)], ["剩余 Token", number(context.remainingTokens)], ["计量方式", { exact: "精确", estimated: "估算", mixed: "精确总量 + 估算拆分" }[context.confidence]]]} />

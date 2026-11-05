@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const runs = Number(process.argv[2] ?? 3);
+const concurrent = process.argv.includes("--concurrent");
 if (!Number.isInteger(runs) || runs < 1 || runs > 10) throw new Error("采样次数必须为 1–10。");
 const parent = path.join(root, ".tmp/tests/search-benchmark");
 await fs.mkdir(parent, { recursive: true });
@@ -25,16 +26,24 @@ const host = new FileToolsHost(), tool = new GrepTool();
 const samples = [];
 try {
 	for (let index = 0; index < runs; index++) {
-		for (const query of ["PIMOON_HOME", "enabledModels|selectedModels|scopedModels"]) {
+		const queries = concurrent ? ["PIMOON_HOME", "enabledModels|selectedModels|scopedModels", "codeact", "approval"] : ["PIMOON_HOME", "enabledModels|selectedModels|scopedModels"];
+		const batchStarted = performance.now();
+		const search = async query => {
 			const started = performance.now();
 			const opened = await host.open({ cwd: root, sessionId: "search-benchmark" });
 			if (opened.status === "failed") throw new Error(JSON.stringify(opened));
 			try {
 				const result = await tool.execute({ query, path: [root] }, opened);
 				if (result.status === "failed") throw new Error(JSON.stringify(result));
-				samples.push({ sample: index, query, ms: performance.now() - started, timing: result.timing, stats: result.stats, truncated: result.truncated_by });
+				return { sample: index, query, ms: performance.now() - started, timing: result.timing, stats: result.stats, truncated: result.truncated_by };
 			} finally { opened.dispose(); }
-		}
+		};
+		if (concurrent) {
+			const results = await Promise.all(queries.map(search));
+			const batchMs = performance.now() - batchStarted;
+			samples.push(...results.map(result => ({ ...result, batchMs })));
+			console.log(`batch=${index} ms=${Math.round(batchMs)}`);
+		} else for (const query of queries) samples.push(await search(query));
 	}
 } finally { tool.dispose(); host.dispose(); }
 const output = path.join(base, "results.json");

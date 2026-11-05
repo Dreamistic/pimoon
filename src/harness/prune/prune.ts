@@ -3,6 +3,8 @@ import { getSystemMessageText, type Api, type Model, type ModelCostRates, type U
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 import { countTextTokensSync, type TokenCounterConfidence, type TokenCounterScope } from "../token-counter.ts";
+import { codeActPruneCandidates, completedCodeActResults, pruneCodeActOutput } from "./codeact.ts";
+import { isCodeActResultMessage, type CodeActMessage } from "../../pimoon/codeact/types.ts";
 
 export const PRUNE_STATE = "prune";
 export const COST_CLOSE_RATIO = 0.1;
@@ -33,6 +35,7 @@ export interface PruneResult {
 	removedAssistantMessages: number;
 	removedToolCalls: number;
 	removedToolResults: number;
+	prunedCodeActOutputs?: number;
 }
 
 export interface PruneTokenEstimate {
@@ -75,6 +78,14 @@ export function findCompletedToolCallIds(messages: readonly AgentMessage[], excl
 			if (block.type === "toolCall" && resultIds.has(block.id) && !excluded.has(block.id)) completed.add(block.id);
 		}
 	}
+	for (const message of completedCodeActResults(messages)) if (!excluded.has(message.details.id)) completed.add(message.details.id);
+	return completed;
+}
+
+export function findPrunableToolCallIds(messages: readonly AgentMessage[]): Set<string> {
+	const completed = findCompletedToolCallIds(messages);
+	for (const message of completedCodeActResults(messages)) completed.delete(message.details.id);
+	for (const id of codeActPruneCandidates(messages)) completed.add(id);
 	return completed;
 }
 
@@ -84,7 +95,12 @@ export function pruneToolTransactions(messages: readonly AgentMessage[], toolCal
 	let removedToolCalls = 0;
 	let removedToolResults = 0;
 
+	let prunedCodeActOutputs = 0;
+	const codeActIds = new Set(completedCodeActResults(messages).map(message => message.details.id));
+	for (const id of codeActIds) if (!toolCallIds.has(id)) codeActIds.delete(id);
 	for (const message of messages) {
+		const projected = pruneCodeActOutput(message, codeActIds);
+		if (projected) { pruned.push(projected); prunedCodeActOutputs++; continue; }
 		if (message.role === "toolResult" && toolCallIds.has(message.toolCallId)) {
 			removedToolResults += 1;
 			continue;
@@ -119,6 +135,7 @@ export function pruneToolTransactions(messages: readonly AgentMessage[], toolCal
 		removedAssistantMessages,
 		removedToolCalls,
 		removedToolResults,
+		...(prunedCodeActOutputs ? { prunedCodeActOutputs } : {}),
 	};
 }
 
@@ -146,7 +163,10 @@ export function findVisibleToolCallIds(
 	messages: AgentMessage[],
 	branchEntries: readonly SessionEntry[],
 ): Set<string> {
-	return findCompletedToolCallIds(applyPersistedToolPruning(messages, branchEntries));
+	const projected = applyPersistedToolPruning(messages, branchEntries);
+	const ids = findCompletedToolCallIds(projected);
+	for (const message of projected) if (isCodeActResultMessage(message) && message.details.pruned) ids.delete(message.details.id);
+	return ids;
 }
 
 export function findRestorablePruneState(entries: readonly SessionEntry[]): RestorablePruneState | undefined {
@@ -206,6 +226,8 @@ export function getLastUsage(messages: readonly AgentMessage[]): Usage | undefin
 		const message = messages[index];
 		if (message?.role !== "assistant") continue;
 		const usage = message.usage;
+		const codeact: CodeActMessage = message;
+		if (codeact.codeactStop && codeact.codeactStop.usage !== "complete") continue;
 		if (message.stopReason !== "aborted" && message.stopReason !== "error" && getUsageContextTokens(usage) > 0) return usage;
 	}
 	return undefined;
@@ -277,6 +299,7 @@ function parseStringArray(value: unknown): string[] | undefined {
 }
 
 function messageChanges(message: AgentMessage, toolCallIds: ReadonlySet<string>): boolean {
+	if (isCodeActResultMessage(message)) return toolCallIds.has(message.details.id);
 	if (message.role === "toolResult") return toolCallIds.has(message.toolCallId);
 	return message.role === "assistant"
 		&& message.content.some((block) => block.type === "toolCall" && toolCallIds.has(block.id));

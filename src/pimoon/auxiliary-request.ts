@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
 import { fingerprint, record, requestBindings } from "./telemetry.ts";
 import { sessionTrace } from "./trace.ts";
-import { estimateRequestTokens, estimateResponseTokens, responseUsageStatus } from "./token-accounting.ts";
+import { estimateRequestTokens, estimateResponseTokens } from "./token-accounting.ts";
+import { responseUsageStatus } from "./usage-status.ts";
 
 /** 辅助请求有独立 ID 和终态，不覆盖主模型关联，也不记录提示词或响应正文。 */
 export function bindAuxiliaryRequest(payload: unknown, model: Pick<Model<Api>, "id" | "provider">, session: string) {

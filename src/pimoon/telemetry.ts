@@ -9,7 +9,8 @@ import packageInfo from "../../package.json" with { type: "json" };
 import type { CodeActMessage } from "./codeact/transcript.ts";
 import { APPROVAL_STATUS_CHANNEL, isApprovalStatusEvent } from "../harness/approval/events.ts";
 import { CallTiming, processDuration } from "../harness/telemetry/call-timing.ts";
-import { estimateRequestTokens, estimateResponseTokens, responseUsageStatus, textTokens } from "./token-accounting.ts";
+import { estimateRequestTokens, estimateResponseTokens, textTokens } from "./token-accounting.ts";
+import { responseUsageStatus } from "./usage-status.ts";
 
 const run = applicationRunId;
 export const telemetryDirectory = path.join(pimoonHome, "telemetry", run);

@@ -6,8 +6,8 @@ import { convertToLlm, type SessionEntry } from "@earendil-works/pi-coding-agent
 import {
 	buildPruneCostPreview,
 	estimateMessagesTokensWithConfidence,
-	findCommonPrefixTokens,
 	findCompletedToolCallIds,
+	findPrunableToolCallIds,
 	findRestorablePruneState,
 	getLastUsage,
 	getUsageContextTokens,
@@ -20,6 +20,8 @@ import {
 	type PruneRestoreState,
 	type PruneState,
 } from "./prune.ts";
+import { codeactResultToUser, codeactTranscript } from "../../pimoon/codeact/transcript.ts";
+import { isCodeActResultMessage } from "../../pimoon/codeact/types.ts";
 
 export type PruneOperation = "prune" | "force" | "restore";
 
@@ -27,6 +29,7 @@ export interface PruneResultSummary {
 	removedAssistantMessages: number;
 	removedToolCalls: number;
 	removedToolResults: number;
+	prunedCodeActOutputs?: number;
 }
 
 export type PruneOperationOutcome =
@@ -151,7 +154,6 @@ function costAwarePrune(port: PruneServicePort, model: Model<Api>): PruneOperati
 		selection.beforeMessages,
 		selection.afterResult.messages,
 		selection.rawMessages,
-		selection.candidates,
 	);
 	if (!preview.shouldPrune) {
 		return {
@@ -239,7 +241,7 @@ function selectPrunableToolTransactions(port: Pick<PruneServicePort, "getBranch"
 	const previousState = readPruneState(port.getBranch());
 	const previouslyPruned = new Set(previousState?.toolCallIds ?? []);
 	const beforeMessages = pruneToolTransactions(rawMessages, previouslyPruned).messages;
-	const candidates = findCompletedToolCallIds(beforeMessages);
+	const candidates = findPrunableToolCallIds(beforeMessages);
 	return {
 		rawMessages,
 		beforeMessages,
@@ -265,15 +267,16 @@ function previewPruneCost(
 	beforeMessages: readonly AgentMessage[],
 	afterMessages: readonly AgentMessage[],
 	cacheEvidenceMessages: readonly AgentMessage[],
-	candidates: ReadonlySet<string>,
 ): PruneCostPreview {
 	const scope = { provider: model.provider, modelId: model.id, baseUrl: model.baseUrl };
 	const compat = model.compat;
 	const supportsPatches = compat !== undefined && "supportsMidConvoSystemMessages" in compat
 		&& compat.supportsMidConvoSystemMessages === true;
-	const project = (messages: readonly AgentMessage[]) => transformMessages(resolveTranscript(
-		normalizeContext({ messages: convertToLlm([...messages]) }), supportsPatches,
-	).messages, model);
+	const project = (messages: readonly AgentMessage[]) => {
+		const context = normalizeContext({ messages: convertToLlm(messages.map(codeactResultToUser)) });
+		const projected = messages.some(isCodeActResultMessage) ? codeactTranscript(context) : context;
+		return transformMessages(resolveTranscript(projected, supportsPatches).messages, model);
+	};
 	const before = project(beforeMessages);
 	const after = project(afterMessages);
 	const beforeEstimate = estimateMessagesTokensWithConfidence(before, scope);
@@ -282,6 +285,10 @@ function previewPruneCost(
 		|| afterEstimate.confidence === "low"
 		? "low"
 		: "high";
+	let commonMessages = 0;
+	while (commonMessages < before.length && commonMessages < after.length
+		&& JSON.stringify(before[commonMessages]) === JSON.stringify(after[commonMessages])) commonMessages++;
+	const commonPrefixTokens = estimateMessagesTokensWithConfidence(before.slice(0, commonMessages), scope).tokens;
 	const lastUsage = getLastUsage(beforeMessages);
 	const cacheableFullTokens = lastUsage && getUsageContextTokens(lastUsage) > 0
 		? lastUsage.input + lastUsage.cacheRead + lastUsage.cacheWrite
@@ -290,7 +297,7 @@ function previewPruneCost(
 		model,
 		fullTokens: beforeEstimate.tokens,
 		prunedTokens: afterEstimate.tokens,
-		commonPrefixTokens: findCommonPrefixTokens(before, candidates, scope),
+		commonPrefixTokens,
 		cacheableFullTokens,
 		usesCacheWrite: hasObservedCacheWrite(cacheEvidenceMessages),
 		tokenConfidence,
@@ -302,6 +309,7 @@ function summarize(result: ReturnType<typeof pruneToolTransactions>): PruneResul
 		removedAssistantMessages: result.removedAssistantMessages,
 		removedToolCalls: result.removedToolCalls,
 		removedToolResults: result.removedToolResults,
+		...(result.prunedCodeActOutputs ? { prunedCodeActOutputs: result.prunedCodeActOutputs } : {}),
 	};
 }
 

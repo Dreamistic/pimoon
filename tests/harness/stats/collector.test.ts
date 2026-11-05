@@ -88,6 +88,19 @@ describe("stats collector", () => {
 		}
 	});
 
+	it("截流回复的已报告费用不冒充完整总量，后续完整回复也不抹掉缺失标记", () => {
+		const partial = { ...assistant("partial", { input: 10, output: 2, cacheRead: 0, cacheWrite: 0, total: 12, cost: 0.1 }),
+			codeactStop: { sequence: "</execute>" as const, usage: "partial" as const } };
+		const complete = assistant("done", { input: 20, output: 3, cacheRead: 0, cacheWrite: 0, total: 23, cost: 0.2 });
+		const first = summarizeSessionUsage(entries([partial]));
+		expect(first.usage).toMatchObject({ incompleteAssistantTurns: 1, costUsd: 0.1, totalObservedTokens: 12 });
+		expect(first.usage).not.toHaveProperty("lastCostUsd");
+		expect(first.usage).not.toHaveProperty("averageTokensPerAssistantTurn");
+		const all = summarizeSessionUsage(entries([partial, complete]));
+		expect(all.usage).toMatchObject({ incompleteAssistantTurns: 1, lastCostUsd: 0.2, totalObservedTokens: 35 });
+		expect(all.usage.costUsd).toBeCloseTo(0.3);
+	});
+
 	it("从公开 message 内容统计工具调用和失败", () => {
 		const messages: Message[] = [
 			assistantToolCall("read", { path: "a.ts" }),
