@@ -15,6 +15,19 @@ async function save(config: unknown) {
 }
 
 describe("网页工具配置", () => {
+	it("可信站点来自默认名单，稀疏覆盖可精确替换或清空撤销", async () => {
+		expect((await loadWebToolsConfig()).network.trusted_https_origins).toContain("https://github.com");
+		await save({ network: { trusted_https_origins: ["https://docs.example.com"] } });
+		expect((await loadWebToolsConfig()).network.trusted_https_origins).toEqual(["https://docs.example.com"]);
+		await save({ network: { trusted_https_origins: [] } });
+		expect((await loadWebToolsConfig()).network.trusted_https_origins).toEqual([]);
+	});
+
+	it.each(["http://github.com", "https://github.com:8443", "https://*.github.com", "https://127.0.0.1", "https://github.com/path"])("配置拒绝不精确的可信 origin %s", async origin => {
+		await save({ network: { trusted_https_origins: [origin] } });
+		await expect(loadWebToolsConfig()).rejects.toThrow();
+	});
+
 	it("JSONC 稀疏覆盖保留默认值，域名规范化后仍检查冲突", async () => {
 		const defaults = await loadWebToolsConfig();
 		await writeFile(path.join(temp.path, "config.jsonc"), '{ // sparse\n"websearch":{"include_domains":["Docs.Example.com", "*.example.org"],},}');

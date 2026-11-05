@@ -4,13 +4,14 @@ import type { Dispatcher } from "undici";
 
 import type { WebToolsConfig } from "../config-types.ts";
 import { createSecureLookup, resolveAllowedAddresses, type SecureLookupOptions } from "./network-policy.ts";
+import { isTrustedHttpsOrigin } from "./trusted-sites.ts";
 
-type UndiciNetworkModule = Pick<typeof import("undici"), "Agent" | "ProxyAgent" | "interceptors">;
+type UndiciNetworkModule = Pick<typeof import("undici"), "Agent" | "Pool" | "ProxyAgent" | "interceptors">;
 type NetworkConfig = WebToolsConfig["network"];
 
 const TARGET_DNS_TTL_MS = 10_000;
 
-export type NetworkDispatcherOptions = SecureLookupOptions;
+export type NetworkDispatcherOptions = Pick<SecureLookupOptions, "pinnedAddressSet">;
 
 /** 按完整网络配置创建一个可安全直连或代理的共享 dispatcher。 */
 export function createNetworkDispatcher(
@@ -19,22 +20,17 @@ export function createNetworkDispatcher(
 	options: NetworkDispatcherOptions = {},
 ): Dispatcher {
 	const allowedFakeIpRanges = [...network.fake_ip_ranges];
-	if (!network.proxy.enabled) {
-		return new undici.Agent({
-			connect: {
-				lookup: createSecureLookup(() => allowedFakeIpRanges, options),
-			},
-		});
-	}
-
-	const secureTargetDns = createSecureTargetDnsInterceptor(
-		undici,
-		allowedFakeIpRanges,
-		options,
-	);
 	return new undici.Agent({
 		factory(origin) {
 			const target = new URL(origin);
+			const lookupOptions: SecureLookupOptions = {
+				...options,
+				...(isTrustedHttpsOrigin(target, network.trusted_https_origins) ? { trustedPrivateHostname: target.hostname } : {}),
+			};
+			if (!network.proxy.enabled) return new undici.Pool(origin, {
+				connect: { lookup: createSecureLookup(() => allowedFakeIpRanges, lookupOptions) },
+			});
+			const secureTargetDns = createSecureTargetDnsInterceptor(undici, allowedFakeIpRanges, lookupOptions);
 			const proxyUrl = selectProxyUrl(target.protocol, network.proxy);
 			const servername = targetServername(target.hostname);
 			const proxy = servername === undefined
@@ -50,6 +46,7 @@ export function networkConfigSignature(network: NetworkConfig): string {
 	const proxy = network.proxy;
 	const material = JSON.stringify([
 		[...network.fake_ip_ranges].sort(),
+		[...network.trusted_https_origins].sort(),
 		proxy.enabled,
 		...(proxy.enabled ? [proxy.http_proxy, proxy.https_proxy, proxy.socks5_proxy] : []),
 	]);
@@ -73,7 +70,7 @@ function targetServername(hostname: string): string | undefined {
 function createSecureTargetDnsInterceptor(
 	undici: UndiciNetworkModule,
 	allowedFakeIpRanges: readonly string[],
-	options: NetworkDispatcherOptions,
+	options: SecureLookupOptions,
 ): Dispatcher.DispatcherComposeInterceptor {
 	return undici.interceptors.dns({
 		maxTTL: TARGET_DNS_TTL_MS,

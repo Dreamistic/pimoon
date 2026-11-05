@@ -8,6 +8,7 @@ import {
 import { ConfigCache, type ConfigSnapshot } from "../config-cache.ts";
 import type { WebToolsConfig } from "./config-types.ts";
 import { guardPublicHttpUrlLiteral } from "./network/url-guard.ts";
+import { validateTrustedHttpsOrigins } from "./network/trusted-sites.ts";
 import { normalizeDomains } from "./search-providers/query.ts";
 
 const COOKIES_PATH_ENV = "PI_WEB_TOOLS_COOKIES";
@@ -38,6 +39,8 @@ function materializeConfig(raw: WebToolsConfig): WebToolsConfig {
 	}
 	validateProxyConfig(config.network.proxy);
 	validateFakeIpRanges(config.network.fake_ip_ranges);
+	try { validateTrustedHttpsOrigins(config.network.trusted_https_origins); }
+	catch (error) { throw new ConfigError(error instanceof Error ? error.message : String(error)); }
 	const providers = [...websearch.primary_providers, ...websearch.auxiliary_providers];
 	const providerCount = Object.values(websearch).filter((value) => typeof value === "object" && value !== null && "enabled" in value).length;
 	if (providers.length !== providerCount || new Set(providers).size !== providers.length) {

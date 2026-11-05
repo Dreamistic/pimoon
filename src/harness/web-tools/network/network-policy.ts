@@ -6,6 +6,7 @@ import ipaddr from "ipaddr.js";
 import type { ValidatedUrl } from "./types.ts";
 import type { WebFetchFailureDetails } from "../core/types.ts";
 import { redactUrl } from "./url-utils.ts";
+import { isTrustedHttpsOrigin } from "./trusted-sites.ts";
 
 const MAX_URL_LENGTH = 8192;
 
@@ -24,12 +25,14 @@ export interface PinnedAddressSet {
 export interface LookupOptions {
 	allowedFakeIpRanges?: readonly string[];
 	pinnedAddressSet?: PinnedAddressSet;
+	/** 仅由 dispatcher 在精确 HTTPS origin 匹配后设置。 */
+	trustedPrivateHostname?: string;
 }
 
 export type SecureLookupOptions = Omit<LookupOptions, "allowedFakeIpRanges">;
 
 export interface WebFetchTargetInspection {
-	status: "public" | "private";
+	status: "public" | "private" | "trusted";
 	validated: ValidatedUrl;
 	addresses: ResolvedAddresses;
 }
@@ -53,7 +56,7 @@ export function validateRequestUrl(
 /** 在 tool hook 阶段解析目标，供审批策略判断并为获批连接固定地址。 */
 export async function inspectWebFetchTarget(
 	rawUrl: string,
-	options: LookupOptions = {},
+	options: LookupOptions & { trustedHttpsOrigins?: readonly string[] } = {},
 ): Promise<WebFetchTargetInspection | WebFetchFailureDetails> {
 	const parsed = parseRequestUrl(rawUrl);
 	if ("status" in parsed) return parsed;
@@ -67,7 +70,9 @@ export async function inspectWebFetchTarget(
 	const allowedFakeIpRanges = options.allowedFakeIpRanges ?? [];
 	const isPrivate = isLocalhostName(hostname)
 		|| addresses.some((item) => !isAllowedResolvedAddress(item.address, allowedFakeIpRanges));
-	return { status: isPrivate ? "private" : "public", validated: parsed, addresses };
+	const trusted = isTrustedHttpsOrigin(parsed.url, options.trustedHttpsOrigins ?? [])
+		&& addresses.every(item => isAllowedResolvedAddress(item.address, allowedFakeIpRanges) || isPrivateLanAddress(item.address));
+	return { status: isPrivate ? trusted ? "trusted" : "private" : "public", validated: parsed, addresses };
 }
 
 function parseRequestUrl(rawUrl: string): ValidatedUrl | WebFetchFailureDetails {
@@ -99,9 +104,18 @@ export async function resolveAllowedAddresses(hostname: string, options: LookupO
 	const resolved = await resolveAddresses(normalizedHostname);
 	// 字面 IP 不能借 DNS fake-ip 白名单放行。
 	const allowedFakeIpRanges = ipaddr.isValid(normalizedHostname) ? [] : options.allowedFakeIpRanges ?? [];
-	const blocked = resolved.find((item) => !isAllowedResolvedAddress(item.address, allowedFakeIpRanges));
+	const trusted = !ipaddr.isValid(normalizedHostname) && normalizedHostname === options.trustedPrivateHostname;
+	const blocked = resolved.find((item) => !isAllowedResolvedAddress(item.address, allowedFakeIpRanges)
+		&& !(trusted && isPrivateLanAddress(item.address)));
 	if (blocked !== undefined) throw blockedAddressError(blocked.address, !ipaddr.isValid(normalizedHostname));
 	return resolved;
+}
+
+/** 仅 RFC1918；回环、链路本地、云元数据、ULA 等特殊地址保持拒绝。 */
+function isPrivateLanAddress(address: string): boolean {
+	if (!ipaddr.isValid(address)) return false;
+	const parsed = ipaddr.process(address);
+	return parsed.kind() === "ipv4" && parsed.range() === "private";
 }
 
 export function isPublicAddress(address: string): boolean {

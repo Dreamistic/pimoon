@@ -10,6 +10,7 @@ import type {
 import type { ContentConversion, WebFetchPage, WebFetchPdf } from "../content/types.ts";
 import { fetchHttpUrl, type HttpClientOptions } from "../network/http-client.ts";
 import { validateRequestUrl } from "../network/network-policy.ts";
+import { networkConfigSignature } from "../network/dispatcher.ts";
 import type { ValidatedUrl } from "../network/types.ts";
 import { redactUrl } from "../network/url-utils.ts";
 import { directImageConversion, resolvePrimaryMedia } from "./webfetch-media.ts";
@@ -47,8 +48,9 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 	}
 	const textMode = mode === "source" ? "source" : "readable";
 	const canReturnImages = !textOnly && textMode === "readable" && offset === 0 && mediaEnabled && runtime.context.acceptsImages === true;
-	const snapshotKey = snapshotKeyFor(requested, textMode, mediaEnabled, runtime.context.privateNetworkGrant?.origin);
-	const pdfKey = `pdf\0${snapshotKeyFor(requested, "readable", false, runtime.context.privateNetworkGrant?.origin)}`;
+	const networkKey = networkConfigSignature(runtime.config.network);
+	const snapshotKey = `${networkKey}\0${snapshotKeyFor(requested, textMode, mediaEnabled, runtime.context.privateNetworkGrant?.origin)}`;
+	const pdfKey = `pdf\0${networkKey}\0${snapshotKeyFor(requested, "readable", false, runtime.context.privateNetworkGrant?.origin)}`;
 	const useSnapshot = params.offset !== undefined || textOnly || params.pages !== undefined || mode === "image";
 	const cached = useSnapshot ? runtime.snapshots.get(snapshotKey) ?? runtime.snapshots.getPdf(pdfKey) : undefined;
 	let snapshotStatus: SnapshotStatus = !useSnapshot ? "not_needed" : cached === undefined ? "refetched" : "hit";

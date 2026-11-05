@@ -16,6 +16,7 @@ export interface WebToolsConfig {
 	network: {
 		proxy: { enabled: boolean; http_proxy: string; https_proxy: string; socks5_proxy: string };
 		fake_ip_ranges: string[];
+		trusted_https_origins: string[];
 	};
 	websearch: {
 		primary_providers: WebSearchProviderId[];

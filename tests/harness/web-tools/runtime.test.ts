@@ -410,6 +410,21 @@ describe("web-tools runtime", () => {
 		expect(network.fetch).toHaveBeenCalledOnce();
 	});
 
+	it("撤销可信站点后分页不能继续命中旧网络权限下的快照", async () => {
+		const config = defaultWebToolsConfig();
+		config.network.trusted_https_origins = ["https://github.com"];
+		config.webfetch.limits.default_output_chars = 1000;
+		vi.spyOn(configModule, "loadWebToolsConfig").mockImplementation(async () => structuredClone(config));
+		network.fetch.mockResolvedValue(httpResponse(200, "x".repeat(2000)));
+		const runtime = trackRuntime();
+		await expect(runtime.fetch({ url: "https://github.com/repo" }, { toolCallId: "allowed" })).resolves.toMatchObject({ details: { snapshot: "created" } });
+		config.network.trusted_https_origins = [];
+		network.fetch.mockRejectedValue(new TypeError("fetch failed", { cause: Object.assign(new Error("DNS resolved to blocked address 172.19.0.9."), { code: "EACCES" }) }));
+		await expect(runtime.fetch({ url: "https://github.com/repo", offset: 1000 }, { toolCallId: "revoked" }))
+			.resolves.toMatchObject({ details: { status: "failed", error: { code: "BLOCKED_ADDRESS" } } });
+		expect(network.fetch).toHaveBeenCalledTimes(2);
+	});
+
 	it("配置错误对 fetch/search 使用一致的结构化失败", async () => {
 		await writeFile(path.join(temp.path, "config.jsonc"), "{");
 		const runtime = trackRuntime();

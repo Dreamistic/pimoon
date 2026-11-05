@@ -18,6 +18,15 @@
 						"socks5_proxy": { "type": "string", "maxLength": 8192, "default": "" }
 					}
 				},
+				"trusted_https_origins": {
+					"title": "可信 HTTPS 站点",
+					"description": "允许这些精确 origin 的 DNS 返回普通 IPv4 私网地址；不允许本机、链路本地或元数据地址。清空列表可撤销。",
+					"type": "array",
+					"maxItems": 64,
+					"uniqueItems": true,
+					"items": { "type": "string", "maxLength": 255, "pattern": "^https://" },
+					"default": []
+				},
 				"fake_ip_ranges": {
 					"type": "array",
 					"maxItems": 8,

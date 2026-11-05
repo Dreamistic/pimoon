@@ -261,6 +261,7 @@ function proxyNetwork(proxy: Partial<WebToolsConfig["network"]["proxy"]>): WebTo
 			...proxy,
 		},
 		fake_ip_ranges: [],
+		trusted_https_origins: [],
 	};
 }
 

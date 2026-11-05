@@ -57,11 +57,11 @@ export async function buildApprovalRequest(event: ToolCallEvent, cwd: string): P
 	}
 	if (isToolCallEventType<"webfetch", WebFetchApprovalInput>("webfetch", event) || isToolCallEventType<"http", WebFetchApprovalInput>("http", event)) {
 		const webConfig = await loadWebToolsConfig();
-		const inspection = await inspectWebFetchTarget(event.input.url, { allowedFakeIpRanges: webConfig.network.fake_ip_ranges });
+		const inspection = await inspectWebFetchTarget(event.input.url, { allowedFakeIpRanges: webConfig.network.fake_ip_ranges, trustedHttpsOrigins: webConfig.network.trusted_https_origins });
 		// 无效请求交给工具报告错误，公网请求仍由网络边界检查 DNS 和重定向。
 		if ("error" in inspection) return undefined;
 		const outputPath = event.toolName === "http" && typeof event.input.path === "string" ? fileToolTarget(event.input.path, cwd) : undefined;
-		if (inspection.status === "public" && outputPath === undefined) return undefined;
+		if (inspection.status !== "private" && outputPath === undefined) return undefined;
 		const origin = inspection.validated.url.origin;
 		return {
 			tool: event.toolName, cwd,
