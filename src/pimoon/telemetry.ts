@@ -86,11 +86,15 @@ export function pimoonTelemetry(pi: ExtensionAPI): void {
 		const span = spans.get(ctx.sessionManager.getSessionId());
 		if (span?.request && !span.requestEnded && !span.first) { span.first = true; record("model_first_event", { ...labels(ctx), elapsed_ms: performance.now() - span.requestStart }); }
 	});
-	// 执行块闭合与执行开始分别计时，不制造工具调用事件。
+	// 源码流结束与执行开始分别计时，不制造第二套工具生命周期。
 	pi.on("message_update", (event, ctx) => {
 		const update = event.assistantMessageEvent;
 		if (event.message.role !== "assistant") return;
 		const message: CodeActMessage = event.message;
+		if (update.type === "toolcall_end" && update.toolCall.name === "execute") {
+			record("code_stream_end", { ...labels(ctx), tool_call_id: update.toolCall.id });
+			return;
+		}
 		if (update.type !== "text_end" || !message.codeact?.complete || update.contentIndex !== message.codeact.index) return;
 		record("code_stream_end", { ...labels(ctx), tool_call_id: message.codeact.id });
 	});

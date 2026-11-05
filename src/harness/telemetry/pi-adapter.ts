@@ -16,7 +16,7 @@ export function attachTelemetryService(pi: TelemetryPi, service: TelemetryServic
 		if (isApprovalStatusEvent(event)) service.onApprovalStatus(event);
 	});
 	pi.on("session_start", (event, ctx) => {
-		service.registerTool({ definition: { name: "codeact", description: "Python execution", parameters: {} }, result: (_params, details) => codeFacts(details) });
+		for (const name of ["codeact", "execute"]) service.registerTool({ definition: { name, description: "Python execution", parameters: {} }, result: (_params, details) => codeFacts(details) });
 		service.onSessionStart(event, sessionContext(ctx));
 	});
 	pi.events?.on(CODEACT_EXECUTION, event => {

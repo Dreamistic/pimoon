@@ -4,7 +4,7 @@ import { Type } from "@earendil-works/pi-ai";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { AgentSession, ExtensionAPI, ExtensionContext, ExtensionToolContext, InlineExtension } from "@earendil-works/pi-coding-agent";
 import { Runtime } from "../runtime.mjs";
-import { fingerprint, labels, record } from "../telemetry.ts";
+import { fingerprint, labels, record, pimoonTelemetry } from "../telemetry.ts";
 import { agentHome, protectedCredentialPaths } from "../profile.ts";
 import { checkReadablePath, checkWritablePath, protectedControlPaths } from "../paths.ts";
 import { functionCatalog } from "./catalog.ts";
@@ -54,6 +54,7 @@ export class NativeCodeActCandidate {
     }
 
     private register(pi: ExtensionAPI): void {
+        pimoonTelemetry(pi);
         pi.registerTool({
             name: "execute", label: "Python", description: "Execute Python in the persistent CodeAct environment.",
             parameters, constrainedSampling: { type: "json_schema", strict: "prefer" },
@@ -62,11 +63,13 @@ export class NativeCodeActCandidate {
                 hiddenDeclarations: loadout.declared.filter(tool => tool.name !== "execute").map(tool => tool.name),
                 descriptions: { execute: `Execute Python in the persistent CodeAct environment.\n${nativeInstructions}\nFunctions:\n${functionCatalog(loadout.callable.filter(tool => internal(tool.name))) || "None."}` },
             }),
-            execute: async (id, args, signal, _update, ctx) => {
+            execute: async (id, args, signal, update, ctx) => {
                 if (!args.code.trim() || !args.desc.trim() || args.confirm !== undefined && !args.confirm.trim())
                     return { isError: true, content: [{ type: "text", text: "Empty code or metadata. Nothing executed." }], details: { executed: false } };
                 const context = { ...ctx, signal };
+                if (args.confirm) update?.({ content: [], details: { confirmationPending: true } });
                 const blocked = await this.confirmExecution(args.code, id, args, context);
+                if (args.confirm) update?.({ content: [], details: { confirmationPending: false } });
                 if (blocked) return blocked;
                 const started = performance.now();
                 const result = await this.execute(args.code, id, context);

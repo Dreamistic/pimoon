@@ -1,5 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { analyzeExecution } from "../../src/harness/telemetry-report/analyzers/execution.ts";
+import { registerTelemetry, type TelemetryService } from "../../src/harness/telemetry/service.ts";
+import { transcriptReplies } from "../../src/gui/frontend/features/chat/transcript/transcript-replies.ts";
+import { source } from "../gui/helpers/transcript-fixtures.ts";
 import { afterEach, expect, it, vi } from "vitest";
 import { SessionManager, createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices, type InlineExtension } from "@earendil-works/pi-coding-agent";
 import { createAssistantMessageEventStream, type AssistantMessage, type ToolResultMessage } from "@earendil-works/pi-ai";
@@ -282,4 +286,102 @@ it("旧文本执行历史明确拒绝继续，不伪造原生调用身份", asyn
         expect(value.server.requests).toHaveLength(0);
         expect(JSON.stringify(value.runtime.session.messages)).toContain("原生执行请新建会话");
     } finally { await value.close(); }
+});
+
+it("真实确认进度进入 GUI 等待态，批准后清除，不改写模型参数", async () => {
+    const ui = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
+    const value = await fixture([action(marker, "确认？"), { text: "done" }], (request, signal) => ui.confirmCodeAct(request, signal));
+    const live = new GuiLiveTools(new GuiPayloads());
+    const unsubscribe = value.runtime.session.subscribe(event => {
+        if (event.type === "tool_execution_start" || event.type === "tool_execution_update" || event.type === "tool_execution_end") live.accept(event);
+    });
+    const tools = () => transcriptReplies(source({ messages: value.runtime.session.messages, liveTools: live.project(), streaming: true }))
+        .flatMap(row => row.kind === "reply" ? row.process : []).filter(item => item.kind === "tool");
+    try {
+        const running = value.runtime.session.prompt("Fixture.");
+        await vi.waitFor(() => expect(ui.list()).toHaveLength(1));
+        expect(tools()).toHaveLength(1);
+        expect(tools()[0]?.tool).toMatchObject({ name: "execute", state: "pending", args: { confirmationPending: true } });
+        ui.respond(ui.list()[0]?.id ?? "", "yes");
+        await running;
+        expect(tools()[0]?.tool.state).toBe("completed");
+        const assistant = value.runtime.session.messages.find(message => message.role === "assistant");
+        expect(JSON.stringify(assistant)).not.toContain("confirmationPending");
+        expect(JSON.stringify(value.server.requests)).not.toContain("confirmationPending");
+    } finally { unsubscribe(); await value.close(); }
+});
+
+it.each(["success", "python_error", "confirmation_rejected"] as const)("原生 %s 只记录一个执行根，结构化事实不丢失、不保存源码", async outcome => {
+    let telemetry: TelemetryService | undefined;
+    const probe: InlineExtension = { name: "native-telemetry", factory(pi) { telemetry = registerTelemetry(pi); } };
+    const code = outcome === "python_error" ? 'secret_marker="SYNTHETIC_PRIVATE_PAYLOAD"\n1/0' : 'secret_marker="SYNTHETIC_PRIVATE_PAYLOAD"\n42';
+    const value = await fixture([action(code, outcome === "confirmation_rejected" ? "确认？" : undefined), { text: "done" }],
+        async () => ({ kind: "rejected" }), [probe]);
+    try {
+        await value.runtime.session.prompt("Fixture.");
+        if (!telemetry) throw new Error("未创建遥测");
+        await telemetry.onSessionShutdown({ type: "session_shutdown", reason: "quit" });
+        const snapshot = telemetry.snapshot();
+        const calls = snapshot.records.filter(record => record.type === "call");
+        expect(calls).toHaveLength(1);
+        expect(calls[0]).toMatchObject({ tool: "execute", fields: { outcome } });
+        expect(snapshot.pending_calls).toBe(0);
+        expect(analyzeExecution(calls).codeact).toMatchObject({ calls: 1, outcomes: { [outcome]: 1 } });
+        expect(JSON.stringify(snapshot)).not.toContain("SYNTHETIC_PRIVATE_PAYLOAD");
+        expect(calls.some(call => call.tool === "codeact")).toBe(false);
+    } finally { await value.close(); }
+});
+
+it("真实 SSE 分片 JSON 只更新源码预览，正常终态后才写入一次", async () => {
+    const code = 'from pathlib import Path\nPath("streamed.txt").write_text("中文\\\\n\\"ok\\"", encoding="utf-8")';
+    const args = { code, desc: "流式代码" };
+    const json = JSON.stringify(args), split = json.indexOf("write_text") + 5;
+    const value = await fixture([{ tool: "execute", args, argumentChunks: [json.slice(0, split), json.slice(split)], intervalMs: 100 }, { text: "done" }]);
+    let previews = 0, executed = 0;
+    const probes: Promise<void>[] = [];
+    const unsubscribe = value.runtime.session.subscribe(event => {
+        if (event.type === "message_update" && event.assistantMessageEvent.type === "toolcall_delta") {
+            previews++;
+            probes.push(fs.access(path.join(value.cwd, "streamed.txt")).then(() => { throw new Error("参数生成期间已写入"); }, () => {}));
+        }
+        if (event.type === "tool_execution_start" && !event.parentToolCallId) executed++;
+    });
+    try {
+        await value.runtime.session.prompt("Fixture.");
+        await Promise.all(probes);
+        expect(previews).toBeGreaterThanOrEqual(2);
+        expect(executed).toBe(1);
+        expect(await fs.readFile(path.join(value.cwd, "streamed.txt"), "utf8")).toBe('中文\\n"ok"');
+        expect(value.results()[0]?.isError).toBe(false);
+    } finally { unsubscribe(); await value.close(); }
+});
+
+it("真实 SSE 半截参数以 length 收尾不执行，保留未执行错误", async () => {
+    const args = { code: marker, desc: "截断" };
+    const value = await fixture([{ tool: "execute", args, argumentChunks: [JSON.stringify(args).slice(0, -2)], finishReason: "length" }, { text: "done" }]);
+    try {
+        await value.runtime.session.prompt("Fixture.");
+        await expect(fs.access(path.join(value.cwd, "marker.txt"))).rejects.toThrow();
+        expect(value.results()[0]?.isError).toBe(true);
+        expect(JSON.stringify(value.results()[0])).toContain("not executed");
+    } finally { await value.close(); }
+});
+
+it("真实 SSE 参数流中取消不执行，不把部分代码补成完整调用", async () => {
+    const args = { code: marker, desc: "取消生成" };
+    const json = JSON.stringify(args);
+    const value = await fixture([{ tool: "execute", args, argumentChunks: [json.slice(0, 25), json.slice(25)], intervalMs: 150 }]);
+    let cancelled = false;
+    const unsubscribe = value.runtime.session.subscribe(event => {
+        if (!cancelled && event.type === "message_update" && event.assistantMessageEvent.type === "toolcall_delta") {
+            cancelled = true;
+            void value.runtime.session.abort();
+        }
+    });
+    try {
+        await value.runtime.session.prompt("Fixture.");
+        expect(cancelled).toBe(true);
+        await expect(fs.access(path.join(value.cwd, "marker.txt"))).rejects.toThrow();
+        expect(value.results()).toHaveLength(0);
+    } finally { unsubscribe(); await value.close(); }
 });

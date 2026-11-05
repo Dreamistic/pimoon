@@ -61,9 +61,26 @@ Sol / low / SSE / runtime prompt。三个真实文件业务场景，各三轮、
 
 ## 尚未通过的上线门槛
 
-1. GUI 专用代码卡片仍按 codeact 名称识别，execute 仅验证了通用生命周期投影。需适配流式 JSON 参数、确认等待态、代码和结果展示，并用无头组件/定向界面测试验收。
-2. 专用执行事件、报告归因、裁剪、压缩摘要和旧会话只读边界未完成候选全链路验证。
+1. GUI Python 卡片、源码生成态、确认等待态、停止/失败历史、嵌套 diff 和大输出图片引用已完成组件及投影验证；仍未做真实桌面渲染或无头浏览器交互验收。
+2. 原生 SDK 生命周期已接入执行事实与报告分类，不另发旧 CODEACT_EXECUTION 事件，成功/失败/拒绝均验证一个根记录。裁剪、压缩摘要和旧会话只读边界仍未完成候选全链路验证。
 3. MCP/动态工具加载、工具集变更、长会话、多供应商与网络异常尚未完成验收；当前在线数据仅 Sol。
-4. 原生流参数分片、半截 JSON 与取消的完整供应商适配矩阵仍需专项覆盖。
+4. 本地 OpenAI completions SSE 已验证参数 JSON 分片、length 半截拒绝和生成中取消；Responses/Codex 及其他供应商异常流矩阵仍需覆盖。
 5. 切换前整理共同 Runtime/权限代码，删除旧 XML 解析、截流和自定义结果回填路径，明确旧会话不能继续执行；不为迁移偷改真实用户会话。
 6. 完成上述验收后才讨论切正式，不因本轮速度和 usage 改善提前发布。
+
+## 第二阶段：展示与遥测（2026-11-05）
+
+- 原生 execute 使用 Python 专用卡片和执行/内部函数分层计数，不再多套通用工具折叠；保留真实 data-tool 名字。
+- 确认进度通过 SDK onUpdate 的 details 传递，不污染模型参数或历史；同一调用 ID 从生成到完成只显示一个根卡片。
+- 大结果引用预览只保留执行 outcome/executed 状态，避免已取消或已拒绝历史丢失状态；完整输出和图片仍按引用读取。
+- 候选安装请求遥测；原生 toolcall_end 记录源码流结束，真实工具事件记录执行，不重复发旧文本专用事件。
+- TelemetryService 为 execute 注册 codeFacts，报告将 execute 纳入 Python 执行分组；确认未执行分类与 executed 字段保留。
+- 追加真实本地 SSE 参数分片、截断和生成中取消测试，参数流期间文件不存在；此阶段无新增在线模型调用。
+
+验证：
+
+`node scripts/test-isolated.mjs node_modules/vitest/vitest.mjs run tests/pimoon/native-codeact-candidate.test.ts tests/gui/host/projection tests/gui/frontend/features/chat/tools/codeact-ui.test.ts tests/gui/frontend/features/chat/transcript tests/harness/telemetry/telemetry.test.ts tests/pimoon/codeact-confirmation.test.ts`
+
+16 文件、160 项通过。隔离 tsc --noEmit 通过。组件采用 React 静态渲染与 DOM 断言，没有启动浏览器、GUI 窗口或正式桌面。
+
+工作区已有报告/Runtime 重构继续保留。本次共享报告分析器与 code-facts 的索引仅提交 execute 分类、executed 字段的最小变更；没有夹带用户其他未提交重构。测试结果基于当前工作树，不声称验证了仅 HEAD 的干净构建。正式入口仍未引用候选。

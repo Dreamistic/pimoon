@@ -3,7 +3,7 @@ import { frequency, numericSummary } from "../shared.ts";
 
 /** 执行量包含嵌套调用；候选曝光与采用仍由模型直接调用分析。 */
 export function analyzeExecution(calls: readonly CallRecord[]) {
-	const code = calls.filter(call => call.tool === "codeact");
+	const code = calls.filter(call => (call.tool === "codeact" || call.tool === "execute"));
 	const numbers = (key: string) => code.flatMap(call => {
 		const value = call.fields?.[key];
 		return typeof value === "number" ? [value] : [];

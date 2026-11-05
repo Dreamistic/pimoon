@@ -1,3 +1,4 @@
+import { isPythonExecution } from "../../../../shared/messages/execution.ts";
 import { memo, useEffect } from "react";
 import { AnimatePresence } from "motion/react";
 import { Reveal } from "@/ui/motion/animated.tsx";
@@ -87,7 +88,7 @@ const Activity = memo(function Activity({ id, items, entryIds, tracking }: Secti
 		failures ? `${failures} 次失败` : "",
 	].filter(Boolean).join(" · ");
 	// CodeAct 已提供执行卡片，不再套一层“思考与工具”折叠。
-	if (tools.some(item => item.tool.name === "codeact")) return <div className="reply-process-content">{items.map(item => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}</div>;
+	if (tools.some(item => isPythonExecution(item.tool.name))) return <div className="reply-process-content">{items.map(item => <Item key={item.key} item={item} entryId={entryIds[item.messageIndex]} />)}</div>;
 	return <Disclosure className="reply-process reply-activity" open={open} onOpenChange={setOpen} summary={<>
 		<ReplyStatusLabel className={`pruned-text${pruned ? " pruned-text-active" : ""}`} active={tracking}>思考与工具</ReplyStatusLabel>
 		<span className={`reply-counts pruned-text${pruned ? " pruned-text-active" : ""}`}>{counts}</span>

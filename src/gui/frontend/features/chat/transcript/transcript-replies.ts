@@ -1,3 +1,4 @@
+import { isPythonExecution } from "../../../../shared/messages/execution.ts";
 import { CODEACT_RESULT, isCodeActResult, type CodeActMessage } from "../../../../../pimoon/codeact/types.ts";
 import type { GuiMessage } from "../../../../shared/messages/types.ts";
 import { outputPreview } from "../../../../shared/messages/output.ts";
@@ -72,10 +73,14 @@ export function transcriptReplies(source: TranscriptSource, prunedToolCallIds: R
 		const nestedCalls = result?.nestedCalls ?? execution?.nestedCalls ?? event?.nestedCalls;
 		const metrics = detail?.metrics ?? (isRecord(details) && isRecord(details.metrics) ? details.metrics : undefined);
 		const stopped = metrics?.outcome === "cancelled" || metrics?.executed === false || isRecord(details) && (details.status === "aborted" || details.status === "cancelled");
-		const liveArgs = name === "codeact" && isRecord(event?.args) ? event.args : undefined;
+		const progress = outputPreview(event?.output)?.details;
+		const confirmationPending = isPythonExecution(name) && (isRecord(progress) && progress.confirmationPending === true
+			|| isRecord(event?.args) && event.args.confirmationPending === true);
+		const liveArgs = isPythonExecution(name) && isRecord(event?.args)
+			? { ...event.args, confirmationPending } : undefined;
 		const state = completion
 			? stopped ? "stopped" : completion.isError ? "failed" : "completed"
-			: event ? liveArgs?.confirmationPending === true ? "pending" : "running" : idle;
+			: event ? confirmationPending ? "pending" : "running" : idle;
 		return {
 			key: `tool:${id}`, kind: "tool", messageIndex, pruned: prunedToolCallIds.has(id),
 			tool: {
@@ -168,7 +173,7 @@ function finishReply(draft: ReplyDraft, source: TranscriptSource, active: boolea
 		&& message.content.length > 0
 		&& process.every((item) => item.kind !== "tool" || item.messageIndex !== last?.index
 			|| item.tool.state === "completed" || item.tool.state === "failed");
-	const execution = process.findLast(item => item.kind === "tool" && item.tool.name === "codeact" && item.messageIndex === last?.index);
+	const execution = process.findLast(item => item.kind === "tool" && isPythonExecution(item.tool.name) && item.messageIndex === last?.index);
 	const executionState = execution?.kind === "tool" ? execution.tool.state : undefined;
 	const state: ReplyState = active ? "running"
 		: message?.stopReason === "aborted" || executionState === "stopped" ? "stopped"

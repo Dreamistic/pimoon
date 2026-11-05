@@ -6,7 +6,7 @@ export function codeFacts(details: unknown): TelemetryFacts {
 	if (!isRecord(details) || !isRecord(details.metrics)) return {};
 	const metrics = details.metrics;
 	const fields: NonNullable<TelemetryFacts["fields"]> = {};
-	for (const key of ["outcome", "metrics_complete", "host_ms", "python_ms", "compile_ms", "bridge_wait_ms",
+	for (const key of ["outcome", "executed", "metrics_complete", "host_ms", "python_ms", "compile_ms", "bridge_wait_ms",
 		"internal_tool_calls", "internal_tool_failures", "internal_output_text_chars", "batch_calls", "tool_failure_count",
 		"output_chars", "retained_output_chars", "displayed_output_chars", "model_returned_text_chars",
 		"expression_results", "display_truncated", "output_complete", "explicit_observations", "observation_input_rows", "observation_shown_rows",

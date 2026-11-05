@@ -38,7 +38,7 @@ export function CodeActActivity({ tool }: { tool: ToolActivity }) {
 	const operations = new Map<string, number>();
 	for (const call of calls) operations.set(call.name, (operations.get(call.name) ?? 0) + 1);
 	const facts = [...operations].map(([name, count]) => `${toolDisplay(name).label} ${count} 次`).join(" · ");
-	return <section className="tool-activity codeact-activity" data-state={tool.state} data-tool="codeact" data-tool-call-id={tool.id}>
+	return <section className="tool-activity codeact-activity" data-state={tool.state} data-tool={tool.name} data-tool-call-id={tool.id}>
 		<Collapsible open={open} onOpenChange={setExpanded}>
 			<CollapsibleTrigger className="activity-summary">
 				<Icon className="activity-icon" aria-hidden="true" /><span className="activity-label codeact-title">{label}</span>

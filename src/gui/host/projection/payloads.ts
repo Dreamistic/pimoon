@@ -1,3 +1,4 @@
+import { isPythonExecution } from "../../shared/messages/execution.ts";
 import { CODEACT_RESULT, isCodeActResult } from "../../../pimoon/codeact/types.ts";
 import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -106,7 +107,12 @@ export class GuiPayloads {
 			kind: "reference", id, facts: toolFacts({ name, args: undefined, output: value }),
 			preview: {
 				content: record(first) && typeof first.text === "string" ? [{ type: "text", text: first.text.slice(0, 240) }] : [],
-				details: name === "skill" && isSkillLoadDetails(details) ? details : { status: details.status, error: details.error },
+				details: name === "skill" && isSkillLoadDetails(details) ? details : {
+					status: details.status, error: details.error,
+					...(isPythonExecution(name) && record(details.metrics) ? { metrics: {
+						outcome: details.metrics.outcome, executed: details.metrics.executed,
+					} } : {}),
+				},
 			},
 		};
 	}

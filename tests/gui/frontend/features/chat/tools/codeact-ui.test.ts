@@ -128,3 +128,19 @@ describe("CodeAct 执行容器", () => {
 		expect(doc.querySelector('[data-nested-tool-call-id]')?.getAttribute("data-state")).toBe("failed");
 	});
 });
+
+describe("原生 execute 卡片", () => {
+    it.each(["preparing", "pending", "running", "completed", "failed", "stopped"] as const)("状态 %s 使用 Python 执行容器，保留真实调用身份", state => {
+        const doc = renderTool({ ...tool, name: "execute", state,
+            args: { code: 'print("中文\\n<script>")', desc: "检查配置", confirmationPending: state === "pending" } });
+        expect(doc.querySelector('[data-tool="execute"]')).not.toBeNull();
+        expect(doc.querySelectorAll("[data-tool-call-id]")).toHaveLength(1);
+        expect(doc.querySelector(".codeact-activity")?.getAttribute("data-state")).toBe(state);
+        expect(doc.querySelector("script")).toBeNull();
+        if (state === "preparing") expect(doc.querySelector("pre")?.textContent).toContain('print("中文\\n<script>")');
+        if (state === "pending") expect(doc.querySelector(".activity-summary")?.textContent).toContain("等待确认");
+    });
+    it("原生执行不再混入普通工具计数，内部函数单独统计", () => {
+        expect(activityCounts([{ ...tool, name: "execute" }])).toEqual(["1 次执行", "2 次函数调用"]);
+    });
+});

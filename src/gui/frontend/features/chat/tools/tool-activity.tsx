@@ -1,3 +1,4 @@
+import { isPythonExecution } from "../../../../shared/messages/execution.ts";
 import { outputPreview } from "../../../../shared/messages/output.ts";
 import { memo } from "react";
 import { useDisclosureMemory } from "@/ui/disclosure-memory.ts";
@@ -14,7 +15,7 @@ import { SkillCard } from "../messages/skill-card.tsx";
 import { isSkillLoadDetails } from "../../../../shared/messages/skill-facts.ts";
 
 export const ToolActivity = memo(function ToolActivity({ tool }: { tool: Activity }) {
-	return tool.name === "codeact" ? <CodeActActivity tool={tool} /> : <StandardToolActivity tool={tool} />;
+	return isPythonExecution(tool.name) ? <CodeActActivity tool={tool} /> : <StandardToolActivity tool={tool} />;
 }, (before, after) => sameToolActivity(before.tool, after.tool));
 
 function StandardToolActivity({ tool }: { tool: Activity }) {
