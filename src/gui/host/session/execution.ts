@@ -133,7 +133,6 @@ export class GuiExecution {
 			try {
 				const runtime = await createGuiRuntime(manager.getCwd(), {
 					dialogs: this.dialogs,
-					codeactEvent: (event) => { this.liveTools.accept(event); this.schedule(); },
 					emit: (event) => this.emit(event),
 					bindTools: (controller) => { this.toolController = controller; },
 					bindMcp: (tools) => { this.mcpTools = tools; },

@@ -18,7 +18,7 @@ export function workbenchTests(context: () => { host: GuiClient; cwd: string }) 
 				servers: [{ id: "local", transport: { executable: null } }],
 			});
 			const next = path.join(cwd, "next");
-			const project = path.join(next, ".pi", "configs");
+			const project = path.join(next, ".pimoon", "configs");
 			await mkdir(project, { recursive: true });
 			await writeFile(path.join(project, "lsp.jsonc"), JSON.stringify({ servers: { local: { command: [process.execPath] } } }));
 			await host.dispatch({ action: "workspace", path: next });

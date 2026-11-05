@@ -10,11 +10,11 @@ import memory from "../../src/harness/extensions/memory.ts";
 import { MemoryStore } from "../../src/harness/memory/store.ts";
 import { pimoonHome } from "../../src/pimoon/profile.ts";
 import { GuiDialogs } from "../../src/gui/host/session/dialogs.ts";
-import { startModelServer } from "../cli/model-server.ts";
+import { startModelServer, type ModelResponse } from "../cli/model-server.ts";
 import { createRuntimeResources } from "./runtime-resources.ts";
 
 afterEach(() => vi.unstubAllEnvs());
-async function fixture(reply: (step: number, request: unknown) => string, advisor = false) {
+async function fixture(reply: (step: number, request: unknown) => string | ModelResponse, advisor = false) {
 	const base = path.resolve(".tmp/tests/approval-integration"); await fs.mkdir(base, { recursive: true });
 	const root = await fs.mkdtemp(path.join(base, "case-"));
 	const cwd = path.join(root, "workspace"), agentDir = path.join(root, "agent");
@@ -25,7 +25,7 @@ async function fixture(reply: (step: number, request: unknown) => string, adviso
 	vi.stubEnv("PI_APPROVAL_GATE_CONFIG", config);
 	const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
 	let step = 0;
-	const server = await startModelServer(request => ({ text: reply(step++, request) }));
+	const server = await startModelServer(request => { const value = reply(step++, request); return typeof value === "string" ? { text: value } : value; });
 	await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
 	await fs.writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: {
 		baseUrl: server.url, api: "openai-completions", apiKey: "fixture", models: [{ id: "test", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
@@ -47,7 +47,7 @@ async function fixture(reply: (step: number, request: unknown) => string, adviso
 		return { cwd, root, runtime, server, dialogs, async close() { await runtime.session.abort(); await runtime.session.waitForIdle(); dialogs.cancel(); await runtime.dispose(); await server.close(); } };
 	} catch (error) { await server.close(); throw error; }
 }
-const execution = (code: string) => `<execute>\n${code}\n</execute>`;
+const execution = (code: string): ModelResponse => ({ tool: "execute", args: { code, desc: "审批验证" } });
 const append = `process_run(argv=${JSON.stringify([process.execPath, "-e", 'require("node:fs").appendFileSync("effect.txt","once")'])})`;
 it("真实 CodeAct 在原调用等待；批准后继续后续语句，不重放此前副作用", async () => {
 	const f = await fixture(step => step === 0 ? execution(`write(path="earlier.txt",content="keep")\n${append}\nwrite(path="later.txt",content="continued")`) : "done");

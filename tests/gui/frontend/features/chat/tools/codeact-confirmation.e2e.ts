@@ -9,12 +9,13 @@ import { assistant } from "../../../../helpers/transcript-fixtures.ts";
 // SDK/Python 确认语义由集成测试覆盖；这里定向验证正式 GUI 的非模态交互和窄屏可达性。
 test("执行确认不抢焦点，支持检查源码、拒绝意见与一次性提交", async ({ page }, info) => {
 	const code = 'from pathlib import Path\nPath("配置.json").write_text("once", encoding="utf-8")\n';
-	const message: CodeActMessage = { ...assistant([{ type: "text", text: code }], "stop"), codeact: { id: "execution-1", index: 0, complete: true, desc: "检查并更新工作区配置", confirm: "确认写入配置？" } };
+	const message: CodeActMessage = assistant([{ type: "toolCall", id: "execution-1", name: "execute",
+        arguments: { code, desc: "检查并更新工作区配置", confirm: "确认写入配置？" } }], "toolUse");
 	const snapshot = { ...guiSnapshot(), model: guiModelFixture(), models: [guiModelFixture()], running: true, streaming: true,
 		contextEntryIds: ["user", "execution"], entries: [
 			{ id: "user", parentId: null, type: "message" as const, timestamp: new Date(1).toISOString(), label: undefined, messages: [{ role: "user" as const, content: "检查配置", timestamp: 1 }] },
 			{ id: "execution", parentId: "user", type: "message" as const, timestamp: new Date(100).toISOString(), label: undefined, messages: [message] },
-		], liveTools: [{ toolCallId: "execution-1", toolName: "codeact", args: { code, desc: "检查并更新工作区配置", confirmationPending: true }, output: undefined }] };
+		], liveTools: [{ toolCallId: "execution-1", toolName: "execute", args: { code, desc: "检查并更新工作区配置" }, output: { kind: "inline" as const, value: { content: [], details: { confirmationPending: true } } } }] };
 	const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
 	const channel = await replayTranscript(page, snapshot);
 	const submitted: GuiAction[] = [];

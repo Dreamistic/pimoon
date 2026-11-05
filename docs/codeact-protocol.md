@@ -1,4 +1,6 @@
-# 文本 CodeAct
+# 历史文本 CodeAct
+
+本页记录旧协议与历史实验。当前执行入口为单一原生 `execute`，不再解析正文或主动截流；见 [CodeAct](reference/codeact/README.md)。旧解析器仅供历史用量分析与探针，不参与执行。
 
 ## 执行边界
 

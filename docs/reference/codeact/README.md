@@ -1,8 +1,8 @@
 # CodeAct
 
-Windows 桌面与其无界面子代理只使用文本 CodeAct。没有 `codemode` 工具，也没有模型原生工具声明；`<execute>` 代码块直接进入持久 CPython。函数目录由启用能力的真实 schema 生成。
+Windows 桌面与其无界面子代理只向模型声明一个原生 `execute` 工具。其 `code` 参数进入持久 CPython；内部函数目录由启用能力的真实 schema 生成，不再分别声明为模型工具，也不解析正文中的 XML 执行块。
 
-执行开始行可写 `<execute desc="简短目的" confirm="确认原因">`。GUI 以目的作为执行卡片标题，真实状态和结果单独展示；`confirm` 仅用于澄清用户意图，在整块运行前等待用户，可拒绝并附带意见，不替代内部函数审批。无交互入口不执行需要确认的块。格式与边界见[文本 CodeAct 协议](../../codeact-protocol.md)。
+参数为 `code`、`desc` 和可选 `confirm`。GUI 以 desc 为标题，真实状态和结果单独展示；confirm 仅澄清用户意图，不替代内部函数审批。无交互入口不执行需要确认的代码。正常 toolUse 终态后才执行；每轮只允许一个 execute，多个调用全部拒绝，不做客户端截流。旧文本 CodeAct 会话可阅读，但需新建会话才能继续执行，压缩旧历史不绕过此限制。原协议记录见[历史文本协议](../../codeact-protocol.md)。
 
 ## Python 与函数
 

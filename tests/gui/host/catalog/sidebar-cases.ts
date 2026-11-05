@@ -98,7 +98,7 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 			expect(await readFile(external, "utf8")).not.toContain("不允许");
 		});
 
-		it("prune 完成后快照立即记录裁剪工具，不需新消息", async () => {
+		it("prune 不删除原生 Python 执行来源，快照保留调用与结果", async () => {
 			const { host } = context();
 			const action = (text: string) => ({ action: "prompt" as const, text, images: [], behavior: "followUp" as const });
 			await host.dispatch(action("执行工具"));
@@ -107,13 +107,13 @@ export function sidebarTests(context: () => { host: GuiClient; cwd: string; agen
 			if (calls.length === 0) throw new Error("测试会话没有工具调用");
 			await host.dispatch(action("/prune force"));
 			const pruned = readSnapshot(host);
-			expect([...locateTranscript(pruned, undefined).prunedToolCallIds]).toEqual(calls.sort());
+			expect([...locateTranscript(pruned, undefined).prunedToolCallIds]).toEqual([]);
 			await host.dispatch(action("/prune restore"));
 			const restored = readSnapshot(host);
 			expect([...locateTranscript(restored, undefined).prunedToolCallIds]).toEqual([]);
-			const checkpoint = pruned.entries.findLast((entry) => entry.prunedToolCallIds !== undefined)?.id;
-			if (!checkpoint) throw new Error("缺少裁剪记录");
-			expect([...locateTranscript(restored, checkpoint).prunedToolCallIds]).toEqual(calls.sort());
+			const retained = restored.messages.flatMap(message => message.role === "assistant"
+                ? message.content.flatMap(block => block.type === "toolCall" ? [block.id] : []) : []);
+            expect(retained).toEqual(calls);
 		});
 
 		it("会话信息在回复、标签、新建和重载后自动更新，重连获得当前数据", async () => {

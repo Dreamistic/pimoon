@@ -42,12 +42,12 @@ if (app === "pimoon") for (const job of jobs) {
 	job.args = { code };
 }
 let cursor = 0;
-const server = await startModelServer(() => cursor < jobs.length ? (() => { const job = jobs[cursor++]; return codeAct ? { text: `<execute>\n${job.args.code}\n</execute>` } : { tool: job.tool, args: job.args }; })() : { text: "done" });
+const server = await startModelServer(() => cursor < jobs.length ? (() => { const job = jobs[cursor++]; return codeAct ? { tool: "execute", args: { code: job.args.code, desc: job.label } } : { tool: job.tool, args: job.args }; })() : { text: "done" });
 await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
 await fs.writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: {
 	baseUrl: server.url, api: "openai-completions", apiKey: "fixture", models: [{ id: "test", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
 } } }));
-const names = ["read", "write", "edit", "find", "grep", "ls"];
+const names = [...(codeAct ? ["execute"] : []), "read", "write", "edit", "find", "grep", "ls"];
 const samples = [];
 const failures = [];
 const expected = { ls: "file-42.ts", read: "alpha", find: "src/file-42.ts", "grep-scoped": "alpha", "grep-code": "item42", "CodeAct-print": "ready", "CodeAct-batch-8": "\n8\n", "CodeAct-sequential-8": "\n8\n" };
@@ -58,7 +58,7 @@ try {
 	runtime = await createAgentSessionRuntime(async ({ cwd, agentDir, sessionManager }) => {
 		const services = await createAgentSessionServices({ cwd, agentDir, resourceLoaderOptions: { extensionFactories: factories, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true } });
 		const result = await createAgentSessionFromServices({ services, sessionManager, tools: names });
-		codeAct?.bind(result.session, observe);
+		codeAct?.bind(result.session);
 		return { ...result, services, diagnostics: services.diagnostics };
 	}, { cwd, agentDir, sessionManager: SessionManager.inMemory(cwd) });
 	await runtime.session.bindExtensions({ mode: "print", onError: ({ error }) => { throw new Error(error); } });

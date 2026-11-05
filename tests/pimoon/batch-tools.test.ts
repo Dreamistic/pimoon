@@ -22,7 +22,7 @@ it("CodeAct 在 Python 内处理读取结果，自动返回摘要并保留部分
 	await fs.writeFile(path.join(folder, "outside.txt"), "outside sentinel");
 	vi.stubEnv("PIMOON_RESOURCE_DIR", resources);
 	const { CodeAct } = await import("../../src/pimoon/codeact/session.ts");
-	const { isCodeActResultMessage } = await import("../../src/pimoon/codeact/types.ts");
+	const { isExecutionResult } = await import("./native-result.ts");
 	const code = [
 		'jobs=[{"path":f"{i}.txt"} for i in range(8)]+[{"path":"missing.txt"},{"path":"../outside.txt"}]',
 		'items=batch("read", jobs, limit=3)',
@@ -30,7 +30,7 @@ it("CodeAct 在 Python 内处理读取结果，自动返回摘要并保留部分
 		'assert not items[8]["ok"] and items[9]["ok"] and "outside sentinel" in items[9]["value"]',
 		'"read={} failed={}".format(sum(item["ok"] for item in items), sum(not item["ok"] for item in items))',
 	].join("\n");
-	const server = await startModelServer(request => JSON.stringify(request.messages).includes("<execute_result status=") ? { text: "done" } : { text: `<execute>\n${code}\n</execute>` });
+	const server = await startModelServer(request => request.messages.some(message => message.role === "tool") ? { text: "done" } : { tool: "execute", args: { code, desc: "批量读取" } });
 	await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
 	await fs.writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: {
 		baseUrl: server.url, api: "openai-completions", apiKey: "fixture", models: [{ id: "test", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
@@ -46,7 +46,7 @@ it("CodeAct 在 Python 内处理读取结果，自动返回摘要并保留部分
 				} }],
 				noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
 			} });
-			const result = await createAgentSessionFromServices({ services, sessionManager, tools: ["read"] });
+			const result = await createAgentSessionFromServices({ services, sessionManager, tools: ["execute", "read"] });
 			codeact.bind(result.session);
 			return { ...result, services, diagnostics: services.diagnostics };
 		}, { cwd, agentDir, sessionManager: manager });
@@ -61,9 +61,9 @@ it("CodeAct 在 Python 内处理读取结果，自动返回摘要并保留部分
 			expect(server.requests).toHaveLength(0);
 			await runtime.session.prompt("Read the fixture batch and report counts.");
 			expect(server.requests).toHaveLength(2);
-			const results = runtime.session.messages.filter(isCodeActResultMessage);
+			const results = runtime.session.messages.filter(isExecutionResult);
 			expect(results).toHaveLength(1);
-			expect(results[0]?.details).toMatchObject({ isError: false });
+			expect(results[0]?.isError).toBe(false);
 			const text = JSON.stringify(results[0]?.content);
 			expect(text).toContain("read=9 failed=1");
 			expect(text).toContain("tool_failures");
@@ -83,7 +83,7 @@ it("CodeAct 在 Python 内处理读取结果，自动返回摘要并保留部分
 			expect(JSON.stringify(server.requests.at(-1)?.messages)).toContain("Python 内存为空");
 		} finally { await resumed.dispose(); }
 		const records = (await Promise.all((await fs.readdir(telemetryDirectory)).filter(file => file.endsWith(".jsonl")).map(file => fs.readFile(path.join(telemetryDirectory, file), "utf8")))).join("\n");
-		const events: unknown[] = records.trim().split("\n").map(line => JSON.parse(line));
+		const events: unknown[] = records.trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
 		const toolEvents = events.filter((event): event is Record<string, unknown> => typeof event === "object" && event !== null && "type" in event && event.type === "tool_end");
 		expect(toolEvents.filter(event => event.tool === "read")).toHaveLength(10);
 		expect(toolEvents.filter(event => event.tool === "read" && event.is_error)).toHaveLength(1);

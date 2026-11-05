@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { SessionManager, createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices } from "@earendil-works/pi-coding-agent";
 import fileTools from "../../src/harness/extensions/file-tools.ts";
 import { CodeAct } from "../../src/pimoon/codeact/session.ts";
-import { isCodeActResultMessage } from "../../src/pimoon/codeact/types.ts";
+import { isExecutionResult, executionMetrics } from "./native-result.ts";
 import { startModelServer, type ModelResponse } from "../cli/model-server.ts";
 import { createRuntimeResources } from "./runtime-resources.ts";
 
@@ -42,16 +42,17 @@ it("JSON 误读保留失败且说明展示文本契约，原文读取在单个�
 				extensionFactories: [codeact.extension, { name: "file-tools", factory: fileTools }],
 				noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
 			} });
-			const result = await createAgentSessionFromServices({ services, sessionManager, tools: ["read", "write"] });
+			const result = await createAgentSessionFromServices({ services, sessionManager, tools: ["execute", "read", "write"] });
 			codeact.bind(result.session);
 			return { ...result, services, diagnostics: services.diagnostics };
 		}, { cwd, agentDir, sessionManager: SessionManager.inMemory(cwd) });
 		try {
 			await runtime.session.bindExtensions({ mode: "print", onError: ({ error }) => { throw new Error(error); } });
-			replies.push({ text: '<execute>\nimport json\njson.loads(read(path="invoices/0.json"))\n</execute>' }, { text: "done" });
+			replies.push({ tool: "execute", args: { code: 'import json\njson.loads(read(path="invoices/0.json"))', desc: "验证读取" } }, { text: "done" });
 			await runtime.session.prompt("Reproduce the read-as-JSON mistake; do not retry.");
-			const failed = runtime.session.messages.filter(isCodeActResultMessage).at(-1);
-			expect(failed?.details).toMatchObject({ isError: true, metrics: { outcome: "python_error", error_type: "JSONDecodeError", internal_tool_calls: 1 } });
+			const failed = runtime.session.messages.filter(isExecutionResult).at(-1);
+			expect(failed?.isError).toBe(true);
+			expect(executionMetrics(failed)).toMatchObject({ outcome: "python_error", error_type: "JSONDecodeError", internal_tool_calls: 1 });
 			expect(JSON.stringify(failed?.content)).toContain("rendered read view, not raw JSON");
 			expect(server.requests).toHaveLength(2);
 			expect(JSON.stringify(server.requests[0])).toContain("Rendered <read> view");
@@ -75,18 +76,20 @@ for row in rows:
  summary["byCustomer"][row["customer"]]=summary["byCustomer"].get(row["customer"],0)+row["amount"]
 written=write(path="summary.json",content=json.dumps(summary,ensure_ascii=False))
 {"count":summary["count"],"total":summary["total"],"missing":missing}`;
-			replies.push({ text: `<execute>\n${good}\n</execute>` }, { text: "done" });
+			replies.push({ tool: "execute", args: { code: good, desc: "汇总发票" } }, { text: "done" });
 			await runtime.session.prompt("Aggregate raw invoice JSON and preserve all inputs in one execution block.");
-			const success = runtime.session.messages.filter(isCodeActResultMessage).at(-1);
-			expect(success?.details).toMatchObject({ isError: false, metrics: { outcome: "tool_partial_failure", tool_failure_count: 1, internal_tool_calls: 1, internal_tool_failures: 0 } });
+			const success = runtime.session.messages.filter(isExecutionResult).at(-1);
+			expect(success?.isError).toBe(false);
+			expect(executionMetrics(success)).toMatchObject({ outcome: "tool_partial_failure", tool_failure_count: 1, internal_tool_calls: 1, internal_tool_failures: 0 });
 			expect(server.requests).toHaveLength(4);
 			expect(JSON.parse(await fs.readFile(path.join(cwd, "summary.json"), "utf8"))).toEqual(expected);
 			for (const [index, original] of originals.entries()) expect(await fs.readFile(path.join(cwd, "invoices", `${index}.json`), "utf8")).toBe(original);
 
-			replies.push({ text: '<execute>\njson.loads(native_read("invalid.json"))\n</execute>' }, { text: "done" });
+			replies.push({ tool: "execute", args: { code: 'json.loads(native_read("invalid.json"))', desc: "无效数据" } }, { text: "done" });
 			await runtime.session.prompt("Keep genuine malformed raw JSON errors unchanged.");
-			const invalid = runtime.session.messages.filter(isCodeActResultMessage).at(-1);
-			expect(invalid?.details).toMatchObject({ isError: true, metrics: { error_type: "JSONDecodeError" } });
+			const invalid = runtime.session.messages.filter(isExecutionResult).at(-1);
+			expect(invalid?.isError).toBe(true);
+			expect(executionMetrics(invalid)).toMatchObject({ error_type: "JSONDecodeError" });
 			expect(JSON.stringify(invalid?.content)).not.toContain("rendered read view");
 			expect(server.requests).toHaveLength(6);
 		} finally { await runtime.dispose(); }

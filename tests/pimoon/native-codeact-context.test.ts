@@ -182,3 +182,39 @@ it("同一代码块执行中撤销函数权限，后续旧快照调用仍被宿�
         expect(value.results().at(-1)?.isError).toBe(true);
     } finally { release?.(); await value.close(); }
 });
+
+it("压缩后重开明确提示状态丢失，不重放写入，原生调用仍成对", async () => {
+    const first = await fixture([action('sentinel=42\nwrite(path="once.txt",content="once")'), { text: "ready" },
+        { text: "准备压缩。" }, { text: "已写入 once.txt，sentinel=42，不要重放。" }, { text: "保留已完成工作。" }]);
+    let sessionFile: string | undefined;
+    try {
+        await first.runtime.session.prompt("Initialize.");
+        await first.runtime.session.prompt("Keep history.");
+        first.runtime.services.settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });
+        await first.runtime.session.compact();
+        sessionFile = first.runtime.session.sessionManager.getSessionFile();
+    } finally { await first.close(); }
+    if (!sessionFile) throw new Error("缺少会话文件");
+    const next = await fixture([action('assert "sentinel" not in globals()\nnative_read("once.txt")'), { text: "done" }],
+        undefined, [], { root: first.root, sessionFile });
+    try {
+        await next.runtime.session.prompt("Continue without replay.");
+        expect(next.results().at(-1)?.isError).toBe(false);
+        expect(JSON.stringify(next.server.requests[0])).toContain("Python 内存为空");
+        expect(await fs.readFile(path.join(next.cwd, "once.txt"), "utf8")).toBe("once");
+        expect(next.server.requests[0]?.tools?.map(tool => tool.function.name)).toEqual(["execute"]);
+    } finally { await next.close(); }
+});
+
+it("旧文本结果被压缩隐藏后仍拒绝进入原生执行，不由摘要抹掉协议边界", async () => {
+    const value = await fixture([action('write(path="must-not-run.txt",content="bad")'), { text: "done" }]);
+    try {
+        const manager = value.runtime.session.sessionManager;
+        manager.appendCustomMessageEntry("codeact_result", "old execution", false);
+        manager.appendCompaction("旧会话执行过代码。", null, 1000);
+        await value.runtime.session.prompt("Continue.");
+        await expect(fs.access(path.join(value.cwd, "must-not-run.txt"))).rejects.toThrow();
+        expect(value.server.requests).toHaveLength(0);
+        expect(JSON.stringify(value.runtime.session.messages)).toContain("原生执行请新建会话");
+    } finally { await value.close(); }
+});

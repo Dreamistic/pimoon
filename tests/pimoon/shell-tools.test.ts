@@ -24,7 +24,7 @@ it("进程、搜索、网页与 HTTP 都是 CodeAct 函数，审批拦截未批�
 	await fs.writeFile(path.join(cwd, "sentinel.txt"), "keep");
 	vi.stubEnv("PIMOON_RESOURCE_DIR", await createRuntimeResources(folder));
 	const { CodeAct } = await import("../../src/pimoon/codeact/session.ts");
-	const { isCodeActResultMessage } = await import("../../src/pimoon/codeact/types.ts");
+	const { isExecutionResult } = await import("./native-result.ts");
 	const config = defaultWebToolsConfig();
 	for (const id of [...config.websearch.primary_providers, ...config.websearch.auxiliary_providers]) config.websearch[id].enabled = false;
 	config.websearch.brave_api.enabled = true; config.websearch.brave_api.api_key = "fixture";
@@ -42,7 +42,7 @@ it("进程、搜索、网页与 HTTP 都是 CodeAct 函数，审批拦截未批�
 		'http(url="http://127.0.0.1/private",mode="probe")',
 		`process_run(argv=["git","status","--short"],cwd=${JSON.stringify(protectedDir)})`,
 	];
-	const replies: ModelResponse[] = code.map(source => ({ text: `<execute>\n${source}\n</execute>` })); replies.push({ text: "done" });
+	const replies: ModelResponse[] = code.map(source => ({ tool: "execute", args: { code: source, desc: "验证权限" } })); replies.push({ text: "done" });
 	const server = await startModelServer(() => replies.shift() ?? { text: "done" });
 	await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
 	await fs.writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: { baseUrl: server.url, api: "openai-completions", apiKey: "fixture", models: [{ id: "test", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } }));
@@ -52,16 +52,16 @@ it("进程、搜索、网页与 HTTP 都是 CodeAct 函数，审批拦截未批�
 			const services = await createAgentSessionServices({ cwd, agentDir, resourceLoaderOptions: { extensionFactories: [codeact.extension,
 				{ name: "approval-gate", factory: approvalGate }, { name: "process", factory: processFunctions }, { name: "web-tools", factory: webTools }],
 				noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true } });
-			const result = await createAgentSessionFromServices({ services, sessionManager, tools: ["process_run", "websearch", "webfetch", "http"] });
+			const result = await createAgentSessionFromServices({ services, sessionManager, tools: ["execute", "process_run", "websearch", "webfetch", "http"] });
 			codeact.bind(result.session); return { ...result, services, diagnostics: services.diagnostics };
 		}, { cwd, agentDir, sessionManager: SessionManager.inMemory(cwd) });
 		try {
 			await runtime.session.bindExtensions({ mode: "print", onError: ({ error }) => { throw new Error(error); } });
 			await runtime.session.prompt("Run isolated function workflows.");
 			expect(server.requests).toHaveLength(code.length + 1);
-			for (const request of server.requests) expect(request.tools ?? []).toEqual([]);
-			const results = runtime.session.messages.filter(isCodeActResultMessage);
-			expect(results.map(result => result.details), JSON.stringify(results.map(result => result.content))).toEqual([expect.objectContaining({ isError: true }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: true }), expect.objectContaining({ isError: true })]);
+			for (const request of server.requests) expect(request.tools?.map(tool => tool.function.name)).toEqual(["execute"]);
+			const results = runtime.session.messages.filter(isExecutionResult);
+			expect(results.map(result => ({ isError: result.isError })), JSON.stringify(results.map(result => result.content))).toEqual([expect.objectContaining({ isError: true }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: true }), expect.objectContaining({ isError: true })]);
 			expect(JSON.stringify(results[0]?.content)).toMatch(/approval|审批/iu);
 			expect(JSON.stringify(results[1]?.content)).toContain("fixture search result");
 			expect(JSON.stringify(results[2]?.content)).toContain("fixture web content");
@@ -72,7 +72,7 @@ it("进程、搜索、网页与 HTTP 都是 CodeAct 函数，审批拦截未批�
 			expect(await fs.readFile(path.join(cwd, "sentinel.txt"), "utf8")).toBe("keep");
 			replies.push({ tool: "webfetch", args: { url: "https://93.184.216.34/docs" } });
 			await runtime.session.prompt("Native tool calls must not execute.");
-			expect(runtime.session.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "error", errorMessage: expect.stringContaining("原生工具调用") });
+			expect(runtime.session.messages.at(-1)).toMatchObject({ role: "toolResult", isError: true });
 		} finally { await runtime.dispose(); }
 	} finally { await server.close(); }
 });

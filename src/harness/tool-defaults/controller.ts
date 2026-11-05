@@ -78,7 +78,9 @@ export class ToolSelectionController {
 	private apply(names: readonly string[]): void {
 		const available = this.selectableNames();
 		const filtered = names.filter((name) => available.has(name));
-		const selected = filtered;
+		// execute 是固定协议入口，不是可开关的内部函数；未注册时不添加。
+		const selected = this.pi.getAllTools().some(tool => tool.name === "execute")
+			? ["execute", ...filtered] : filtered;
 		const current = this.pi.getActiveTools();
 		if (selected.length !== current.length || selected.some((name, index) => name !== current[index])) this.pi.setActiveTools(selected);
 	}

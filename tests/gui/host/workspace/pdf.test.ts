@@ -1,22 +1,24 @@
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadImage } from "@napi-rs/canvas";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { GuiHost } from "../../../../src/gui/host/host.ts";
 import { startModelServer } from "../../../cli/model-server.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../../../helpers/lifecycle.ts";
 
+import { createRuntimeResources } from "../../../pimoon/runtime-resources.ts";
 const temp = useTempDir("pimoon-gui-pdf-");
 preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_GUI_CONFIG", "PI_OFFLINE");
 let gui: GuiHost | undefined;
 let model: Awaited<ReturnType<typeof startModelServer>> | undefined;
 afterEach(async () => {
 	try { await gui?.dispose(); }
-	finally { await model?.close(); }
+	finally { await model?.close(); vi.unstubAllEnvs(); }
 });
 
 it("read PDF 经 GUI 宿主将按模型限制缩放的页面图片发送给模型", async () => {
 	setTestHome(temp.path);
+	vi.stubEnv("PIMOON_RESOURCE_DIR", await createRuntimeResources(temp.path));
 	const cwd = path.join(temp.path, "workspace");
 	const agentDir = path.join(temp.path, ".pi", "agent");
 	process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -27,7 +29,7 @@ it("read PDF 经 GUI 宿主将按模型限制缩放的页面图片发送给模�
 	await copyFile("tests/harness/file-tools/fixtures/read/vector.pdf", path.join(cwd, "document.pdf"));
 	model = await startModelServer((request) => request.messages.some((message) => message.role === "tool")
 		? { text: "PDF 验证完成" }
-		: { tool: "read", args: { path: "document.pdf", pages: "1" } });
+		: { tool: "execute", args: { code: 'read(path="document.pdf",pages="1")', desc: "读取 PDF" } });
 	await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({
 		defaultProjectTrust: "never", defaultProvider: "pdf-test", defaultModel: "test",
 		compaction: { enabled: false }, retry: { enabled: false },

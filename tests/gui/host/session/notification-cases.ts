@@ -84,7 +84,7 @@ export function notificationTests(context: () => { host: GuiClient; agentDir: st
 			try {
 				await expect.poll(() => execution.dialogs.list().length).toBe(1);
 				expect(connection.events).toEqual([
-					{ type: "notification", value: expect.objectContaining({ kind: "approval", sessionId: id, toolName: "write", firstMessage: "后台写文件" }) },
+					{ type: "notification", value: expect.objectContaining({ kind: "approval", sessionId: id, toolName: "approval", firstMessage: "后台写文件" }) },
 				]);
 			} finally { await host.dispatch({ action: "abort" }, id); await task; connection.close(); }
 			expect(connection.events).toHaveLength(1);

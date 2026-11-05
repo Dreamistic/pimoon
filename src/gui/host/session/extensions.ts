@@ -1,5 +1,4 @@
 import type { CodeAct } from "../../../pimoon/codeact/session.ts";
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
 import llamaExtension from "../../../../node_modules/@earendil-works/pi-coding-agent/dist/extensions/llama/index.js";
 import { createGuiMcpExtension, type GuiMcpTools } from "./mcp-tools.ts";
@@ -25,7 +24,6 @@ import type { ModelsConfig } from "../../../harness/model-services/schema.ts";
 import { lspManager, registerLspCommands } from "../../../harness/lsp/index.ts";
 
 export interface GuiExtensionBindings {
-	codeactEvent(event: Extract<AgentSessionEvent, { type: "tool_execution_start" | "tool_execution_update" | "tool_execution_end" }>): void;
 	dialogs: GuiDialogs;
 	approvalStores: ApprovalStores;
 	approvalRules: SessionApprovalRules;

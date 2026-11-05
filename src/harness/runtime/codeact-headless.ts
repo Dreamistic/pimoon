@@ -3,7 +3,7 @@ import { createSessionManager } from "../../../node_modules/@earendil-works/pi-c
 import { CodeAct } from "../../pimoon/codeact/session.ts";
 import { createHarnessExtensions } from "../extensions.ts";
 
-/** 桌面子代理使用同一个 CodeAct 系统，不回落到 SDK 的原生工具入口。 */
+/** 桌面子代理使用同一个 CodeAct 系统，只暴露原生 execute 入口。 */
 export async function runCodeActHeadless(args: string[]): Promise<number> {
 	const parsed = parseArgs(args);
 	const cwd = process.cwd(), agentDir = getAgentDir();
@@ -29,7 +29,7 @@ export async function runCodeActHeadless(args: string[]): Promise<number> {
 		const result = await createAgentSessionFromServices({ services, sessionManager,
 			...(sessionStartEvent ? { sessionStartEvent } : {}), ...(selection.model ? { model: selection.model } : {}),
 			...(parsed.thinking ?? selection.thinkingLevel ? { thinkingLevel: parsed.thinking ?? selection.thinkingLevel } : {}),
-			...(parsed.tools ? { tools: parsed.tools } : {}),
+			...(parsed.tools ? { tools: ["execute", ...parsed.tools] } : {}),
 		});
 		codeact.bind(result.session);
 		return { ...result, services, diagnostics: services.diagnostics };

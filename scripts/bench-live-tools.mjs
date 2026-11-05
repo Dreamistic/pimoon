@@ -10,12 +10,12 @@ import { scenarios } from "./benchmark/tool-scenarios.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const args = process.argv.slice(2);
 const value = (key, fallback) => args.find(arg => arg.startsWith(`--${key}=`))?.slice(key.length + 3) ?? fallback;
-const help = "node scripts/bench-live-tools.mjs --live [--apps=o-pi,pimoon,pimoon-native] [--upstream=PATH] [--model=gpt-6.1-terra] [--thinking=low] [--transport=sse|auto] [--prompt=runtime|sdk] [--runs=1] [--scenarios=locate-edit,aggregate,conditional-edit]";
+const help = "node scripts/bench-live-tools.mjs --live [--apps=o-pi,pimoon] [--upstream=PATH] [--model=gpt-6.1-terra] [--thinking=low] [--transport=sse|auto] [--prompt=runtime|sdk] [--runs=1] [--scenarios=locate-edit,aggregate,conditional-edit]";
 if (args.includes("--help")) { console.log(help); process.exit(0); }
 if (!args.includes("--live")) throw new Error(`真实订阅测试需显式 --live；${help}`);
 const upstream = value("upstream");
 const apps = value("apps", "o-pi,pimoon").split(",");
-if (apps.some(app => !["o-pi", "pimoon", "pimoon-native"].includes(app)) || new Set(apps).size !== apps.length) throw new Error("apps 必须为 o-pi,pimoon,pimoon-native 的非重复子集");
+if (apps.some(app => !["o-pi", "pimoon"].includes(app)) || new Set(apps).size !== apps.length) throw new Error("apps 必须为 o-pi,pimoon 的非重复子集");
 if (apps.includes("o-pi") && !upstream) throw new Error("请指定 --upstream=o-pi源码目录");
 const thinkingLevel = value("thinking", "low");
 if (!["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(thinkingLevel)) throw new Error("无效 thinking");
@@ -55,7 +55,7 @@ for (const app of apps) {
 export { default as systemPrompt } from ${JSON.stringify(path.join(source, "src/harness/extensions/system-prompt.ts"))};
 export { estimateRequestTokens, estimateResponseTokens, summarizeTokenAccounting, textTokens } from ${JSON.stringify(path.join(root, "src/pimoon/token-accounting.ts"))};
 export { responseUsageStatus } from ${JSON.stringify(path.join(root, "src/pimoon/usage-status.ts"))};
-${app !== "o-pi" ? `export { ${app === "pimoon-native" ? "NativeCodeActCandidate as CodeAct" : "CodeAct"} } from ${JSON.stringify(path.join(root, app === "pimoon-native" ? "src/pimoon/codeact/native-candidate.ts" : "src/pimoon/codeact/session.ts"))}; export { flushTelemetry } from ${JSON.stringify(path.join(root, "src/pimoon/telemetry.ts"))};` : ""}
+${app === "pimoon" ? `export { CodeAct } from ${JSON.stringify(path.join(root, "src/pimoon/codeact/session.ts"))}; export { flushTelemetry } from ${JSON.stringify(path.join(root, "src/pimoon/telemetry.ts"))};` : ""}
 export async function disposeLsp() { const { lspManager } = await import(${JSON.stringify(path.join(source, "src/harness/lsp/index.ts"))}); await lspManager.reload(); }`, resolveDir: root }, outfile: bundle, bundle: true, platform: "node", format: "esm", packages: "external", logLevel: "silent" });
 	bundles[app] = bundle;
 	manifest.sources[app] = {};

@@ -2,7 +2,7 @@ import { readSnapshot } from "./read-snapshot.ts";
 import { collectSessionState } from "../../../src/tui/shell/snapshot.ts";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GuiHost } from "../../../src/gui/host/host.ts";
 import type { GuiClient } from "../../../src/gui/host/client.ts";
 import type { GuiEvent } from "../../../src/gui/shared/protocol/events.ts";
@@ -23,6 +23,7 @@ import { notificationTests } from "./session/notification-cases.ts";
 import { usageCreditTests } from "./session/usage-credit-cases.ts";
 import { preserveEnv, setTestHome, useTempDir } from "../../helpers/lifecycle.ts";
 
+import { createRuntimeResources } from "../../pimoon/runtime-resources.ts";
 const temp = useTempDir("pimoon-gui-");
 preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_GUI_CONFIG", "PI_OFFLINE");
 let host: GuiClient;
@@ -33,20 +34,26 @@ let titleReply: () => ModelResponse | Promise<ModelResponse>;
 
 beforeEach(async () => {
 	setTestHome(temp.path);
-	cwd = await mkdtemp(path.join(process.cwd(), ".gui-test-"));
+	const workspaces = path.resolve(".tmp/tests/gui-workspaces");
+	await mkdir(workspaces, { recursive: true });
+	cwd = await mkdtemp(path.join(workspaces, "case-"));
+	vi.stubEnv("PIMOON_RESOURCE_DIR", await createRuntimeResources(temp.path));
 	const agentDir = path.join(temp.path, ".pi", "agent");
 	process.env.PI_CODING_AGENT_DIR = agentDir;
 	delete process.env.PI_GUI_CONFIG;
 	process.env.PI_OFFLINE = "1";
 	await mkdir(path.join(agentDir, "configs"), { recursive: true });
+	vi.stubEnv("PI_APPROVAL_GATE_CONFIG", path.join(agentDir, "configs", "approval-gate.jsonc"));
+    vi.stubEnv("PI_AUTO_TITLE_CONFIG", path.join(agentDir, "configs", "auto-title.jsonc"));
+    vi.stubEnv("PI_LSP_CONFIG", path.join(agentDir, "configs", "lsp.jsonc"));
 	await mkdir(cwd, { recursive: true });
 	titleReply = () => ({ text: "检查文件并写入结果" });
 	server = await startModelServer((request) => {
 		if (!request.tools) return titleReply();
 		const lastUser = request.messages.findLastIndex((message) => message.role === "user");
 		const tools = request.messages.slice(lastUser + 1).filter((message) => message.role === "tool").length;
-		if (tools === 0) return { tool: "read", args: { path: "input.txt" } };
-		if (tools === 1) return { tool: "write", args: { path: "output.txt", content: "GUI SDK result\n" } };
+		if (tools === 0) return { tool: "execute", args: { code: 'read(path="input.txt")', desc: "读取输入" } };
+		if (tools === 1) return { tool: "execute", args: { code: 'write(path="output.txt",content="GUI SDK result\\n")', desc: "写入结果" } };
 		return { text: "GUI completed" };
 	});
 	await writeFile(path.join(cwd, "input.txt"), "input\n");
@@ -92,7 +99,8 @@ beforeEach(async () => {
 afterEach(async () => {
 	await host?.host.dispose();
 	await server?.close();
-	await rm(cwd, { recursive: true, force: true });
+	await rm(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	vi.unstubAllEnvs();
 });
 
 const prompt = (text: string) => ({ action: "prompt", text, images: [], behavior: "followUp" });
@@ -117,19 +125,19 @@ describe("GUI 直接使用 SDK", () => {
 		]));
 	});
 	it.each([
-		{ defaults: undefined, expected: ["bash", "edit", "find", "grep", "ls", "read", "skill", "webfetch", "websearch", "write"] },
+		{ defaults: undefined, expected: ["edit", "find", "grep", "http", "ls", "process_run", "read", "skill", "subagent", "webfetch", "websearch", "write"] },
 		{ defaults: [], expected: [] },
 		{ defaults: ["read"], expected: ["read"] },
-		{ defaults: ["-bash"], expected: ["edit", "find", "grep", "ls", "read", "skill", "webfetch", "websearch", "write"] },
+		{ defaults: ["-bash"], expected: ["edit", "find", "grep", "http", "ls", "process_run", "read", "skill", "subagent", "webfetch", "websearch", "write"] },
 		{ defaults: ["read", "bash", "-bash", "+find"], expected: ["find", "read"] },
 	])("GUI 初始集合尊重 pimoon 默认和显式配置：$defaults", async ({ defaults, expected }) => {
 		const file = path.join(temp.path, ".pi", "agent", "settings.json");
 		const settings = JSON.parse(await readFile(file, "utf8"));
 		await writeFile(file, JSON.stringify({ ...settings, ...(defaults === undefined ? {} : { defaultTools: defaults }) }));
 		await host.dispatch({ action: "new" });
-		expect(host.runtime.session.getActiveToolNames().filter((name) => name !== "powershell").sort()).toEqual(expected);
+		expect(host.runtime.session.getActiveToolNames().filter((name) => name !== "execute").sort()).toEqual(expected);
 		expect(host.runtime.session.getActiveToolNames()).not.toContain("codemode");
-		expect(host.runtime.session.getActiveToolNames()).not.toContain("subagent");
+		expect(host.runtime.session.getActiveToolNames()).toContain("execute");
 		expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ ...settings, ...(defaults === undefined ? {} : { defaultTools: defaults }) });
 	});
 	it.each([
@@ -160,9 +168,9 @@ describe("GUI 直接使用 SDK", () => {
 		await host.dispatch({ action: "reload" });
 		expect(readSnapshot(host).history).toEqual(["second", "first"]);
 	});
-	it("子代理可用状态随 profile 重载更新，选择器与实际声明一致", async () => {
+	it("子代理入口不因 profile 增删消失，重载保留用户函数选择", async () => {
 		const subagent = () => readSnapshot(host).tools.find((tool) => tool.name === "subagent");
-		expect(subagent()).toMatchObject({ available: false, enabled: false });
+		expect(subagent()).toMatchObject({ available: true, enabled: true });
 		const directory = path.join(temp.path, ".pi", "agent", "agents");
 		await mkdir(directory, { recursive: true });
 		const file = path.join(directory, "reviewer.md");
@@ -174,8 +182,8 @@ describe("GUI 直接使用 SDK", () => {
 		expect(host.runtime.session.getActiveToolNames()).toContain("subagent");
 		await rm(file);
 		await host.dispatch({ action: "reload" });
-		expect(subagent()).toMatchObject({ available: false, enabled: false });
-		expect(host.runtime.session.getActiveToolNames()).not.toContain("subagent");
+		expect(subagent()).toMatchObject({ available: true, enabled: true });
+		expect(host.runtime.session.getActiveToolNames()).toContain("execute");
 	});
 	it("虚拟模型保留选择，响应模型随路由变化并在重载后恢复", async () => {
 		const directory = path.join(temp.path, ".pi", "agent", "extensions");

@@ -108,7 +108,7 @@ export async function createGuiRuntime(
 			...(sessionStartEvent ? { sessionStartEvent } : {}),
 			scopedModels: scope.scopedModels,
 		});
-		codeact.bind(result.session, bindings.codeactEvent);
+		codeact.bind(result.session);
 		for (const diagnostic of services.diagnostics)
 			dialogs.notify(diagnostic.message, diagnostic.type === "error" ? "error" : "warning");
 		for (const error of services.resourceLoader.getExtensions().errors)

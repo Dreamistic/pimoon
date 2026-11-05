@@ -20,7 +20,7 @@ await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ transp
 const scenario = scenarios[scenarioName];
 await scenario.setup(cwd);
 const codeAct = CodeAct ? new CodeAct() : undefined;
-const native = app === "pimoon-native";
+const native = app === "pimoon";
 const factories = [{ name: "file-tools", factory: fileTools }];
 if (promptMode === "runtime") factories.push({ name: "system-prompt", factory: systemPrompt });
 if (codeAct) factories.unshift(codeAct.extension);
@@ -108,7 +108,7 @@ try {
 		const services = await createAgentSessionServices({ cwd, agentDir, modelRuntime, resourceLoaderOptions: { extensionFactories: factories, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true } });
 		const extensions = services.resourceLoader.getExtensions();
 		if (extensions.errors.length) throw new Error(JSON.stringify(extensions.errors));
-		if (codeAct && !extensions.extensions.some(extension => extension.path === `builtin:${native ? "native-codeact-candidate" : "codeact"}`)) throw new Error("CodeAct 扩展未加载，拒绝无效对测");
+		if (codeAct && !extensions.extensions.some(extension => extension.path === "builtin:codeact")) throw new Error("CodeAct 扩展未加载，拒绝无效对测");
 		const result = await createAgentSessionFromServices({ services, sessionManager, model, thinkingLevel, tools: [...(native ? ["execute"] : []), "read", "write", "edit", "find", "grep", "ls"] });
 		const provider = result.session.agent.streamFunction;
 		result.session.agent.streamFunction = (model, context, options) => {
@@ -119,7 +119,7 @@ try {
 			requestSizes.push({ systemTokens: countTokens(JSON.stringify(context.messages.filter(message => message.role === "system"))), toolTokens: tools.length ? countTokens(JSON.stringify(tools)) : 0 });
 			return provider(model, context, options);
 		};
-		codeAct?.bind(result.session, observe);
+		codeAct?.bind(result.session);
 		return { ...result, services, diagnostics: services.diagnostics };
 	}, { cwd, agentDir, sessionManager: SessionManager.inMemory(cwd) });
 	await runtime.session.bindExtensions({ mode: "print", onError: ({ error }) => { failure = String(error); } });

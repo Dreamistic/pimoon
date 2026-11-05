@@ -3,7 +3,7 @@ import path from "node:path";
 import { vi } from "vitest";
 import { SessionManager, createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices, type InlineExtension } from "@earendil-works/pi-coding-agent";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
-import { NativeCodeActCandidate } from "../../src/pimoon/codeact/native-candidate.ts";
+import { CodeAct } from "../../src/pimoon/codeact/session.ts";
 import type { ConfirmCodeAct } from "../../src/pimoon/codeact/confirmation.ts";
 import fileTools from "../../src/harness/extensions/file-tools.ts";
 import { startModelServer, type ModelResponse } from "../cli/model-server.ts";
@@ -29,7 +29,7 @@ export async function fixture(replies: ModelResponse[], confirm?: ConfirmCodeAct
 
 	try {
 		const runtime = await createAgentSessionRuntime(async ({ cwd, agentDir, sessionManager }) => {
-			const codeact = new NativeCodeActCandidate(confirm);
+			const codeact = new CodeAct(confirm);
 			const services = await createAgentSessionServices({ cwd, agentDir, resourceLoaderOptions: {
 				extensionFactories: [codeact.extension, { name: "file-tools", factory: fileTools }, ...guards],
 				noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,

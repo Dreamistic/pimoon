@@ -31,7 +31,7 @@ async function start(manager = SessionManager.create(cwd), tools?: string[]) {
 		const codeact = new CodeAct();
 		const services = await createAgentSessionServices({ cwd, agentDir, resourceLoaderOptions: { noSkills: true, noThemes: true, noPromptTemplates: true, noContextFiles: true,
 			extensionFactories: [codeact.extension, { name: "process", factory: processFunctions }, { name: "tools", factory: createToolsExtension({ bindController: value => { controller = value; }, startup: tools === undefined ? {} : { tools } }) }] } });
-		const result = await createAgentSessionFromServices({ services, sessionManager, ...(tools ? { tools } : {}), ...(sessionStartEvent ? { sessionStartEvent } : {}) });
+		const result = await createAgentSessionFromServices({ services, sessionManager, ...(tools ? { tools: ["execute", ...tools] } : {}), ...(sessionStartEvent ? { sessionStartEvent } : {}) });
 		codeact.bind(result.session); return { ...result, services, diagnostics: services.diagnostics };
 	}, { cwd, agentDir, sessionManager: manager });
 	await runtime.session.bindExtensions({ mode: "print" });
@@ -39,8 +39,8 @@ async function start(manager = SessionManager.create(cwd), tools?: string[]) {
 	return { session: runtime.session, controller };
 }
 const selected = (controller: ToolSelectionController) => controller.listTools().filter(fn => fn.enabled).map(fn => fn.name);
-const requestText = () => JSON.stringify(server.requests.at(-1)?.messages);
-function expectNoNativeTools() { expect(server.requests.at(-1)?.tools ?? []).toEqual([]); }
+const requestText = () => JSON.stringify(server.requests.at(-1));
+function expectNoNativeTools() { expect(server.requests.at(-1)?.tools?.map(tool => tool.function.name)).toEqual(["execute"]); }
 
 describe("CodeAct 固定执行与函数权限", () => {
 	it("升级旧版默认配置后新会话保留进程权限并生成真实函数目录", async () => {
@@ -52,7 +52,7 @@ describe("CodeAct 固定执行与函数权限", () => {
 		await session.prompt("Use migrated functions");
 		expectNoNativeTools(); expect(requestText()).toContain("process_run(argv:");
 	});
-	it("不补齐任何执行工具，不改写用户默认函数", async () => {
+	it("固定 execute 不参与函数开关，不改写用户默认函数", async () => {
 		const { session, controller } = await start();
 		expect(selected(controller).sort()).toEqual(["process_run", "read", "write"]);
 		expect(controller.listTools().some(fn => fn.name === "bash" || fn.name === "powershell" || fn.name === "codemode")).toBe(false);

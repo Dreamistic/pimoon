@@ -7,17 +7,17 @@ import fileTools from "../../src/harness/extensions/file-tools.ts";
 import memory from "../../src/harness/extensions/memory.ts";
 import { MemoryStore } from "../../src/harness/memory/store.ts";
 import { pimoonHome } from "../../src/pimoon/profile.ts";
-import { startModelServer } from "../cli/model-server.ts";
+import { startModelServer, type ModelResponse } from "../cli/model-server.ts";
 import { createRuntimeResources } from "./runtime-resources.ts";
 
 afterEach(() => vi.unstubAllEnvs());
-async function fixture(replies: string[], workspace?: string) {
+async function fixture(replies: (string | ModelResponse)[], workspace?: string) {
 	const base = path.resolve(".tmp/tests/memory-integration"); await fs.mkdir(base, { recursive: true });
 	const root = await fs.mkdtemp(path.join(base, "case-"));
 	const cwd = workspace ?? path.join(root, "workspace"), agentDir = path.join(root, "agent");
 	await fs.mkdir(cwd, { recursive: true }); await fs.mkdir(agentDir);
 	vi.stubEnv("PIMOON_RESOURCE_DIR", await createRuntimeResources(root));
-	const server = await startModelServer(() => ({ text: replies.shift() ?? "done" }));
+	const server = await startModelServer(() => { const value = replies.shift() ?? "done"; return typeof value === "string" ? { text: value } : value; });
 	await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
 	await fs.writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: {
 		baseUrl: server.url, api: "openai-completions", apiKey: "fixture", models: [{ id: "test", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
@@ -29,7 +29,7 @@ async function fixture(replies: string[], workspace?: string) {
 				extensionFactories: [codeact.extension, { name: "files", factory: fileTools }, { name: "memory", factory: memory }],
 				noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
 			} });
-			const result = await createAgentSessionFromServices({ services, sessionManager, tools: ["read", "write", "edit", "grep"] });
+			const result = await createAgentSessionFromServices({ services, sessionManager, tools: ["execute", "read", "write", "edit", "grep"] });
 			codeact.bind(result.session);
 			return { ...result, services, diagnostics: services.diagnostics };
 		}, { cwd, agentDir, sessionManager: SessionManager.inMemory(cwd) });
@@ -40,7 +40,7 @@ async function fixture(replies: string[], workspace?: string) {
 }
 
 it("真实 CodeAct 会话按需读取正文、跨工作区沉淀，下一请求刷新且只注入一份索引", async () => {
-	const replies: string[] = [];
+	const replies: (string | ModelResponse)[] = [];
 	const f = await fixture(replies);
 	try {
 		const store = new MemoryStore(path.join(pimoonHome, "memory"));
@@ -49,7 +49,7 @@ it("真实 CodeAct 会话按需读取正文、跨工作区沉淀，下一请求�
 		const source = path.join(project.directory, "entries/seed.md"), destination = path.join(project.directory, "entries/new.md");
 		await fs.writeFile(source, "---\nname: SEED-TITLE\ndescription: Read when solving fixture issues\ntype: lesson\n---\nSEED_BODY_ONLY_ON_DEMAND\n");
 		const text = "---\nname: NEW-LESSON-TITLE\ndescription: Read after a verified fixture failure\ntype: lesson\n---\nA verified lesson.\n";
-		replies.push(`<execute>\nread(path=${JSON.stringify(source)})\n</execute>`, `<execute>\nwrite(path=${JSON.stringify(destination)}, content=${JSON.stringify(text)})\n</execute>`, "done");
+		replies.push({ tool: "execute", args: { code: `read(path=${JSON.stringify(source)})`, desc: "读取记忆" } }, { tool: "execute", args: { code: `write(path=${JSON.stringify(destination)}, content=${JSON.stringify(text)})`, desc: "保存记忆" } }, "done");
 		await f.runtime.session.prompt("Use the relevant fixture memory, then save the verified lesson.");
 		expect(f.server.requests).toHaveLength(3);
 		const first = JSON.stringify(f.server.requests[0]), second = JSON.stringify(f.server.requests[1]), third = JSON.stringify(f.server.requests[2]);
