@@ -1,19 +1,30 @@
-"""候选：保守调度顶层独立只读赋值与简单字符串推导式。"""
+"""保守调度顶层独立只读赋值、直接打印与简单字符串推导式。"""
 import ast
+import builtins
 import copy
 import json
 
 SAFE_TOOLS = frozenset({"read", "find", "grep", "ls", "native_read"})
 HELPER = "__pimoon_scheduler__"
+# worker 在加载此模块前安装受控 print；后续用户重绑定不能扩大并行范围。
+TRUSTED_PRINT = builtins.print
 
 
 def candidate(node):
-    if not (isinstance(node, ast.Assign) and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)):
+    target = None
+    if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+        target = node.targets[0].id
+    elif not isinstance(node, ast.Expr):
         return None
-    target = node.targets[0].id
+    if target in SAFE_TOOLS or target in {HELPER, "print", "__builtins__"}:
+        return None
     call = node.value
-    if target in SAFE_TOOLS or target == HELPER:
+    printed = (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+               and call.func.id == "print" and len(call.args) == 1 and not call.keywords)
+    if printed:
+        call = call.args[0]
+    elif target is None:
+        # 裸调用还有自动结果反馈，不在此处改写。
         return None
     if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
             and call.func.id in SAFE_TOOLS):
@@ -34,7 +45,7 @@ def candidate(node):
         return None
     if call.func.id == "native_read" and (set(args) != {"path"} or type(args["path"]) is not str):
         return None
-    return target, call.func.id, args
+    return target, call.func.id, args, printed
 
 
 def transform(tree):
@@ -50,12 +61,15 @@ def transform(tree):
         start = cursor
         jobs = []
         targets = set()
+        prints = []
         while cursor < len(tree.body) and len(jobs) < 64:
             item = candidate(tree.body[cursor])
             if item is None or item[0] in targets:
                 break
-            target, name, args = item
-            targets.add(target)
+            target, name, args, printed = item
+            if target is not None:
+                targets.add(target)
+            prints.append(printed)
             jobs.append({"name": name, "args": args})
             cursor += 1
         if len(jobs) < 2:
@@ -66,14 +80,19 @@ def transform(tree):
         original = tree.body[start:cursor]
         names = ast.Tuple(elts=[ast.Constant(job["name"]) for job in jobs], ctx=ast.Load())
         test = ast.Call(func=ast.Attribute(value=ast.Name(id=HELPER, ctx=ast.Load()),
-                       attr="eligible", ctx=ast.Load()), args=[names], keywords=[])
+                       attr="eligible", ctx=ast.Load()), args=[names, ast.Constant(any(prints))], keywords=[])
         scheduled = []
         for index, node in enumerate(original):
             replacement = copy.deepcopy(node)
-            replacement.value = ast.Call(func=ast.Attribute(value=ast.Name(id=HELPER, ctx=ast.Load()),
+            resolved = ast.Call(func=ast.Attribute(value=ast.Name(id=HELPER, ctx=ast.Load()),
                 attr="resolve", ctx=ast.Load()), args=[ast.Constant(group),
                 ast.parse(repr(jobs), mode="eval").body if index == 0 else ast.Constant(None),
                 ast.Constant(index)], keywords=[])
+            if prints[index]:
+                # 只并行读取；print 仍在源码位置按顺序执行，保留其返回值与输出行为。
+                replacement.value.args[0] = resolved
+            else:
+                replacement.value = resolved
             scheduled.append(ast.copy_location(replacement, node))
         output.append(ast.copy_location(ast.If(test=test, body=scheduled, orelse=original), original[0]))
         group += 1
@@ -158,7 +177,10 @@ class Scheduler:
         self.bridge = bridge
         self.results = {}
 
-    def eligible(self, names):
+    def eligible(self, names, printed=False):
+        if printed and (self.namespace.get("__builtins__") is not builtins
+                        or self.namespace.get("print", getattr(builtins, "print", None)) is not TRUSTED_PRINT):
+            return False
         return all(name in self.proxies and self.namespace.get(name) is self.proxies[name] for name in names)
 
     def map_reads(self, name, paths, arguments, fallback, as_dict):

@@ -16,13 +16,13 @@ process.env.PIMOON_RESOURCE_DIR=resources;
 const {Runtime}=await import('../../src/pimoon/runtime.mjs');
 const tools=['read','ls','find','grep','write','process_run'].map(name=>({name,parameters:{type:'object',properties:{path:{type:'string'},query:{type:'string'}}}}));
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-async function fixture(fn,{autoParallel=true,transport='direct',delay=10,fail=null}={}){
+async function fixture(fn,{autoParallel=true,transport='direct',observe=false,delay=10,fail=null}={}){
  const cwd=await fs.mkdtemp(path.join(base,'case-'));
- const runtime=new Runtime({cwd,tools,autoParallel,transport,observe:false});
+ const runtime=new Runtime({cwd,tools,autoParallel,transport,observe});
  let active=0,peak=0;const calls=[],events=[];
  const context={tools,executeTool:async(name,args)=>{
   calls.push([name,args]);active++;peak=Math.max(peak,active);
-  try{await sleep(delay);return {isError:args.path===fail,result:{content:[{type:'text',text:args.path===fail?'fixture failure':JSON.stringify({name,...args})}]}};}
+  try{await sleep(typeof delay==='function'?delay(args):delay);return {isError:args.path===fail,result:{content:[{type:'text',text:args.path===fail?'fixture failure':JSON.stringify({name,...args})}]}};}
   finally{active--;}
  }};
  const run=code=>runtime.run(code,context,undefined,1,(type,fields)=>events.push({type,...fields}));
@@ -40,7 +40,7 @@ for(const transport of ['direct','rust']){
   assert.equal(cached.details.metrics.compile_cache_hit,true);assert.equal(calls.length,6);
  },{transport}));
 }
-test('默认保持串行；候选与基线输出完全一致',async()=>{
+test('显式关闭自动调度保持串行；并行与基线输出完全一致',async()=>{
  let expected;
  const code='a=read(path="a")\nb=read(path="b")\n[a,b]';
  await fixture(async({run,peak})=>{expected=(await run(code)).content;assert.equal(peak(),1);},{autoParallel:false});
@@ -119,3 +119,58 @@ test('推导式工具被覆盖仍执行自定义函数，失败不会给结果�
  const failed=await run('paths=["a","fail","b"]\nvalues2=[read(path=p) for p in paths]');
  assert.equal(failed.isError,true);assert.equal((await run('assert "values2" not in globals()')).isError,false);
 },{fail:'fail'}));
+
+// 直接重放常见的 print(read/grep(...))，不要求模型先改成赋值。
+for(const transport of ['direct','rust'])for(const observe of [false,true])
+ test(`${transport}/observe=${observe}: 直接打印的读取并行，输出与串行逐字一致且缓存不重放`,async()=>{
+  const code='print(read(path="slow"))\nprint(read(path="fast"))\nprint(grep(query="search"))\nprint(read(path="last"))';
+  const options={transport,observe,delay:args=>args.path==='slow'?40:2};
+  let expected;
+  await fixture(async({run,peak})=>{
+   const result=await run(code);assert.equal(result.isError,false,result.content[0].text);
+   expected=result.content;assert.equal(peak(),1);
+  },{...options,autoParallel:false});
+  await fixture(async({run,calls,events,peak})=>{
+   const result=await run(code);assert.equal(result.isError,false,result.content[0].text);
+   assert.deepEqual(result.content,expected);assert.equal(peak(),4);
+   assert.deepEqual(calls.map(row=>row[0]),['read','read','grep','read']);
+   assert.equal(events.filter(event=>event.type==='schedule_start').length,1);
+   const cached=await run(code);assert.deepEqual(cached.content,expected);
+   assert.equal(cached.details.metrics.compile_cache_hit,true);assert.equal(calls.length,8);
+  },options);
+ });
+test('打印与只读赋值混合调度，保留赋值结果和 print 返回值',()=>fixture(async({run,calls,peak})=>{
+ const result=await run('a=read(path="a")\nprint(read(path="b"))\np=print(ls(path="c"))\nd=grep(query="d")\nassert p is None and "a" in a and "d" in d');
+ assert.equal(result.isError,false,result.content[0].text);assert.equal(peak(),4);assert.equal(calls.length,4);
+ assert.equal((await run('assert p is None and "a" in a and "d" in d')).isError,false);
+}));
+for(const [label,code,count] of [
+ ['写入屏障','print(read(path="a"))\nwrite(path="middle")\nprint(read(path="b"))',3],
+ ['动态参数','print(read(path=str("a")))\nprint(read(path="b"))',2],
+ ['打印参数表达式','print(read(path="a"),end=str("!"))\nprint(read(path="b"))',2],
+ ['输出文件','import io\nsink=io.StringIO()\nprint(read(path="a"),file=sink)\nprint(read(path="b"))',2],
+ ['自定义 print','print=lambda value: write(path="side")\nprint(read(path="a"))\nprint(read(path="b"))',4],
+ ['组内 print 赋值','print=read(path="a")\nb=read(path="b")',2],
+ ['工具被覆盖','read=lambda **kw:"local"\nprint(read(path="a"))\nprint(ls(path="b"))',1],
+ ['内置 print 替换','import builtins\noriginal=builtins.print\nbuiltins.print=lambda value: None\nprint(read(path="a"))\nprint(read(path="b"))\nbuiltins.print=original',2],
+])test(label+'不跨越打印安全边界',()=>fixture(async({run,calls,events,peak})=>{
+ const result=await run(code);assert.equal(result.isError,false,result.content[0].text);
+ assert.equal(calls.length,count);assert.equal(peak(),1);assert.equal(events.filter(event=>event.type==='schedule_start').length,0);
+}));
+test('打印后项失败保留前项输出与行号，已派发读取排空但不打印后项、不启动写入',()=>fixture(async({run,calls,peak})=>{
+ const result=await run('print(read(path="first"))\nprint(read(path="fail"))\nprint(read(path="tail"))\nwrite(path="never")');
+ assert.equal(result.isError,true);assert.match(result.content[0].text,/line 2/);
+ assert.match(result.content[0].text,/"path":"first"/);assert.doesNotMatch(result.content[0].text,/"path":"tail"/);
+ assert.deepEqual(calls.map(row=>row[1].path),['first','fail','tail']);assert.equal(peak(),3);
+},{fail:'fail'}));
+
+test('编译缓存命中仍重新校验 print 绑定，跨轮覆盖后按串行原义执行',()=>fixture(async({run,calls,events})=>{
+ const code='print(read(path="a"))\nprint(read(path="b"))';
+ assert.equal((await run(code)).isError,false);
+ assert.equal(events.filter(event=>event.type==='schedule_start').length,1);
+ assert.equal((await run('print=lambda value: write(path="side")')).isError,false);
+ const result=await run(code);assert.equal(result.isError,false,result.content[0].text);
+ assert.equal(result.details.metrics.compile_cache_hit,true);
+ assert.equal(events.filter(event=>event.type==='schedule_start').length,1);
+ assert.deepEqual(calls.slice(2).map(row=>row[0]),['read','write','read','write']);
+}));

@@ -26,7 +26,7 @@ vi.mock("../../src/harness/file-tools/pi/adapters/read.ts", async load => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
-it("A/B：同一源码经原生 execute、SDK 和真实文件工具执行，记录原始样本而不以噪声阈值断言加速", async () => {
+it.each(["assignment", "print"] as const)("A/B（%s）：同一源码经原生 execute、SDK 和真实文件工具执行，记录原始样本而不以噪声阈值断言加速", async shape => {
  const base = path.resolve(".tmp/tests/auto-parallel-ab"); await fs.mkdir(base, { recursive: true });
  const folder = await fs.mkdtemp(path.join(base, "case-"));
  const cwd = path.join(folder, "workspace"), agentDir = path.join(folder, "agent");
@@ -34,7 +34,9 @@ it("A/B：同一源码经原生 execute、SDK 和真实文件工具执行，记�
  for (let index = 0; index < 6; index++) await fs.writeFile(path.join(cwd, `${index}.txt`), Array.from({ length: 120 }, (_, line) => `fixture-${index}-${line} 原文`).join("\n"));
  vi.stubEnv("PIMOON_RESOURCE_DIR", await createRuntimeResources(folder));
  const { CodeAct } = await import("../../src/pimoon/codeact/session.ts");
- const code = Array.from({ length: 6 }, (_, i) => `r${i}=read(path="${i}.txt")`).join("\n") + "\n[len(r0),len(r1),len(r2),len(r3),len(r4),len(r5)]";
+ const code = shape === "print"
+  ? Array.from({ length: 6 }, (_, i) => `print(read(path="${i}.txt"))`).join("\n")
+  : Array.from({ length: 6 }, (_, i) => `r${i}=read(path="${i}.txt")`).join("\n") + "\n[len(r0),len(r1),len(r2),len(r3),len(r4),len(r5)]";
  let responseNumber = 0;
  const server = await startModelServer(() => responseNumber++ % 2 === 0 ? { tool: "execute", args: { code, desc: "读取六份文件" } } : { text: "done" });
  await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
@@ -96,7 +98,7 @@ it("A/B：同一源码经原生 execute、SDK 和真实文件工具执行，记�
    return { delay_ms: delay, phase, samples_per_variant: rows("A").length, A_median_ms: a, B_median_ms: b, speedup: a / b, reduction_percent: (a - b) / a * 100 };
   }));
   const report = { source: code, model: "deterministic fixture; not a live model or billing benchmark", samples, summaries };
-  await fs.writeFile(path.join(base, "results.json"), JSON.stringify(report, null, 2));
-  console.log("AUTO_PARALLEL_AB", JSON.stringify(summaries));
+  await fs.writeFile(path.join(base, shape === "print" ? "print-results.json" : "results.json"), JSON.stringify(report, null, 2));
+  console.log("AUTO_PARALLEL_AB", shape, JSON.stringify(summaries));
  } finally { await server.close(); }
 }, 120_000);

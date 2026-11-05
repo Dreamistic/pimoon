@@ -16,7 +16,7 @@ async function fixture(fn,options={}){
  const cwd=await fs.mkdtemp(path.join(base,'case-'));const runtime=new Runtime({cwd,tools,transport:'rust',observe:false,autoParallel:true,...options});
  try{await runtime.ready;await fn(runtime);}finally{const exit=once(runtime.child,'exit');runtime.close();runtime.child.ref();await exit;}
 }
-for(const reason of ['cancelled','timeout'])test(`自动调度 ${reason}：中止在途调用，不启动余项，可重建且不重放`,()=>fixture(async runtime=>{
+for(const form of ['assign','print'])for(const reason of ['cancelled','timeout'])test(`${form} 自动调度 ${reason}：中止在途调用，不启动余项，可重建且不重放`,()=>fixture(async runtime=>{
  const controller=new AbortController();let started=0,ended=0;
  let signalStarted;const ready=new Promise(resolve=>{signalStarted=resolve;});
  const context={tools,executeTool:async(_name,_args,{signal})=>{
@@ -24,7 +24,8 @@ for(const reason of ['cancelled','timeout'])test(`自动调度 ${reason}：中�
   await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}));ended++;throw Error('cancelled');
  }};
  const events=[];
- const pending=runtime.run(code,context,controller.signal,1,(type,fields)=>events.push({type,...fields}));
+ const source=form==='print'?Array.from({length:12},(_,i)=>`print(read(path="${i}"))`).join('\n'):code;
+ const pending=runtime.run(source,context,controller.signal,1,(type,fields)=>events.push({type,...fields}));
  await ready;if(reason==='cancelled')controller.abort();
  await assert.rejects(pending);
  assert.equal(started,6);assert.equal(ended,6);assert.equal(runtime.lastMetrics.outcome,reason);
@@ -101,3 +102,16 @@ test('原文读取签名错误退回 Python，不被调度器改成别的错误�
   assert.equal(result.isError,true);assert.match(result.content[0].text,/TypeError/);assert.ok(!events.includes('schedule_start'));
  }
 }));
+
+for(const transport of ['direct','rust'])test(`${transport}: 打印原文与工具结果混合并行，保持 Unicode 和输出顺序`,()=>fixture(async runtime=>{
+ await fs.writeFile(path.join(runtime.cwd,'a.txt'),'原文😀a');await fs.writeFile(path.join(runtime.cwd,'c.txt'),'原文😀c');
+ const events=[];
+ const result=await runtime.run('print(native_read("a.txt"))\nprint(read(path="b.txt"))\nprint(native_read("c.txt"))',
+  {tools,executeTool:async()=>({isError:false,result:{content:[{type:'text',text:'工具😀b'}]}})},
+  undefined,1,(type,fields)=>events.push({type,...fields}));
+ assert.equal(result.isError,false,result.content[0].text);
+ assert.equal(result.content[0].text,'ok\n原文😀a\n工具😀b\n原文😀c\n');
+ assert.equal(result.details.metrics.native_read_calls_observed,2);assert.equal(result.details.metrics.internal_tool_calls,1);
+ assert.equal(events.filter(event=>event.type==='scheduled_native_read').length,2);
+ assert.equal(events.filter(event=>event.type==='schedule_start').length,1);
+},{transport}));
