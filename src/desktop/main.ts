@@ -24,6 +24,7 @@ import { forkDesktopWorker } from "./worker-services.ts";
 import { DesktopDiagnostics } from "./diagnostics.ts";
 import { installDesktopFaults } from "./faults.ts";
 import { DesktopStorage } from "./storage.ts";
+import { DesktopWorkspaceState } from "./workspace-state.ts";
 import { installDesktopAppearance } from "./appearance.ts";
 import { installDesktopShutdown } from "./shutdown.ts";
 import { createDesktopWindowState } from "./window-state.ts";
@@ -186,9 +187,11 @@ function startDesktop(): void {
 			void openExternal(url).catch((error: unknown) => dialog.showErrorBox("无法打开链接", String(error)));
 			return { action: "deny" };
 		});
+		const workspaceState = new DesktopWorkspaceState(path.join(app.getPath("userData"), "workspace-state.json"));
+		const workspace = process.env.PIMOON_WORKSPACE !== undefined ? defaultWorkspace : workspaceState.restore(defaultWorkspace);
 		const backendDirectory = path.basename(directory) === "app.asar" ? `${directory}.unpacked` : directory;
 		const client = new BackendClient(
-			forkDesktopWorker(path.join(backendDirectory, "backend.mjs"), [defaultWorkspace], {
+			forkDesktopWorker(path.join(backendDirectory, "backend.mjs"), [workspace], {
 				stdio: "pipe", serviceName: "pimoon SDK", env: environment,
 			}),
 			diagnostics,
@@ -232,7 +235,10 @@ function startDesktop(): void {
 						case "activity": power.activity(taskStatus.update(event.value)); break;
 						case "guiConfig": if (event.value.state === "ready") power.configure(event.value.value.preventSleepWhileRunning); break;
 						case "selected":
-							if (event.session) menu.select(event.session.cwd);
+							if (event.session) {
+							menu.select(event.session.cwd);
+							workspaceState.select(event.session.cwd);
+						}
 							break;
 						case "workspaces": menu.workspaces(event.value); break;
 					}
