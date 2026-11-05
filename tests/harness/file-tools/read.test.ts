@@ -75,14 +75,16 @@ describe("read", () => {
 		});
 	});
 
-	it("workspace 外路径不存在时不附加路径建议", async () => {
+	it("workspace 外缺失路径只提示主动定位，不附加相似候选", async () => {
 		const result = expectFailure(await testContext.read({ path: path.join(outside, "main.ts") }), "FILE_NOT_FOUND");
-		expect(result.error.next).toBeUndefined();
+		expect(result.error.next).toContain("Locate the path with find or ls");
+		expect(result.error.next).not.toContain("Related paths:");
 	});
 
-	it("空 workspace 没有相似文件时保持原始 FILE_NOT_FOUND 错误", async () => {
+	it("空 workspace 保留 FILE_NOT_FOUND 并提示主动定位", async () => {
 		const result = expectFailure(await testContext.read({ path: "missing-completely.ts" }), "FILE_NOT_FOUND");
-		expect(result.error.next).toBeUndefined();
+		expect(result.error.next).toContain("Locate the path with find or ls");
+		expect(result.error.next).not.toContain("Related paths:");
 	});
 
 	it("读取完整 UTF-8 文件并返回版本和元数据", async () => {

@@ -64,9 +64,10 @@ export function mapFsError(error: FsError, options: FsErrorMappingOptions = {}):
 	const code = fileToolCode(error, options.notFound ?? "path");
 	const displayPath = options.path ?? error.path;
 	const message = options.message ?? error.message;
+	const next = options.next ?? (error.code === "not-found" ? "Locate the path with find or ls before retrying; do not guess paths." : undefined);
 	return fail(code, message, {
 		...(displayPath !== undefined ? { path: displayPath } : {}),
-		...(options.next !== undefined ? { next: options.next } : {}),
+		...(next === undefined ? {} : { next }),
 		...(error.details === undefined ? {} : { details: { ...error.details } }),
 	});
 }

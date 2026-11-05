@@ -44,7 +44,7 @@ export function CodeActActivity({ tool }: { tool: ToolActivity }) {
 				<Icon className="activity-icon" aria-hidden="true" /><span className="activity-label codeact-title">{label}</span>
 				{target && <code className="activity-target">{target}</code>}
 				<span className="activity-tail">
-					<ActivityState state={tool.state} label={codeActStateLabel(tool.state, outcome, waiting)} durationMs={tool.durationMs}
+					<ActivityState state={tool.state} label={codeActStateLabel(tool.state, outcome, waiting, failures > 0)} durationMs={tool.durationMs}
 						facts={<>{calls.length > 0 ? `${calls.length} 次函数调用` : ""}{failures > 0 && <span className="nested-failures"> · {failures} 次失败</span>}</>} />
 					<ChevronRight className={`activity-chevron${open ? " expanded" : ""}`} aria-hidden="true" />
 				</span>

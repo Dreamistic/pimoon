@@ -1,6 +1,7 @@
 import { fail, type FileToolError, type ToolOutcome } from "../shared/result.ts";
 import { buildEditMatchHints, buildEditNotFoundRecovery } from "./hints.ts";
 import { findAll } from "./matches.ts";
+import { adaptReplacementNewlines } from "./newlines.ts";
 import type { EditReplacement } from "./types.ts";
 
 const MAX_REPORTED_ERRORS = 8;
@@ -28,6 +29,7 @@ export function validateReplacements(
 	path: string,
 	hintLimit: number,
 ): ToolOutcome<readonly EditMatch[]> {
+	replacements = adaptReplacementNewlines(text, replacements);
 	const matches: EditMatch[] = [];
 	const problems: MatchProblem[] = [];
 	let totalErrors = 0;
@@ -129,14 +131,18 @@ function describeMissing(
 				details: { reason: "dependent_edit", after_edit_index: recovery.afterEditIndex },
 				hintsUsed: 0,
 			};
-		case "format":
+		case "format": {
+			const newlineOnly = old.replace(/\r\n/gu, "\n") === recovery.candidate.old.replace(/\r\n/gu, "\n");
 			return {
 				...base,
-				message: `edits[${index}].old was not found exactly; one formatting-equivalent candidate exists.`,
+				message: newlineOnly
+					? `edits[${index}].old differs only in LF/CRLF; this file requires exact newline matching.`
+					: `edits[${index}].old was not found exactly; one formatting-equivalent candidate exists.`,
 				next: "Retry with the shown old text, adapting new if needed; read only if the file changed.",
-				details: { reason: "format_drift", candidates: [recovery.candidate] },
+				details: { reason: newlineOnly ? "newline_drift" : "format_drift", candidates: [recovery.candidate] },
 				hintsUsed: 1,
 			};
+		}
 		case "anchors": {
 			const shown = recovery.candidates.length;
 			return {

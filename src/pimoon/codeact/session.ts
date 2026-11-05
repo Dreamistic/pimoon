@@ -115,11 +115,11 @@ export class CodeAct {
                 for (const file of paths) {
                     if (typeof file !== "string") throw new Error("无效路径。");
                     if (["write", "edit"].includes(event.toolName)) await checkWritablePath(ctx.cwd, file, protectedCredentialPaths);
-                    else await checkReadablePath(ctx.cwd, file, protectedCredentialPaths);
+                    else await checkReadablePath(ctx.cwd, file, protectedCredentialPaths, event.toolName !== "process_run");
                 }
             } catch (error) { return { block: true, reason: error instanceof Error ? error.message : String(error) }; }
         });
-        pi.on("user_bash", () => ({ result: { output: "请使用 execute 内的 process_run，不执行 Shell 字符串。", exitCode: 1, cancelled: false, truncated: false } }));
+        pi.on("user_bash", () => ({ result: { output: "请使用 execute 内的 subprocess.run，不执行 Shell 字符串。", exitCode: 1, cancelled: false, truncated: false } }));
         pi.on("session_shutdown", event => this.close(event.reason));
         pi.on("session_tree", () => this.close("session_tree"));
     }

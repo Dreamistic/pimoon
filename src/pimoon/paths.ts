@@ -28,9 +28,11 @@ function localPath(cwd: string, target: string): string {
 }
 
 /** 读取不受工作区范围限制，同时检查原始路径和链接目标。 */
-export async function checkReadablePath(cwd: string, target: string, protectedPaths: readonly string[]): Promise<string> {
+export async function checkReadablePath(cwd: string, target: string, protectedPaths: readonly string[], allowMissing = false): Promise<string> {
 	const absolute = localPath(cwd, target);
-	const canonical = await fs.realpath(absolute);
+	await checkProtected([absolute], protectedPaths);
+	const canonical = allowMissing ? await resolveMissingPath(absolute) : await fs.realpath(absolute);
+	localPath(cwd, canonical);
 	await checkProtected([absolute, canonical], protectedPaths);
 	return canonical;
 }
@@ -47,6 +49,25 @@ export async function checkWritablePath(cwd: string, target: string, protectedPa
 			return;
 		} catch (error) {
 			if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+			const parent = path.dirname(ancestor);
+			if (parent === ancestor) throw error;
+			ancestor = parent;
+		}
+	}
+}
+
+/** 缺失路径仍检查真实父目录；悬空链接不能被当作普通缺失目录放行。 */
+async function resolveMissingPath(absolute: string): Promise<string> {
+	let ancestor = absolute;
+	for (;;) {
+		try { return path.join(await fs.realpath(ancestor), path.relative(ancestor, absolute)); }
+		catch (error) {
+			if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+			const stat = await fs.lstat(ancestor).catch((cause: unknown) => {
+				if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return undefined;
+				throw cause;
+			});
+			if (stat?.isSymbolicLink()) throw new Error("无法校验链接目标；请先修复路径链接。");
 			const parent = path.dirname(ancestor);
 			if (parent === ancestor) throw error;
 			ancestor = parent;

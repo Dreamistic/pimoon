@@ -17,16 +17,16 @@ export function codeActOutputSummary(output: GuiToolOutput | undefined, failed =
 		const exception = lines.findLast(line => /^(?:[\w.]*Error|[\w.]*Exception):/u.test(line));
 		if (exception) return compact(exception);
 	}
-	const body = lines.filter(line => !/^(?:ok|error)$/u.test(line) && !/^(?:calls:|tool_failures:|Traceback \()/u.test(line));
+	const body = lines.filter(line => !/^(?:ok|error|partial_failure)$/u.test(line) && !/^(?:calls:|tool_failures:|Traceback \()/u.test(line));
 	return compact(body[0] ?? "");
 }
 
-export function codeActStateLabel(state: ToolState, outcome: string, waiting: boolean): string | undefined {
+export function codeActStateLabel(state: ToolState, outcome: string, waiting: boolean, hasInternalFailures = false): string | undefined {
 	if (waiting) return "等待确认";
 	if (outcome === "confirmation_rejected") return "已拒绝 · 未执行";
 	if (outcome === "confirmation_unavailable" || outcome === "confirmation_invalidated") return "未获确认 · 未执行";
 	if (state === "preparing") return "生成代码";
-	if (state === "completed") return "执行完成";
+	if (state === "completed") return outcome === "tool_partial_failure" || hasInternalFailures ? "执行完成 · 有内部失败" : "执行完成";
 	return undefined;
 }
 

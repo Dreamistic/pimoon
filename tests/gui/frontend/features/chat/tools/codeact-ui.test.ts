@@ -69,6 +69,16 @@ describe("CodeAct 目的、结果与确认", () => {
 		const completed = renderTool({ ...tool, state: "completed", output: { kind: "inline", value: { content: [{ type: "text", text: "ok\n42" }] } } });
 		expect(completed.querySelector(".codeact-overview")?.textContent).toContain("42");
 	});
+	it.each(["metrics", "nested"])("部分失败来源 %s 不改变 completed 语义，折叠时也有警示", source => {
+		const doc = renderTool({ ...tool, name: "execute", state: "completed",
+			output: { kind: "inline", value: { content: [{ type: "text", text: "partial_failure\n42\ntool_failures: []" }],
+				...(source === "metrics" ? { details: { metrics: { outcome: "tool_partial_failure" } } } : {}) } },
+			nestedCalls: { complete: true, calls: source === "nested" ? [{ id: "failed", name: "read", status: "error", error: "missing" }] : [] } });
+		expect(doc.querySelector(".activity-summary")?.textContent).toContain("执行完成 · 有内部失败");
+		expect(doc.querySelector(".codeact-activity")?.getAttribute("data-state")).toBe("completed");
+		expect(doc.querySelector(".codeact-overview")?.textContent).toContain("42");
+		expect(doc.querySelector(".codeact-overview")?.textContent).not.toContain("partial_failure");
+	});
 	it("执行数和内部函数数分开计数", () => {
 		expect(activityCounts([tool])).toEqual(["1 次执行", "2 次函数调用"]);
 	});

@@ -192,7 +192,7 @@ export class Runtime {
         if(frame.op===OP.DONE){
           const result=JSON.parse(frame.data);result.tool_failures.push(...structuredFailures);
           const summary=!result.output&&internalCalls?'\ncalls: '+[...callCounts].map(([name,count])=>`${name}=${count.calls}${count.errors?`(errors=${count.errors})`:''}`).join(' '):'';
-          const text=`${result.ok?'ok':'error'}${result.output?'\n'+result.output:summary}${result.error?'\n'+result.error:''}${result.tool_failures.length?'\ntool_failures: '+JSON.stringify(result.tool_failures):''}${!result.output_complete?'\nOutput retention incomplete.':''}`;
+          const text=`${result.ok?(result.tool_failures.length?'partial_failure':'ok'):'error'}${result.output?'\n'+result.output:summary}${result.error?'\n'+result.error:''}${result.tool_failures.length?'\ntool_failures: '+JSON.stringify(result.tool_failures):''}${!result.output_complete?'\nOutput retention incomplete.':''}`;
           Object.assign(this.lastMetrics,result.metrics,{ok:result.ok,outcome:result.ok?(result.tool_failures.length?'tool_partial_failure':'success'):'python_error',metrics_complete:true,
             output_complete:result.output_complete,output_chars:result.output_chars,model_returned_text_chars:text.length,tool_failure_count:result.tool_failures.length});
           return {content:[{type:'text',text},...images],isError:!result.ok,details:{runtime:this.transport,metrics:this.lastMetrics}};
