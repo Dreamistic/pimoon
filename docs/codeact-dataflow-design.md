@@ -1,6 +1,6 @@
 # CodeAct 数据流优化设计
 
-状态：设计建议，尚未修改执行协议或函数接口。依据 [Sol 小样本对测](pimoon-opi-sol-benchmark.md) 与当前工作树；本次不新增模型请求。
+状态：方案记录，主分支执行协议与函数接口未变。后续已在独立实验分支完成候选实现和真实模型评测，结论暂不上线，见[候选评测与返回值核对](codeact-dataflow-evaluation.md)。设计依据为 [Sol 小样本对测](pimoon-opi-sol-benchmark.md)。
 
 ## 目标
 
