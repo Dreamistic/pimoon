@@ -1,5 +1,6 @@
 import { record, fingerprint, requestBindings } from "./telemetry.ts";
 import { zstdDecompressSync } from "node:zlib";
+import { createHash } from "node:crypto";
 
 export function allowedModelURL(value: string): boolean {
 	const url = new URL(value);
@@ -26,6 +27,7 @@ export function installModelBoundary(): void {
 		else if (typeof input === "object" && "clone" in input && typeof input.clone === "function") bytes = new Uint8Array(await input.clone().arrayBuffer());
 		const headers = new Headers(options?.headers ?? (typeof input === "object" && "headers" in input ? input.headers : undefined));
 		const encoding = headers.get("content-encoding");
+		const wireBytes = bytes;
 		let body: string | undefined;
 		try {
 			if (bytes && bytes.length > 16 * 1024 * 1024) throw new Error("模型请求超过本地检查上限。");
@@ -40,8 +42,14 @@ export function installModelBoundary(): void {
 		const payload = fingerprint(body), binding = requestBindings.get(payload.sha256);
 		let parsed: unknown;
 		try { parsed = JSON.parse(body); }
-		catch {
-			record("transport_denied", { ...binding?.labels, reason: "invalid_json", payload });
+		catch (error) {
+			// JSON.parse 的错误可能包含正文片段，只保留数字位置与字节指纹。
+			const position = error instanceof SyntaxError ? /\bposition (\d+)\b/u.exec(error.message)?.[1] : undefined;
+			const byteFingerprint = (value: Uint8Array | undefined) => value
+				? { bytes: value.byteLength, sha256: createHash("sha256").update(value).digest("hex") } : undefined;
+			record("transport_denied", { ...binding?.labels, reason: "invalid_json", payload,
+				encoding: encoding ?? "identity", wire: byteFingerprint(wireBytes), decoded: byteFingerprint(bytes),
+				json_error_position: position === undefined ? null : Number(position) });
 			throw new Error("模型请求不是有效 JSON。");
 		}
 		requestBindings.delete(payload.sha256);

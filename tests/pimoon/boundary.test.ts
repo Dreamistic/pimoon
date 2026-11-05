@@ -45,6 +45,39 @@ describe("模型请求边界", () => {
 		expect(transport.mock.calls[0]?.[1]?.body).toBe(body);
 		expect(transport.mock.calls[0]?.[1]?.redirect).toBe("error");
 	});
+	it("大于128KiB的中文、转义字符和多轮工具结果压缩后仍按原绑定发送", async () => {
+		const text = "中文路径 D:" + String.fromCharCode(92, 34, 10) + "工具结果";
+		const request = JSON.stringify({ model: "gpt-6.1-sol", input: Array.from({ length: 3000 }, () => ({
+			type: "function_call_output", call_id: "synthetic", output: text,
+		})) });
+		expect(Buffer.byteLength(request)).toBeGreaterThan(128 * 1024);
+		requestBindings.set(fingerprint(request).sha256, { allowed: true, model: "gpt-6.1-sol", labels: {} });
+		const body = new Uint8Array(zstdCompressSync(request));
+		await fetch(endpoint, { method: "POST", body, headers: { "content-encoding": "zstd" } });
+		expect(transport).toHaveBeenCalledTimes(1);
+		expect(transport.mock.calls[0]?.[1]?.body).toBe(body);
+	});
+	it.each([false, true])("无效 JSON 只记录安全诊断，不发送或泄露正文（压缩：%s）", async (compressed) => {
+		const invalid = '{"input":"INVALID_JSON_PRIVATE_SENTINEL",!}';
+		const encoded = new TextEncoder().encode(invalid);
+		const body = compressed ? new Uint8Array(zstdCompressSync(invalid)) : encoded;
+		await expect(fetch(endpoint, { method: "POST", body,
+			...(compressed ? { headers: { "content-encoding": "zstd" } } : {}),
+		})).rejects.toThrow("模型请求不是有效 JSON");
+		expect(transport).not.toHaveBeenCalled();
+		await flushTelemetry();
+		const files = (await fs.readdir(telemetryDirectory)).filter(file => file.endsWith(".jsonl"));
+		const text = (await Promise.all(files.map(file => fs.readFile(path.join(telemetryDirectory, file), "utf8")))).join("");
+		expect(text).not.toContain("INVALID_JSON_PRIVATE_SENTINEL");
+		const events: unknown[] = text.split("\n").filter(Boolean).map(line => JSON.parse(line));
+		expect(events).toContainEqual(expect.objectContaining({
+			type: "transport_denied", reason: "invalid_json", payload: fingerprint(invalid),
+			encoding: compressed ? "zstd" : "identity",
+			wire: expect.objectContaining({ bytes: body.byteLength, sha256: expect.any(String) }),
+			decoded: { bytes: encoded.byteLength, sha256: fingerprint(invalid).sha256 },
+			json_error_position: invalid.indexOf("!"),
+		}));
+	});
 	it("支持 Request 对象，拒绝相同绑定的自动重放", async () => {
 		await fetch(new Request(endpoint, { method: "POST", body: payload }));
 		await expect(fetch(endpoint, { method: "POST", body: payload })).rejects.toThrow("未绑定");
