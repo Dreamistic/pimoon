@@ -21,6 +21,19 @@ describe("桌面工作区恢复", () => {
 		expect(JSON.parse(await readFile(file, "utf8"))).toBe(last);
 	});
 
+	it("默认目录改变后仍恢复上次工作区，主动切回默认目录后也会记住", async () => {
+		const file = path.join(temp.path, "workspace-state.json");
+		const previous = path.join(temp.path, "previous");
+		const configured = path.join(temp.path, "configured-default");
+		await mkdir(previous);
+		await mkdir(configured);
+		new DesktopWorkspaceState(file).select(previous);
+		const restarted = new DesktopWorkspaceState(file);
+		expect(restarted.restore(configured)).toBe(previous);
+		restarted.select(configured);
+		expect(new DesktopWorkspaceState(file).restore(temp.path)).toBe(configured);
+	});
+
 	it("上次目录删除或变成文件后退回默认目录", async () => {
 		const file = path.join(temp.path, "workspace-state.json");
 		const workspace = path.join(temp.path, "removed");

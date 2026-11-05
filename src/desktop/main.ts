@@ -188,7 +188,7 @@ function startDesktop(): void {
 			return { action: "deny" };
 		});
 		const workspaceState = new DesktopWorkspaceState(path.join(app.getPath("userData"), "workspace-state.json"));
-		const workspace = process.env.PIMOON_WORKSPACE !== undefined ? defaultWorkspace : workspaceState.restore(defaultWorkspace);
+		const workspace = workspaceState.restore(defaultWorkspace);
 		const backendDirectory = path.basename(directory) === "app.asar" ? `${directory}.unpacked` : directory;
 		const client = new BackendClient(
 			forkDesktopWorker(path.join(backendDirectory, "backend.mjs"), [workspace], {
