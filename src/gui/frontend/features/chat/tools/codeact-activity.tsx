@@ -45,7 +45,7 @@ export function CodeActActivity({ tool }: { tool: ToolActivity }) {
 				{target && <code className="activity-target">{target}</code>}
 				<span className="activity-tail">
 					<ActivityState state={tool.state} label={codeActStateLabel(tool.state, outcome, waiting)} durationMs={tool.durationMs}
-						facts={<>Python{calls.length > 0 ? ` · ${calls.length} 次函数调用` : ""}{failures > 0 && <span className="nested-failures"> · {failures} 次失败</span>}</>} />
+						facts={<>{calls.length > 0 ? `${calls.length} 次函数调用` : ""}{failures > 0 && <span className="nested-failures"> · {failures} 次失败</span>}</>} />
 					<ChevronRight className={`activity-chevron${open ? " expanded" : ""}`} aria-hidden="true" />
 				</span>
 			</CollapsibleTrigger>
