@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import { scheduleReads } from './scheduler.mjs';
+import { isProcessResult } from './codeact/process.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,8 +38,8 @@ export class Decoder {
 }
 
 export class Runtime {
-  constructor({transport='rust',observe=false,cwd,tools,timeoutMs=45000,protectedPaths=[]}){
-    this.transport=transport;this.observe=observe;this.cwd=cwd;this.tools=tools;this.timeoutMs=timeoutMs;
+  constructor({transport='rust',observe=false,cwd,tools,timeoutMs=45000,protectedPaths=[],autoParallel=true}){
+    this.autoParallel=autoParallel;this.transport=transport;this.observe=observe;this.cwd=cwd;this.tools=tools;this.timeoutMs=timeoutMs;
     this.rootPromise=fs.realpath(cwd);this.protectedPaths=protectedPaths;
     this.queue=[];this.waiters=[];this.request=0;this.sessions=new Set();this.statefulSessions=new Set();this.dead=false;this.closed=false;
     const env=Object.fromEntries(Object.entries(process.env).filter(([k])=>/^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|PATHEXT|PIMOON_HOME|HOME|USERPROFILE|APPDATA|LOCALAPPDATA)$/i.test(k)));
@@ -78,7 +80,7 @@ export class Runtime {
   refs(enabled){for(const item of [this.child,this.child.stdin,this.child.stdout,this.child.stderr])enabled?item.ref?.():item.unref?.();}
   async createSession(session){
     const request=++this.request;
-    this.send(OP.INIT,session,request,JSON.stringify({observe:this.observe,protected_paths:this.protectedPaths,tools:this.tools.map(t=>({name:t.name,parameters:t.parameters}))}));
+    this.send(OP.INIT,session,request,JSON.stringify({observe:this.observe,auto_parallel:this.autoParallel,protected_paths:this.protectedPaths,tools:this.tools.map(t=>({name:t.name,parameters:t.parameters}))}));
     const frame=await this.next();
     if(this.dead||frame.op!==OP.READY)throw Error(frame.data.toString()||'Runtime unavailable');
     this.sessions.add(session);this.workerInfo=JSON.parse(frame.data);
@@ -117,7 +119,7 @@ export class Runtime {
     const emit=(type,fields)=>{try{onEvent(type,fields);}catch{/* 遥测不能改变执行结果。 */}};
     const start=performance.now();let request,stopReason;const structuredFailures=[],images=[],callCounts=new Map();
     const toolController=new AbortController();
-    let internalCalls=0,internalFailures=0,internalOutputChars=0,batches=0,stateLossObserved=false;
+    let internalCalls=0,internalFailures=0,internalOutputChars=0,batches=0,batchJobs=0,batchCompleted=0,batchFailures=0,batchPeak=0,stateLossObserved=false;
     const stateLost=(reason)=>{
       if(stateLossObserved)return;
       stateLossObserved=true;
@@ -136,30 +138,36 @@ export class Runtime {
     const cancel=()=>abort('cancelled');
     signal?.addEventListener('abort',cancel,{once:true});
     const timeout=setTimeout(()=>abort('timeout'),this.timeoutMs);
-    const invoke=async(name,args,batch)=>{
+    const invoke=async(name,args,batch,imageSink=images)=>{
       const bridge=++internalCalls,bridgeId=randomUUID(),started=performance.now();let toolId,failed=true,chars=0;
       const tags={bridge_call_id:bridgeId,bridge_index:bridge,tool:name,...batch};
       emit('bridge_tool_start',tags);
       try{
         if(stopReason||signal?.aborted)throw Error('Cancelled');
-        const tool=context.tools.find(t=>t.name===name);if(!tool)throw Error(`Function unavailable: ${name}. Enabled functions: ${context.tools.map(t=>t.name).join(', ')||'none'}. Check function permissions; do not bypass them.`);
+        const publicName=name==='process_run'?'subprocess.run':name;
+        const tool=context.tools.find(t=>t.name===name);if(!tool)throw Error(`Function unavailable: ${publicName}. Enabled functions: ${context.tools.map(t=>t.name).join(', ')||'none'}. Check function permissions; do not bypass them.`);
         const remainingMs=this.timeoutMs-(performance.now()-start);
         const input=name==='process_run'?limitProcessTimeout(args,remainingMs):args;
         if(input!==args)emit('process_timeout_capped',{...tags,requested_seconds:args.timeout??DEFAULT_PROCESS_TIMEOUT_SECONDS,effective_seconds:input.timeout,remaining_ms:remainingMs});
         const outcome=await context.executeTool(name,input,{signal:toolController.signal});toolId=outcome.toolCall?.id;
         const content=outcome.result.content||[];
         // 图片不经 Python 字符串化，随父结果保留原始内容块。
-        images.push(...content.filter(c=>c.type==='image'));
+        imageSink.push(...content.filter(c=>c.type==='image'));
         const text=content.filter(c=>c.type==='text').map(c=>c.text).join('\n');
         failed=outcome.isError;chars=text.length;
+        // 审批反馈可能使 SDK 撤销结构化文本；进程数据取执行器 details，反馈独立回传。
+        if(name==='process_run'&&!failed&&isProcessResult(outcome.result.details))
+          return {...outcome.result.details,timeout:input.timeout??DEFAULT_PROCESS_TIMEOUT_SECONDS,feedback:content.slice(1).filter(c=>c.type==='text').map(c=>c.text).join('\n')};
         if(tool.outputSchema&&outcome.result.structuredContent!==undefined){
           if(failed)structuredFailures.push({tool:name,error:text.slice(0,600)||'structured tool failure'});
-          return outcome.result.structuredContent;
+          return name==='process_run'&&isProcessResult(outcome.result.structuredContent)
+            ? {...outcome.result.structuredContent,timeout:input.timeout??DEFAULT_PROCESS_TIMEOUT_SECONDS}
+            : outcome.result.structuredContent;
         }
         if(failed)throw Error(text||`Tool ${name} failed`);return text;
       }finally{
         if(failed)internalFailures++;
-        const count=callCounts.get(name)??{calls:0,errors:0};count.calls++;if(failed)count.errors++;callCounts.set(name,count);
+        const count=callCounts.get(name==='process_run'?'subprocess.run':name)??{calls:0,errors:0};count.calls++;if(failed)count.errors++;callCounts.set(name==='process_run'?'subprocess.run':name,count);
         internalOutputChars+=chars;
         emit('bridge_tool_end',{...tags,tool_call_id:toolId,outcome:failed?'tool_error':'success',output_text_chars:chars,elapsed_ms:performance.now()-started});
       }
@@ -198,28 +206,36 @@ export class Runtime {
         try{
           let value;
           if(message.kind==='call')value=await invoke(message.name,message.args);
-          else if(message.kind==='batch'){
-            if(!['read','find','grep','ls','process_run'].includes(message.name))throw Error('batch name must be a tool: read/find/grep/ls/process_run, not a task label');
-            if(!context.tools.some(t=>t.name===message.name))throw Error(`Function unavailable: ${message.name}. Enabled functions: ${context.tools.map(t=>t.name).join(', ')||'none'}. Check function permissions; do not bypass them.`);
-            if(!Array.isArray(message.jobs)||message.jobs.length>256||!Number.isInteger(message.limit)||message.limit<1||message.limit>16)throw Error('invalid batch bounds');
-            if(message.name==='process_run'&&message.limit>4)throw Error('process_run batch concurrency limit must be <=4');
-            if(message.jobs.some(job=>!job||typeof job!=='object'||Array.isArray(job)||'tool' in job||'args' in job))throw Error('batch jobs must be keyword-argument dicts for name, without tool/args wrappers');
-            const batchId=randomUUID(),started=performance.now(),beforeFailures=internalFailures;
-            batches++;
-            emit('batch_start',{batch_id:batchId,tool:message.name,jobs:message.jobs.length,concurrency_limit:message.limit});
-            value=Array(message.jobs.length);let cursor=0,active=0,peak=0,completed=0;
+          else if(message.kind==='schedule'){
+            if(!this.autoParallel)throw Error('Automatic scheduling is disabled');
+            const started=performance.now(),scheduleId=randomUUID(),media=[];
+            let active=0,peak=0,completed=0;
+            const beforeFailures=internalFailures; batches++; batchJobs+=message.jobs?.length??0;
+            emit('schedule_start',{schedule_id:scheduleId,jobs:message.jobs?.length,concurrency_limit:6});
             try{
-              await Promise.all(Array.from({length:Math.min(message.limit,value.length)},async()=>{
-                while(cursor<value.length&&!stopReason&&!signal?.aborted){const index=cursor++;active++;peak=Math.max(peak,active);
-                  try{value[index]={ok:true,value:await invoke(message.name,message.jobs[index],{batch_id:batchId,batch_index:index})};}
-                  catch(error){value[index]={ok:false,error:error.message};}
-                  finally{active--;completed++;}
-                }
-              }));
+              value=await scheduleReads(message.jobs,(name,args,index)=>{
+                const blocks=[];media[index]=blocks;
+                if(name==='native_read')return (async()=>{
+                  let ok=false;const readStarted=performance.now();
+                  try{
+                    const result=await this.nativeRead(Buffer.from(args.path,'utf8'));
+                    const text=result.subarray(1).toString('utf8');
+                    if(result[0]!==1)throw Error(text);
+                    ok=true;return text;
+                  }finally{emit('scheduled_native_read',{schedule_id:scheduleId,schedule_index:index,ok,elapsed_ms:performance.now()-readStarted});}
+                })();
+                return invoke(name,args,{schedule_id:scheduleId,schedule_index:index},blocks);
+              },()=>Boolean(stopReason||signal?.aborted),(stage)=>{
+                if(stage==='start'){active++;peak=Math.max(peak,active);}else{active--;completed++;}
+              });
             }finally{
-              emit('batch_end',{batch_id:batchId,tool:message.name,jobs:message.jobs.length,completed,failed:internalFailures-beforeFailures,peak_concurrency:peak,elapsed_ms:performance.now()-started,outcome:stopReason??(internalFailures>beforeFailures?'tool_failure':'success')});
+              // 图片与源码次序一致，不能随完成次序错配到其他读取。
+              for(const blocks of media)if(blocks)images.push(...blocks);
+              batchCompleted+=completed;batchFailures+=internalFailures-beforeFailures+(value?.filter((row,index)=>message.jobs[index].name==='native_read'&&!row.ok&&!row.skipped).length??0);batchPeak=Math.max(batchPeak,peak);
             }
-          }else throw Error('Unknown bridge operation');
+            emit('schedule_end',{schedule_id:scheduleId,jobs:value.length,completed,peak_concurrency:peak,failed:internalFailures-beforeFailures+value.filter((row,index)=>message.jobs[index].name==='native_read'&&!row.ok&&!row.skipped).length,skipped:value.filter(row=>row.skipped).length,elapsed_ms:performance.now()-started});
+          }
+          else throw Error('Unknown bridge operation');
           if(!stopReason)this.send(OP.REPLY,session,request,JSON.stringify({ok:true,value}));
         }catch(error){if(!stopReason)this.send(OP.REPLY,session,request,JSON.stringify({ok:false,error:error.message}));}
       }
@@ -229,7 +245,7 @@ export class Runtime {
       this.lastMetrics.error_type=error.name;
       throw error;
     }finally{
-      Object.assign(this.lastMetrics,{host_ms:performance.now()-start,internal_tool_calls:internalCalls,internal_tool_failures:internalFailures,internal_output_text_chars:internalOutputChars,batch_calls:batches});
+      Object.assign(this.lastMetrics,{host_ms:performance.now()-start,internal_tool_calls:internalCalls,internal_tool_failures:internalFailures,internal_output_text_chars:internalOutputChars,batch_calls:batches,batch_jobs:batchJobs,batch_completed:batchCompleted,batch_failures:batchFailures,batch_peak_concurrency:batchPeak});
       clearTimeout(timeout);signal?.removeEventListener('abort',cancel);this.busy=false;this.refs(false);
     }
   }

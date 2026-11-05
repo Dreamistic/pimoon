@@ -9,6 +9,6 @@ export function limitProcessTimeout(input: unknown, remainingMs: number): unknow
 	// 无效参数留给工具 schema 拒绝，不能通过裁剪变成有效调用。
 	if (typeof requested !== "number" || !Number.isFinite(requested) || requested <= 0 || requested > MAX_PROCESS_TIMEOUT_SECONDS) return input;
 	const available = (remainingMs - CLEANUP_RESERVE_MS) / 1000;
-	if (available <= 0) throw new Error("CodeAct budget nearly exhausted; run process_run in a new block.");
+	if (available <= 0) throw new Error("CodeAct budget nearly exhausted; run subprocess.run in a new block.");
 	return requested > available ? { ...input, timeout: available } : input;
 }

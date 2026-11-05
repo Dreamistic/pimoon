@@ -1,0 +1,21 @@
+cohort,round,variant,scenario,ok,failure,elapsed_ms,tool_ms,requests,incomplete_usage,provider_total_tokens,scheduleCalls,scheduledJobs,hostCalls,scheduledHostCalls,codeBlocks,executionHostMs,explicitBatchCalls,nativeReads,scheduledNativeReads,execution_errors
+pilot,1,A,independent-review,True,,23901,219.95230000000083,4,0,7276,0,0,8,0,3,213.90939999999682,,,,0
+pilot,1,B,independent-review,True,,29934,263.2002999999995,3,0,4920,0,0,1,0,2,257.78149999999823,,,,0
+guarded-narrow,1,A,independent-review,True,,25290,213.1606000000029,3,0,5416,0,0,7,0,2,207.66460000000006,,,,0
+guarded-narrow,1,B,independent-review,False,fetch failed,5109,0,1,1,,0,0,0,0,0,0,,,,0
+guarded-narrow,1,B,locate-edit,False,fetch failed,22392,314.21030000000064,3,1,,0,0,2,0,2,308.5041000000019,,,,0
+guarded-narrow,1,A,locate-edit,False,fetch failed,5114,0,1,1,,0,0,0,0,0,0,,,,0
+guarded-narrow,1,A,conditional-edit,True,,40737,516.6229000000039,5,0,12125,0,0,22,0,4,508.70709999999417,,,,1
+guarded-narrow,1,B,conditional-edit,True,,37675,448.8108000000029,5,0,11751,0,0,23,0,4,442.217099999998,,,,2
+expanded,1,A,independent-review,True,,22858,223.55789999999797,4,0,6856,0,0,8,0,3,216.93249999999716,1,0,0,0
+expanded,1,B,independent-review,True,,29415,224.1390999999967,4,0,6193,0,0,2,0,3,217.32749999999578,0,6,0,0
+expanded,1,B,locate-edit,True,,33993,285.10649999999805,4,0,6413,0,0,4,0,3,278.954400000006,0,0,0,0
+expanded,1,A,locate-edit,True,,23817,258.7578000000012,4,0,6632,0,0,4,0,3,252.7574999999979,0,0,0,0
+expanded,1,A,conditional-edit,True,,50772,327.649100000006,7,0,19431,0,0,15,0,6,319.49349999999504,1,16,0,3
+expanded,1,B,conditional-edit,True,,40475,342.3065000000006,5,0,11451,2,16,15,0,4,333.97469999999885,0,17,16,2
+expanded,2,B,independent-review,True,,19963,196.96689999999944,3,0,4885,0,0,1,0,2,190.74949999999808,0,6,0,0
+expanded,2,A,independent-review,True,,25909,220.1190999999999,4,0,7307,0,0,8,0,3,213.57550000000083,1,0,0,0
+expanded,2,A,locate-edit,True,,20031,283.94570000000385,4,0,6648,0,0,4,0,3,278.2379999999994,0,0,0,0
+expanded,2,B,locate-edit,True,,19544,263.619999999999,4,0,6416,0,0,4,0,3,257.6196,0,0,0,0
+expanded,2,B,conditional-edit,True,,55528,320.01239999999416,5,0,11251,3,24,15,8,4,311.8171000000093,0,17,16,2
+expanded,2,A,conditional-edit,True,,39040,339.1266999999971,5,0,11702,0,0,15,0,4,331.91109999999753,1,16,0,2

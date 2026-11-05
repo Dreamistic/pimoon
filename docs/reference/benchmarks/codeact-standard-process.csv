@@ -1,0 +1,3 @@
+variant,scope,ok,requests,incomplete_usage,elapsed_ms,tool_ms,code_blocks,host_calls
+A,same-standard-interface; serial/automatic reads,True,2,0,11036,381.5,1,4
+B,same-standard-interface; serial/automatic reads,True,2,0,17647,449.04739999999947,1,4

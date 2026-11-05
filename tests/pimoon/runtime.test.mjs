@@ -5,7 +5,7 @@ import path from 'node:path';
 import {once} from 'node:events';
 const base=path.resolve('.tmp/tests/pimoon-runtime');await fs.mkdir(base,{recursive:true});
 const resources=await fs.mkdtemp(path.join(base,'resources-'));await fs.mkdir(path.join(resources,'pimoon'));
-for(const file of ['worker.py','execution.py','feedback.py','observations.py','worker_hooks.py'])await fs.copyFile(path.join('src/pimoon',file),path.join(resources,'pimoon',file));
+for(const file of ['worker.py','process_api.py','auto_parallel.py','execution.py','feedback.py','observations.py','worker_hooks.py'])await fs.copyFile(path.join('src/pimoon',file),path.join(resources,'pimoon',file));
 await fs.copyFile('assets/runtime/pimoon-runtime.exe',path.join(resources,'pimoon/pimoon-runtime.exe'));
 process.env.PIMOON_RESOURCE_DIR=resources;
 const {Runtime,Decoder}=await import('../../src/pimoon/runtime.mjs');
@@ -233,58 +233,10 @@ test('普通成功输出只保留状态和原文，耗时留在指标中',()=>ru
  const failed=await runtime.run('raise ValueError("kept failure")',context);assert.match(failed.content[0].text,/^error\n/);assert.match(failed.content[0].text,/kept failure/);
 },[],false));
 
-test('batch 有界并发、按序返回，部分失败不吞错也不提前停止',async()=>{
- const tool={name:'read',parameters:{type:'object',properties:{path:{type:'string'}}}};
- let active=0,peak=0,completed=0;
- await runTest(async runtime=>{
-  const result=await runtime.run('items=batch("read", [{"path":str(i)} for i in range(5)], limit=2)\nassert [x["value"] for x in items if x["ok"]]==["0","1","3","4"]\nassert not items[2]["ok"]\nprint("batch complete")',{tools:[tool],executeTool:async(_name,args)=>{
-   active++;peak=Math.max(peak,active);
-   try{await new Promise(resolve=>setTimeout(resolve,args.path==='0'?20:5));completed++;return{isError:args.path==='2',result:{content:[{type:'text',text:args.path==='2'?'missing fixture':args.path}]}};}
-   finally{active--;}
-  }});
-  assert.equal(result.isError,false);assert.equal(peak,2);assert.equal(completed,5);assert.match(result.content[0].text,/batch complete/);assert.match(result.content[0].text,/missing fixture/);assert.equal(result.details.metrics.tool_failure_count,1);
- },[tool],false);
-});
-
-for(const transport of ['rust','direct'])test(`${transport}: batch find 使用工具名和参数字典，按根目录顺序返回`,async()=>{
- const tool={name:'find',parameters:{type:'object',properties:{query:{type:'string'},path:{type:'array',items:{type:'string'}}}}};
- const calls=[];
- await runTest(async runtime=>{
-  const result=await runtime.run('roots=["workspace","config","roaming"]\nresults=batch(name="find", jobs=[{"query":"clash | mihomo","path":[root]} for root in roots], limit=3)\nassert [item["value"] for item in results]==roots\nassert all(item["ok"] for item in results)\nprint("batch find complete")',{
-   tools:[tool],executeTool:async(name,args)=>{
-    calls.push({name,args});
-    await new Promise(resolve=>setTimeout(resolve,args.path[0]==='workspace'?20:5));
-    return{isError:false,result:{content:[{type:'text',text:args.path[0]}]}};
-   },
-  });
-  assert.equal(result.isError,false,result.content[0].text);assert.match(result.content[0].text,/batch find complete/);
-  assert.deepEqual(calls,['workspace','config','roaming'].map(root=>({name:'find',args:{query:'clash | mihomo',path:[root]}})));
-  assert.equal(result.details.metrics.internal_tool_calls,3);assert.equal(result.details.metrics.batch_calls,1);
- },[tool],false,{transport});
-});
-
-test('batch 区分工具名与任务标题，执行前拒绝任务包装及非参数字典',async()=>{
- const tool={name:'find',parameters:{type:'object',properties:{query:{type:'string'}}}};
- await runTest(async runtime=>{
-  let calls=0;
-  const ctx={tools:[tool],executeTool:async()=>{calls++;throw Error('must not execute invalid batch');}};
-  const cases=[
-   ['batch(name="查找 Clash 配置", jobs=[{"tool":"find","args":{"query":"clash | mihomo"}}], limit=3)',/batch name must be a tool: read\/find\/grep\/ls\/process_run, not a task label/],
-   ['batch("write", [{"path":"blocked.txt"}])',/batch name must be a tool/],
-   ['batch("bash", [{"command":"blocked"}])',/batch name must be a tool/],
-   ...['{"tool":"find","args":{"query":"clash"}}','{"args":{"query":"clash"}}','None','[]','"clash"'].map(job=>[
-    `batch("find", [{"query":"valid"},${job}])`,/batch jobs must be keyword-argument dicts for name, without tool\/args wrappers/,
-   ]),
-  ];
-  for(const [code,expected] of cases){
-   const result=await runtime.run(code,ctx);
-   assert.equal(result.isError,true,code);assert.match(result.content[0].text,expected);
-   assert.equal(result.details.metrics.internal_tool_calls,0);assert.equal(result.details.metrics.batch_calls,0);
-   assert.equal(result.details.metrics.tool_failure_count,1);
-  }
-  assert.equal(calls,0);
- },[tool],false);
-});
+test('旧手工并发和进程别名不再暴露',()=>runTest(async runtime=>{
+ const result=await runtime.run('assert "batch" not in globals()\nassert "process_run" not in globals()\nassert not hasattr(functions,"process_run")',context);
+ assert.equal(result.isError,false,result.content[0].text);
+},[],false));
 
 test('预热只初始化，不执行代码；首次执行复用已就绪的 Python',()=>runTest(async runtime=>{
  const pid=runtime.workerInfo.pid;
@@ -344,15 +296,15 @@ test('批次复盘关联 SDK 子调用，结构化失败计入批次但不改变
  const tool={name:'read',parameters:{type:'object',properties:{path:{type:'string'}}},outputSchema:{type:'object'}};
  await runTest(async runtime=>{
   const events=[];let id=0;
-  const result=await runtime.run('items=batch("read", [{"path":"PRIVATE_PATH"},{"path":"missing"}], limit=2)\nassert all(item["ok"] for item in items)\nprint("PRIVATE_BODY")',{
+  const result=await runtime.run('items=[read(path=p) for p in ["PRIVATE_PATH","missing"]]\nassert all("ok" in item for item in items)\nprint("PRIVATE_BODY")',{
    tools:[tool],executeTool:async()=>{const index=++id;return{toolCall:{id:`code/${index}`},isError:index===2,result:{content:[{type:'text',text:'PRIVATE_RESULT'}],structuredContent:{ok:index!==2}}};}
   },undefined,1,(type,fields)=>events.push({type,...fields}));
-  const batch=events.find(event=>event.type==='batch_end');
+  const batch=events.find(event=>event.type==='schedule_end');
   assert.equal(batch.jobs,2);assert.equal(batch.failed,1);assert.equal(batch.peak_concurrency,2);
   const calls=events.filter(event=>event.type==='bridge_tool_end');
   assert.deepEqual(calls.map(event=>event.tool_call_id),['code/1','code/2']);
-  assert.ok(calls.every(event=>event.batch_id===batch.batch_id));
-  assert.deepEqual(calls.map(event=>event.batch_index),[0,1]);
+  assert.ok(calls.every(event=>event.schedule_id===batch.schedule_id));
+  assert.deepEqual(calls.map(event=>event.schedule_index),[0,1]);
   assert.equal(result.details.metrics.outcome,'tool_partial_failure');
   assert.equal(result.details.metrics.metrics_complete,true);
   assert.equal(result.details.metrics.internal_tool_calls,2);assert.equal(result.details.metrics.internal_tool_failures,1);

@@ -9,7 +9,7 @@ afterEach(() => vi.unstubAllEnvs());
 it("单一 execute 编排十二次混合调用，跨轮复用，文本伪代码不执行", async () => {
     const code = `from statistics import mean
 paths=[f"{i}.txt" for i in range(8)]
-rows=batch("read", [{"path":p} for p in paths], limit=4)
+rows=[read(path=p) for p in paths]
 selected=[p for i,p in enumerate(paths) if i%2==0]
 for p in selected:
  i=int(p.split(".")[0])
@@ -33,7 +33,7 @@ for p in selected:
 });
 it("进程失败阻止依赖步骤，不通过 Shell 执行", async () => {
     const argv = [process.execPath,"-e","process.exit(7)"];
-    const value=await fixture([action(`process_run(argv=${JSON.stringify(argv)})\nfrom pathlib import Path\nPath("never.txt").write_text("bad")`),{text:"done"}],
+    const value=await fixture([action(`subprocess.run(${JSON.stringify(argv)},check=True)\nfrom pathlib import Path\nPath("never.txt").write_text("bad")`),{text:"done"}],
         undefined,[{name:"process",factory:processFunctions}],undefined,["execute","process_run"]);
     try {
         await value.runtime.session.prompt("Run failure.");

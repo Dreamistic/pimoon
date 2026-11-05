@@ -8,6 +8,7 @@ export interface ProcessInput {
 	argv: string[];
 	cwd?: string;
 	env?: Record<string, string>;
+	inherit_env?: boolean;
 	timeout?: number;
 	check?: boolean;
 }
@@ -19,13 +20,21 @@ export interface ProcessResult {
 	truncated: boolean;
 	duration_ms: number;
 }
+export function isProcessResult(value: unknown): value is ProcessResult {
+ return typeof value === "object" && value !== null
+  && "status" in value && ["exited", "cancelled", "timeout", "spawn_error"].some(status => status === value.status)
+  && "exit_code" in value && (value.exit_code === null || typeof value.exit_code === "number" && Number.isInteger(value.exit_code))
+  && "stdout" in value && typeof value.stdout === "string" && "stderr" in value && typeof value.stderr === "string"
+  && "truncated" in value && typeof value.truncated === "boolean"
+  && "duration_ms" in value && typeof value.duration_ms === "number" && Number.isFinite(value.duration_ms);
+}
 const OUTPUT_BYTES = 65_536;
 
 /** 参数数组直接启动程序，不经过 Shell；Windows 包装入口只转换已知 npm/Gradle。 */
 export async function runProcess(input: ProcessInput, workspace: string, signal?: AbortSignal): Promise<ProcessResult> {
 	const started = performance.now();
 	const cwd = path.resolve(workspace, input.cwd ?? ".");
-	const env: NodeJS.ProcessEnv = { ...process.env };
+	const env: NodeJS.ProcessEnv = input.inherit_env === false ? {} : { ...process.env };
 	for (const [name, value] of Object.entries(input.env ?? {})) {
 		if (!name || name.includes("=") || name.includes("\0") || value.includes("\0")) throw new Error("无效环境变量。");
 		if (process.platform === "win32") for (const existing of Object.keys(env)) if (existing.toLowerCase() === name.toLowerCase()) delete env[existing];

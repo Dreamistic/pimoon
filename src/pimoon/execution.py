@@ -3,6 +3,7 @@ import ast
 import builtins
 import json
 import sys
+import subprocess
 
 RESULT_NAME = "__pimoon_cell_result__"
 CAPTURE_NAME = "__pimoon_capture_result__"
@@ -23,19 +24,25 @@ class _CaptureCalls(ast.NodeTransformer):
         return node
 
 
-def compile_cell(source):
+def compile_cell(source, auto_parallel=False):
     tree = ast.parse(source, filename="<agent>", mode="exec")
     has_result = bool(tree.body and isinstance(tree.body[-1], ast.Expr))
     if has_result:
         expression = tree.body[-1]
         tree.body[-1] = ast.copy_location(ast.Assign(
             targets=[ast.Name(id=RESULT_NAME, ctx=ast.Store())], value=expression.value), expression)
+    if auto_parallel:
+        from auto_parallel import transform
+        tree = transform(tree)
     tree = _CaptureCalls().visit(tree)
     ast.fix_missing_locations(tree)
     return compile(tree, "<agent>", "exec"), has_result
 
 
 def display_data(value, active):
+    if type(value) is subprocess.CompletedProcess:
+        return display_data({key: item for key, item in {"returncode": value.returncode,
+            "stdout": value.stdout, "stderr": value.stderr}.items() if item is not None}, active)
     kind = type(value)
     if kind not in (dict, list, tuple):
         if value is None or kind in (str, bool, int, float):

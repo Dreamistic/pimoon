@@ -43,7 +43,7 @@ const base = await fs.mkdtemp(path.join(directory, "run-"));
 const resources = path.join(base, "resources");
 await fs.cp(path.join(root, "dist/desktop/app/resources"), resources, { recursive: true });
 // Python 源码与被测工作树一致；不覆盖已有桌面构建。
-for (const name of ["worker.py", "execution.py", "feedback.py", "observations.py", "worker_hooks.py"]) await fs.copyFile(path.join(root, "src/pimoon", name), path.join(resources, "pimoon", name));
+for (const name of ["worker.py","process_api.py","auto_parallel.py", "execution.py", "feedback.py", "observations.py", "worker_hooks.py"]) await fs.copyFile(path.join(root, "src/pimoon", name), path.join(resources, "pimoon", name));
 const bundles = {};
 const manifest = { createdAt: new Date().toISOString(), model, thinkingLevel, transport, promptMode, apps, runs, scenarios: selected, upstream: upstream ? path.resolve(upstream) : undefined,
 	measurement: { schema: 2, tokenizer: "o200k_base", toolTime: "union of root execution intervals", tokenScope: "visible request payload and generated output; hidden reasoning/images excluded; provider usage separate" },

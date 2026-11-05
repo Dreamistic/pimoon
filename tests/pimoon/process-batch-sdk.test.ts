@@ -31,45 +31,28 @@ async function fixture(codes: string[], gate = false) {
 	} catch (error) { await server.close(); throw error; }
 }
 
-it("真实 SDK 的进程批次有界并发、部分失败不启动依赖项，命令超时后跨轮变量仍在", async () => {
-	const jobs = [job("setTimeout(()=>console.log('first'),250)"), job("console.error('fixture-failure');process.exit(7)"), job("console.log('last')")];
-	const codes = [
-		`saved=41\nrows=batch("process_run",json.loads(${JSON.stringify(JSON.stringify(jobs))}))\nassert [x["value"]["stdout"].strip() for x in rows if x["ok"]]==["first","last"]\nassert not rows[1]["ok"]\nif all(x["ok"] for x in rows):\n process_run(argv=${JSON.stringify(job("require('node:fs').writeFileSync('must-not-run','bad')").argv)})`,
-		`process_run(**json.loads(${JSON.stringify(JSON.stringify(job("setInterval(()=>{},1000)", { timeout: 0.3 })))}))\nsaved=99`,
-		`assert saved==41\nsaved+=1\nprocess_run(argv=${JSON.stringify(job("require('node:fs').writeFileSync('producer.txt','42')").argv)})\nvalue=process_run(argv=${JSON.stringify(job("console.log(require('node:fs').readFileSync('producer.txt','utf8'))").argv)})\nassert value["stdout"].strip()=="42"\nsaved`,
-	];
-	const f = await fixture(codes);
-	try {
-		let active = 0, peak = 0;
-		f.session.subscribe(event => {
-			if (event.type === "tool_execution_start" && event.toolName === "process_run") { active++; peak = Math.max(peak, active); }
-			if (event.type === "tool_execution_end" && event.toolName === "process_run") active--;
-		});
-		await f.session.bindExtensions({ mode: "print", onError: ({ error }) => { throw new Error(error); } });
-		await f.session.prompt("Run isolated process fixtures.");
-		const results = f.session.messages.filter(isExecutionResult);
-		expect(results).toHaveLength(3);
-		expect(results.map(result => result.isError)).toEqual([false, true, false]);
-		expect(executionMetrics(results[0])).toMatchObject({ internal_tool_calls: 3, internal_tool_failures: 1, tool_failure_count: 1 });
-		expect(executionMetrics(results[2]).python_pid).toBe(executionMetrics(results[0]).python_pid);
-		expect(JSON.stringify(results[2]?.content)).toContain("42");
-		expect(peak).toBe(2); expect(active).toBe(0);
-		await expect(fs.access(path.join(f.cwd, "must-not-run"))).rejects.toThrow();
-		expect(f.server.requests).toHaveLength(4);
-		for (const request of f.server.requests) expect(request.tools?.map(tool => tool.function.name)).toEqual(["execute"]);
-	} finally { await f.close(); }
-});
 
-it("批量进程逐项经过真实审批，未批准时不产生任何进程副作用", async () => {
-	const jobs = [job("require('node:fs').writeFileSync('denied-a','bad')"), job("require('node:fs').writeFileSync('denied-b','bad')")];
-	const f = await fixture([`rows=batch("process_run",json.loads(${JSON.stringify(JSON.stringify(jobs))}))\nassert all(not item["ok"] for item in rows)`], true);
-	try {
-		await f.session.bindExtensions({ mode: "print", onError: ({ error }) => { throw new Error(error); } });
-		await f.session.prompt("Approval must still block batch processes.");
-		const result = f.session.messages.find(isExecutionResult);
-		expect(result?.isError).toBe(false);
-		expect(executionMetrics(result)).toMatchObject({ internal_tool_calls: 2, internal_tool_failures: 2 });
-		expect(JSON.stringify(result?.content)).toMatch(/approval|审批/iu);
-		for (const file of ["denied-a", "denied-b"]) await expect(fs.access(path.join(f.cwd, file))).rejects.toThrow();
-	} finally { await f.close(); }
+it("标准 subprocess 经过真实 SDK，超时不丢变量，依赖链按顺序执行",async()=>{
+ const argv=(code:string)=>JSON.stringify(job(code).argv);
+ const f=await fixture([
+  `saved=41\nr=subprocess.run(${argv("console.error('expected');process.exit(7)")},capture_output=True,text=True)\nassert r.returncode==7`,
+  `subprocess.run(${argv("setInterval(()=>{},1000)")},timeout=0.3,check=True)\nsaved=99`,
+  `assert saved==41\nsubprocess.run(${argv("require('node:fs').writeFileSync('producer.txt','42')")},check=True)\nr=subprocess.run(${argv("console.log(require('node:fs').readFileSync('producer.txt','utf8'))")},capture_output=True,text=True,check=True)\nassert r.stdout.strip()=="42"\nsaved+=1\nsaved`,
+ ]);
+ try{
+  let active=0,peak=0;f.session.subscribe(event=>{if(event.type==="tool_execution_start"&&event.toolName==="process_run"){active++;peak=Math.max(peak,active);}if(event.type==="tool_execution_end"&&event.toolName==="process_run")active--;});
+  await f.session.bindExtensions({mode:"print",onError:({error})=>{throw new Error(error);}});
+  await f.session.prompt("Run standard subprocess workflows.");
+  const results=f.session.messages.filter(isExecutionResult);expect(results.map(result=>result.isError)).toEqual([false,true,false]);
+  expect(executionMetrics(results[2]).python_pid).toBe(executionMetrics(results[0]).python_pid);expect(peak).toBe(1);expect(active).toBe(0);
+  expect(JSON.stringify(results[1]?.content)).toContain("TimeoutExpired");expect(JSON.stringify(results[2]?.content)).toContain("42");
+  for(const request of f.server.requests){expect(request.tools?.map(tool=>tool.function.name)).toEqual(["execute"]);const text=JSON.stringify(request.tools);expect(text).toContain("subprocess.run");expect(text).not.toContain("process_run(");expect(text).not.toContain("batch(");}
+ }finally{await f.close();}
+});
+it("标准 subprocess 仍逐项经过真实审批，拒绝后不产生进程副作用",async()=>{
+ const argv=job("require('node:fs').writeFileSync('denied','bad')").argv;
+ const f=await fixture([`subprocess.run(${JSON.stringify(argv)},check=True)`],true);
+ try{await f.session.bindExtensions({mode:"print",onError:({error})=>{throw new Error(error);}});await f.session.prompt("Approval must block execution.");
+ const result=f.session.messages.find(isExecutionResult);expect(result?.isError).toBe(true);expect(JSON.stringify(result?.content)).toMatch(/approval|审批/iu);await expect(fs.access(path.join(f.cwd,"denied"))).rejects.toThrow();
+ }finally{await f.close();}
 });

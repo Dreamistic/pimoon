@@ -41,7 +41,7 @@ export type ApprovalRequest = {
 	units: ApprovalUnit[];
 } & (
 	| { tool: "bash"; detail: { command: string } }
-	| { tool: "process_run"; detail: { argv: string[]; env: Record<string, string> } }
+	| { tool: "process_run"; detail: { argv: string[]; env: Record<string, string>; inherit_env?: false } }
 	| { tool: "write"; detail: { path: string; content: string } }
 	| { tool: "edit"; detail: { path: string; edits: ApprovalEditReplacement[] } }
 	| { tool: "webfetch"; detail: WebApprovalDetail }

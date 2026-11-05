@@ -35,12 +35,12 @@ it("进程、搜索、网页与 HTTP 都是 CodeAct 函数，审批拦截未批�
 		throw new Error("意外网络请求");
 	});
 	const code = [
-		'process_run(argv=["git","clean","-fd"])',
+		'subprocess.run(["git","clean","-fd"])',
 		'websearch(query="fixture docs")',
 		'webfetch(url="https://93.184.216.34/docs")',
 		'http(url="https://93.184.216.34/docs",mode="probe")',
 		'http(url="http://127.0.0.1/private",mode="probe")',
-		`process_run(argv=["git","status","--short"],cwd=${JSON.stringify(protectedDir)})`,
+		`subprocess.run(["git","status","--short"],cwd=${JSON.stringify(protectedDir)})`,
 	];
 	const replies: ModelResponse[] = code.map(source => ({ tool: "execute", args: { code: source, desc: "验证权限" } })); replies.push({ text: "done" });
 	const server = await startModelServer(() => replies.shift() ?? { text: "done" });

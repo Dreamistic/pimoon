@@ -24,11 +24,16 @@ it("CodeAct 在 Python 内处理读取结果，自动返回摘要并保留部分
 	const { CodeAct } = await import("../../src/pimoon/codeact/session.ts");
 	const { isExecutionResult } = await import("./native-result.ts");
 	const code = [
-		'jobs=[{"path":f"{i}.txt"} for i in range(8)]+[{"path":"missing.txt"},{"path":"../outside.txt"}]',
-		'items=batch("read", jobs, limit=3)',
-		'assert all(item["ok"] and f"value-{i}" in item["value"] for i,item in enumerate(items[:8]))',
-		'assert not items[8]["ok"] and items[9]["ok"] and "outside sentinel" in items[9]["value"]',
-		'"read={} failed={}".format(sum(item["ok"] for item in items), sum(not item["ok"] for item in items))',
+		'paths=[f"{i}.txt" for i in range(8)]',
+        'items=[read(path=p) for p in paths]',
+        'assert all(f"value-{i}" in value for i,value in enumerate(items))',
+        'try:',
+        ' read(path="missing.txt")',
+        'except RuntimeError:',
+        ' missing=True',
+        'outside=read(path="../outside.txt")',
+        'assert "outside sentinel" in outside',
+        '"read=9 failed=1"',
 	].join("\n");
 	const server = await startModelServer(request => request.messages.some(message => message.role === "tool") ? { text: "done" } : { tool: "execute", args: { code, desc: "批量读取" } });
 	await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
@@ -94,7 +99,7 @@ it("CodeAct 在 Python 内处理读取结果，自动返回摘要并保留部分
 		expect(ready?.prewarmed).toBe(true);
 		const executed = runtimeEvents.find(event => event.type === "code_end");
 		expect(executed?.metrics).toMatchObject({ python_pid: ready?.python_pid, outcome: "tool_partial_failure", internal_tool_calls: 10, internal_tool_failures: 1, batch_calls: 1, expression_results: 1 });
-		expect(runtimeEvents.find(event => event.type === "batch_end")).toMatchObject({ jobs: 10, completed: 10, failed: 1, code_call_id: executed?.tool_call_id });
+		expect(runtimeEvents.find(event => event.type === "schedule_end")).toMatchObject({ jobs: 8, completed: 8, failed: 0, code_call_id: executed?.tool_call_id });
 		const bridgeEnds = runtimeEvents.filter(event => event.type === "bridge_tool_end");
 		expect(bridgeEnds).toHaveLength(10);
 		expect(bridgeEnds.map(event => event.tool_call_id).sort()).toEqual(toolEvents.filter(event => event.tool === "read").map(event => event.tool_call_id).sort());

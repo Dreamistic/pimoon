@@ -11,17 +11,19 @@ let input = "";
 for await (const chunk of process.stdin) input += chunk;
 const { credential, catalog } = JSON.parse(input);
 input = "";
-const { fileTools, systemPrompt, CodeAct, flushTelemetry, disposeLsp,
-	estimateRequestTokens, estimateResponseTokens, responseUsageStatus, summarizeTokenAccounting, textTokens } = await import(pathToFileURL(bundle).href);
+const { fileTools, processFunctions, systemPrompt, CodeAct, flushTelemetry, disposeLsp,
+	estimateRequestTokens, estimateResponseTokens, responseUsageStatus, summarizeTokenAccounting, textTokens, scenarios: customScenarios } = await import(pathToFileURL(bundle).href);
 const cwd = path.join(home, "workspace"), agentDir = path.join(process.env.PIMOON_HOME, "agent");
 await fs.mkdir(cwd, { recursive: true }); await fs.mkdir(agentDir, { recursive: true });
 await fs.writeFile(path.join(agentDir, "models-store.json"), JSON.stringify(catalog));
 await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ transport, retry: { enabled: false }, compaction: { enabled: false } }));
-const scenario = scenarios[scenarioName];
+const scenario = (customScenarios ?? scenarios)[scenarioName];
+if (!scenario) throw new Error(`未知场景: ${scenarioName}`);
 await scenario.setup(cwd);
 const codeAct = CodeAct ? new CodeAct() : undefined;
 const native = app === "pimoon";
 const factories = [{ name: "file-tools", factory: fileTools }];
+if (processFunctions) factories.push({ name: "process", factory: processFunctions });
 if (promptMode === "runtime") factories.push({ name: "system-prompt", factory: systemPrompt });
 if (codeAct) factories.unshift(codeAct.extension);
 const credentials = {
@@ -109,7 +111,7 @@ try {
 		const extensions = services.resourceLoader.getExtensions();
 		if (extensions.errors.length) throw new Error(JSON.stringify(extensions.errors));
 		if (codeAct && !extensions.extensions.some(extension => extension.path === "builtin:codeact")) throw new Error("CodeAct 扩展未加载，拒绝无效对测");
-		const result = await createAgentSessionFromServices({ services, sessionManager, model, thinkingLevel, tools: [...(native ? ["execute"] : []), "read", "write", "edit", "find", "grep", "ls"] });
+		const result = await createAgentSessionFromServices({ services, sessionManager, model, thinkingLevel, tools: [...(native ? ["execute"] : []), "read", "write", "edit", "find", "grep", "ls", ...(processFunctions ? ["process_run"] : [])] });
 		const provider = result.session.agent.streamFunction;
 		result.session.agent.streamFunction = (model, context, options) => {
 			if (requests >= 12) throw new Error("测试请求预算 12 已用尽");

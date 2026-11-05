@@ -25,6 +25,20 @@ def audit(event, _args):
     cpu_ms += (perf_counter() - start) * 1000
 
 
+def record_native(target, ok, result, elapsed):
+    global native_count, cpu_ms
+    start = perf_counter()
+    native_count += 1
+    if len(native_events) < 128:
+        try:
+            target_hash = hashlib.sha256(os.fsencode(target)).hexdigest()
+        except Exception:
+            target_hash = None
+        native_events.append({'index': native_count, 'target_sha256': target_hash, 'ok': ok,
+                              'elapsed_ms': elapsed, 'result_chars': len(result) if ok else None})
+    cpu_ms += (perf_counter() - start) * 1000
+
+
 def wrap_native(function):
     def run(target):
         global native_count, cpu_ms
@@ -33,15 +47,7 @@ def wrap_native(function):
             result = function(target); ok = True; return result
         finally:
             elapsed = (perf_counter() - start) * 1000
-            observer_start = perf_counter(); native_count += 1
-            if len(native_events) < 128:
-                try:
-                    target_hash = hashlib.sha256(os.fsencode(target)).hexdigest()
-                except Exception:
-                    target_hash = None
-                native_events.append({'index': native_count, 'target_sha256': target_hash, 'ok': ok,
-                                      'elapsed_ms': elapsed, 'result_chars': len(result) if ok else None})
-            cpu_ms += (perf_counter() - observer_start) * 1000
+            record_native(target, ok, result, elapsed)
     return run
 
 

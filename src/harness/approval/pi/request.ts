@@ -26,8 +26,9 @@ export async function buildApprovalRequest(event: ToolCallEvent, cwd: string): P
 		const env: Record<string, string> = {};
 		if (typeof overrides === "object" && overrides !== null) for (const [key, value] of Object.entries(overrides)) if (typeof value === "string") env[key] = value;
 		const workdir = typeof event.input.cwd === "string" ? path.resolve(cwd, event.input.cwd) : cwd;
-		const value = JSON.stringify({ argv, env: Object.fromEntries(Object.entries(env).sort(([a], [b]) => a.localeCompare(b))) });
-		return { tool: "process_run", cwd: workdir, detail: { argv, env }, units: [{ action: "execute", target: { kind: "command", value, effective_value: value }, remember: { session: true, persistent: Object.keys(env).length === 0 } }] };
+		const replacement = event.input.inherit_env === false ? { inherit_env: false as const } : {};
+		const value = JSON.stringify({ argv, ...replacement, env: Object.fromEntries(Object.entries(env).sort(([a], [b]) => a.localeCompare(b))) });
+		return { tool: "process_run", cwd: workdir, detail: { argv, env, ...replacement }, units: [{ action: "execute", target: { kind: "command", value, effective_value: value }, remember: { session: true, persistent: Object.keys(env).length === 0 } }] };
 	}
 	if (isToolCallEventType("bash", event)) {
 		// SDK 内置 bash 输入类型不含本项目新增的 workdir。

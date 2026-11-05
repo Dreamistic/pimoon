@@ -31,7 +31,7 @@ for (let round = 0; round < 10; round++) jobs.push(
 );
 if (app === "pimoon") for (let round = 0; round < 10; round++) jobs.push(
 	{ label: "CodeAct-print", tool: "codeact", args: { code: 'print("ready")' } },
-	{ label: "CodeAct-batch-8", tool: "codeact", args: { code: 'values=batch("read", [{"path":f"notes/{i}.txt"} for i in range(8)], limit=6)\nprint(len(values))' } },
+	{ label: "CodeAct-auto-read-8", tool: "codeact", args: { code: 'paths=[f"notes/{i}.txt" for i in range(8)]\nvalues=[read(path=p) for p in paths]\nprint(len(values))' } },
 	{ label: "CodeAct-sequential-8", tool: "codeact", args: { code: 'values=[read(path=f"notes/{i}.txt") for i in range(8)]\nprint(len(values))' } },
 );
 // pimoon 基准也使用真实的唯一执行入口，不以被拒绝的直调充当性能样本。
@@ -50,7 +50,7 @@ await fs.writeFile(path.join(agentDir, "models.json"), JSON.stringify({ provider
 const names = [...(codeAct ? ["execute"] : []), "read", "write", "edit", "find", "grep", "ls"];
 const samples = [];
 const failures = [];
-const expected = { ls: "file-42.ts", read: "alpha", find: "src/file-42.ts", "grep-scoped": "alpha", "grep-code": "item42", "CodeAct-print": "ready", "CodeAct-batch-8": "\n8\n", "CodeAct-sequential-8": "\n8\n" };
+const expected = { ls: "file-42.ts", read: "alpha", find: "src/file-42.ts", "grep-scoped": "alpha", "grep-code": "item42", "CodeAct-print": "ready", "CodeAct-auto-read-8": "\n8\n", "CodeAct-sequential-8": "\n8\n" };
 const started = new Map();
 let jobIndex = 0;
 let runtime;

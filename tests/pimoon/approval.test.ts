@@ -48,7 +48,7 @@ async function fixture(reply: (step: number, request: unknown) => string | Model
 	} catch (error) { await server.close(); throw error; }
 }
 const execution = (code: string): ModelResponse => ({ tool: "execute", args: { code, desc: "审批验证" } });
-const append = `process_run(argv=${JSON.stringify([process.execPath, "-e", 'require("node:fs").appendFileSync("effect.txt","once")'])})`;
+const append = `subprocess.run(${JSON.stringify([process.execPath, "-e", 'require("node:fs").appendFileSync("effect.txt","once")'])})`;
 it("真实 CodeAct 在原调用等待；批准后继续后续语句，不重放此前副作用", async () => {
 	const f = await fixture(step => step === 0 ? execution(`write(path="earlier.txt",content="keep")\n${append}\nwrite(path="later.txt",content="continued")`) : "done");
 	try {
@@ -61,6 +61,8 @@ it("真实 CodeAct 在原调用等待；批准后继续后续语句，不重放�
 		await expect(fs.access(path.join(f.cwd, "effect.txt"))).rejects.toThrow();
 		f.dialogs.respond(dialog.id, "Allow once", "仅本次，不代表今后允许");
 		await running;
+		const executed=f.runtime.session.messages.find(message=>message.role==="toolResult"&&message.toolName==="execute");
+		expect(executed,JSON.stringify(executed)).toMatchObject({isError:false});
 		expect(await fs.readFile(path.join(f.cwd, "effect.txt"), "utf8")).toBe("once");
 		expect(await fs.readFile(path.join(f.cwd, "later.txt"), "utf8")).toBe("continued");
 		expect(f.server.requests).toHaveLength(2);
@@ -71,7 +73,7 @@ it("真实 CodeAct 在原调用等待；批准后继续后续语句，不重放�
 
 it("批量相同调用只需一次会话授权，进程各执行一次", async () => {
 	const argv = [process.execPath, "-e", 'require("node:fs").writeFileSync("batch.txt","ok")'];
-	const f = await fixture(step => step === 0 ? execution(`batch("process_run",${JSON.stringify([{ argv }, { argv }])})`) : "done");
+	const f = await fixture(step => step === 0 ? execution(`for args in ${JSON.stringify([argv,argv])}:\n subprocess.run(args,check=True)`) : "done");
 	try {
 		const running = f.runtime.session.prompt("Run the isolated batch.");
 		await vi.waitFor(() => expect(f.dialogs.list()).toHaveLength(1), { timeout: 10_000 });

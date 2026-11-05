@@ -9,6 +9,7 @@ from pathlib import Path
 import struct
 import sys
 from time import perf_counter
+from threading import get_ident
 import traceback
 import types
 from observations import Observations
@@ -26,6 +27,7 @@ if str(ROOT) not in sys.path:
 INIT, EXEC, REPLY, CANCEL, CLOSE, PING, NATIVE = range(1, 8)
 READY, DONE, CALL, NATIVE_RESULT, PONG, ERROR = 101, 102, 103, 107, 108, 109
 SESSION = REQUEST = 0
+EXECUTION_THREAD = get_ident()
 
 
 def receive():
@@ -76,7 +78,7 @@ def writable(target):
 def audit(event, args):
     if event.startswith(('socket.', 'subprocess.', 'ctypes.', 'os.exec', 'os.spawn', 'winreg.')) or event in {
             'os.system', 'os.fork', 'os.forkpty', 'os.symlink', 'os.link'}:
-        raise PermissionError('network, subprocess, registry and FFI are disabled')
+        raise PermissionError('Direct network, process creation, registry and FFI are disabled; use subprocess.run for programs')
     if event == 'open':
         target, mode, flags = args
         readable(target)
@@ -86,7 +88,7 @@ def audit(event, args):
     if event in {'os.listdir', 'os.scandir'}:
         readable(args[0] if args[0] is not None else '.')
     if event in {'os.remove', 'os.rmdir', 'os.chmod', 'os.rename', 'os.replace'}:
-        raise PermissionError('destructive native mutation requires an explicitly approved process_run operation')
+        raise PermissionError('destructive native mutation requires an approved subprocess.run operation')
     if event in {'os.mkdir', 'os.utime'}:
         writable(args[0])
     if event == 'os.chdir':
@@ -99,6 +101,8 @@ bridge_ms = 0.0
 
 def bridge(kind, **payload):
     global bridge_ms
+    if get_ident() != EXECUTION_THREAD:
+        raise RuntimeError("Host functions require synchronous calls on the execution thread")
     start = perf_counter()
     send(CALL, {'kind': kind, **payload})
     response = receive()
@@ -107,11 +111,16 @@ def bridge(kind, **payload):
         raise RuntimeError('invalid or closed host response')
     reply = json.loads(response[3])
     if not reply['ok']:
-        failures.append({'tool': payload.get('name'), 'error': reply.get('error', 'failed')[:600]})
+        failures.append({'tool': 'subprocess.run' if payload.get('name') == 'process_run' else payload.get('name'), 'error': reply.get('error', 'failed')[:600]})
         raise RuntimeError(reply.get('error', 'tool failed'))
-    if kind == 'batch':
-        failures.extend({'tool': payload.get('name'), 'item': i, 'error': item.get('error', 'failed')[:600]}
-                        for i, item in enumerate(reply['value']) if not item.get('ok'))
+    if kind == 'schedule':
+        for job, item in zip(payload['jobs'], reply['value']):
+            if job['name'] == 'native_read' and not item.get('skipped'):
+                hooks.record_native(job['args']['path'], item['ok'], item.get('value'), item.get('elapsed_ms', 0))
+    if kind == 'schedule':
+        failures.extend({'tool': payload['jobs'][i]['name'],
+                         'item': i, 'error': item.get('error', 'failed')[:600]}
+                        for i, item in enumerate(reply['value']) if not item.get('ok') and not item.get('skipped'))
     return reply.get('value')
 
 
@@ -132,6 +141,8 @@ def tool(name, keys):
 
 def native_read(path):
     global bridge_ms
+    if get_ident() != EXECUTION_THREAD:
+        raise RuntimeError("Host functions require synchronous calls on the execution thread")
     start = perf_counter()
     send(NATIVE, os.fspath(path).encode('utf-8'), raw=True)
     response = receive()
@@ -171,26 +182,30 @@ system_write_roots = tuple(Path(p).resolve() for p in (
 observer = Observations()
 agent_print = config.get('observe', False)
 namespace = {'__builtins__': builtins, 'json': json, 'native_read': native_read,
-             'batch': lambda name, jobs, limit=None: bridge('batch', name=name, jobs=jobs,
-                 limit=(2 if name == 'process_run' else 6) if limit is None else limit),
              'observe': observer.observe, 'get_observation': observer.get}
 function_names = set()
+from process_api import install
+namespace['subprocess'] = install(bridge, lambda: 'process_run' in function_names,
+    lambda error: failures.append({'tool': 'subprocess.run', 'error': error}))
 
 
 def bind_functions(functions):
     global function_names
-    proxies = {s['name']: tool(s['name'], list(s['parameters'].get('properties', {}))) for s in functions}
+    proxies = {s['name']: tool(s['name'], list(s['parameters'].get('properties', {}))) for s in functions if s['name'] != 'process_run'}
     for name in function_names - proxies.keys():
         namespace.pop(name, None)
     namespace.update(proxies)
     namespace['functions'] = types.SimpleNamespace(**proxies)
-    function_names = set(proxies)
+    function_names = {s['name'] for s in functions}
+    return proxies
 
 
 bind_functions(config['tools'])
 if agent_print:
     builtins.print = observer.print
 cache = OrderedDict()
+if config.get('auto_parallel', False):
+    from auto_parallel import HELPER, Scheduler
 sys.addaudithook(audit)
 send(READY, {'pid': os.getpid(), 'python_version': sys.version.split()[0], 'mode': 'observe' if agent_print else 'raw'})
 while True:
@@ -218,13 +233,15 @@ while True:
     with contextlib.redirect_stdout(hooks.TaggedStream(stream)), contextlib.redirect_stderr(hooks.TaggedStream(stream, stderr=True)):
         try:
             cell = json.loads(payload)
-            bind_functions(cell['tools'])
+            proxies = bind_functions(cell['tools'])
+            if config.get('auto_parallel', False):
+                namespace[HELPER] = Scheduler(namespace, {**proxies, "native_read": native_read}, bridge)
             code = cell['code']
             compile_start = perf_counter()
             compiled = cache.get(code)
             cache_hit = compiled is not None
             if compiled is None:
-                compiled = compile_cell(code)
+                compiled = compile_cell(code, auto_parallel=config.get('auto_parallel', False))
                 # 只缓存字节码，不缓存结果或副作用。
                 if len(code) <= 65536:
                     cache[code] = compiled
@@ -254,6 +271,7 @@ while True:
         finally:
             namespace.pop(RESULT_NAME, None)
             namespace.pop(CAPTURE_NAME, None)
+            namespace.pop('__pimoon_scheduler__', None)
     output = stream.getvalue()
     retained_chars = len(output)
     complete = stream.total <= 1024 * 1024

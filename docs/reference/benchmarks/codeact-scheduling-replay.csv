@@ -1,0 +1,7 @@
+round,variant,host_ms,requests,errors,native_reads,compile_ms
+1,A,930.8489,5,"[False, False, True, False]",17,4.179999999905704
+1,B,515.2629999999999,5,"[False, False, True, False]",17,5.403400002251146
+2,B,459.28819999999996,5,"[False, False, True, False]",17,4.255699997884221
+2,A,512.5384999999997,5,"[False, False, True, False]",17,4.365899996628286
+3,A,487.3768999999993,5,"[False, False, True, False]",17,3.790599999774713
+3,B,493.49479999999676,5,"[False, False, True, False]",17,4.7665999954915605

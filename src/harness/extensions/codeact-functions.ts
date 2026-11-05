@@ -7,6 +7,7 @@ const parameters = Type.Object({
 	argv: Type.Array(Type.String(), { minItems: 1, maxItems: 1024 }),
 	cwd: Type.Optional(Type.String()),
 	env: Type.Optional(Type.Record(Type.String(), Type.String())),
+	inherit_env: Type.Optional(Type.Boolean()),
 	timeout: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: MAX_PROCESS_TIMEOUT_SECONDS })),
 	check: Type.Optional(Type.Boolean()),
 }, { additionalProperties: false });
