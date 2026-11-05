@@ -51,6 +51,13 @@ HTTP 代理接受 `http://` 或 `https://`，SOCKS5 接受 `socks5://`。端点�
 
 2026-11-05 验证：类型检查通过；网页工具与审批定向测试 398 通过、2 跳过。隔离源码运行时经本机现有代理访问 GitHub 页面、GitHub API、raw.githubusercontent.com、npm registry、PyPI，均得到 HTTP 200；未读取用户 Cookie、未关闭 TLS 验证。其余名单站点未逐站在线验收。
 
+### Windows 待更新成品
+
+- 功能源提交 `89ca4da`，从该提交的干净 worktree 构建，未夹带主工作区未提交改动。
+- Windows 便携成品完成两组无窗口验收：既有原生 execute／进程桥接探针通过；新增合成模型驱动的真实 execute 内 `http` 经现有代理读取 GitHub API 与 raw.githubusercontent.com，均 HTTP 200。模型响应使用本地合成夹具，不读取真实凭据；外网部分只访问这两个已授权站点。
+- 成品已登记到 `dist/pimoon-native-update`，`release.json` 保留源提交及后端、配置和运行时文件哈希；当前运行目录未改动。
+- 退出全部 pimoon 窗口后，通过仓库根目录 `启动 pimoon.cmd` 应用更新。更新器校验后端哈希并保留旧版本；直接点旧 exe 不触发更新。当前会话在切换前仍使用旧网络策略。
+
 ## 其他私网请求
 
 `http` 与 `webfetch` 的其他私网访问通过[审批模块](../approval-gate/README.md)授权。授权绑定完整 origin 和当次解析地址，每次调用重新解析，重定向与主图下载各自检查。关闭审批模块后，工具仍执行地址检查。
