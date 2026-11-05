@@ -1,0 +1,285 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import { afterEach, expect, it, vi } from "vitest";
+import { SessionManager, createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices, type InlineExtension } from "@earendil-works/pi-coding-agent";
+import { createAssistantMessageEventStream, type AssistantMessage, type ToolResultMessage } from "@earendil-works/pi-ai";
+import { GuiLiveTools } from "../../src/gui/host/projection/live-tools.ts";
+import { GuiPayloads } from "../../src/gui/host/projection/payloads.ts";
+import { NativeCodeActCandidate } from "../../src/pimoon/codeact/native-candidate.ts";
+import type { ConfirmCodeAct } from "../../src/pimoon/codeact/confirmation.ts";
+import fileTools from "../../src/harness/extensions/file-tools.ts";
+import { GuiDialogs } from "../../src/gui/host/session/dialogs.ts";
+import { startModelServer, type ModelResponse } from "../cli/model-server.ts";
+import { createRuntimeResources } from "./runtime-resources.ts";
+
+afterEach(() => vi.unstubAllEnvs());
+const action = (code: string, confirm?: string): ModelResponse => ({
+    tool: "execute", args: { code, desc: "隔离验证", ...(confirm ? { confirm } : {}) },
+});
+const marker = 'from pathlib import Path\nPath("marker.txt").write_text("once", encoding="utf-8")';
+async function fixture(replies: ModelResponse[], confirm?: ConfirmCodeAct, guards: InlineExtension[] = [], reopen?: { root: string; sessionFile: string }) {
+	const base = path.resolve(".tmp/tests/native-codeact-candidate"); await fs.mkdir(base, { recursive: true });
+	const root = reopen?.root ?? await fs.mkdtemp(path.join(base, "case-"));
+	const cwd = path.join(root, "workspace"), agentDir = path.join(root, "agent");
+	await fs.mkdir(cwd, { recursive: true }); await fs.mkdir(agentDir, { recursive: true });
+	vi.stubEnv("PIMOON_RESOURCE_DIR", reopen ? path.join(root, "resources") : await createRuntimeResources(root));
+	const server = await startModelServer(() => {
+		return replies.shift() ?? { text: "done" };
+	});
+	await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
+	await fs.writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: {
+		baseUrl: server.url, api: "openai-completions", apiKey: "fixture", models: [{ id: "test", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
+	} } }));
+
+	try {
+		const runtime = await createAgentSessionRuntime(async ({ cwd, agentDir, sessionManager }) => {
+			const codeact = new NativeCodeActCandidate(confirm);
+			const services = await createAgentSessionServices({ cwd, agentDir, resourceLoaderOptions: {
+				extensionFactories: [codeact.extension, { name: "file-tools", factory: fileTools }, ...guards],
+				noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+			} });
+			const result = await createAgentSessionFromServices({ services, sessionManager, tools: ["execute", "write", "read"] });
+			codeact.bind(result.session);
+            if (!result.session.getActiveToolNames().includes("execute")) throw new Error("execute 未激活: " + JSON.stringify({ active: result.session.getActiveToolNames(), extensions: services.resourceLoader.getExtensions().errors, tools: result.session.extensionRunner.getAllRegisteredTools().map(tool => tool.definition.name) }));
+			return { ...result, services, diagnostics: services.diagnostics };
+		}, { cwd, agentDir, sessionManager: reopen ? SessionManager.open(reopen.sessionFile) : SessionManager.create(cwd, path.join(root, "sessions")) });
+		await runtime.session.bindExtensions({ mode: "print", onError: ({ error }) => { throw new Error(error); } });
+		return { root, cwd, runtime, server, results: () => runtime.session.messages.filter((message): message is ToolResultMessage => message.role === "toolResult" && message.toolName === "execute"),
+			async close() { await runtime.dispose(); await server.close(); } };
+	} catch (error) { await server.close(); throw error; }
+}
+
+it("模型仅见 execute；Python 状态、多轮结果和内部审批调用身份保留", async () => {
+    const value = await fixture([action('value=41\nvalue'), { text: "initialized" },
+        action('value+=1\nwrite(path="answer.txt",content=str(value))\nvalue'), { text: "done" }]);
+    try {
+        await value.runtime.session.prompt("Initialize.");
+        const failure = value.runtime.session.messages.find(message => message.role === "assistant" && message.stopReason === "error");
+        if (failure) throw new Error(JSON.stringify(failure));
+        await value.runtime.session.prompt("Write once.");
+        expect(await fs.readFile(path.join(value.cwd, "answer.txt"), "utf8")).toBe("42");
+        expect(value.results()).toHaveLength(2);
+        expect(value.results().every(result => !result.isError)).toBe(true);
+        for (const request of value.server.requests) {
+            expect(request.tools?.map(tool => tool.function.name)).toEqual(["execute"]);
+            expect(JSON.stringify(request)).not.toContain("<execute_result");
+        }
+        const last = value.server.requests.at(-1);
+        expect(last?.messages.some(message => message.role === "tool" && message.tool_call_id)).toBe(true);
+        expect(value.results().at(-1)?.nestedCalls?.calls.map(call => call.name)).toEqual(["write"]);
+    } finally { await value.close(); }
+});
+
+it("确认批准后执行一次，拒绝和无确认入口均不写入", async () => {
+    for (const decision of ["approved", "rejected", "unavailable"] as const) {
+        let confirmations = 0;
+        const value = await fixture([action(marker, "是否新增标记？"), { text: "done" }],
+            decision === "unavailable" ? undefined : async () => { confirmations++; return { kind: decision }; });
+        try {
+            await value.runtime.session.prompt("Fixture.");
+            expect(confirmations).toBe(decision === "unavailable" ? 0 : 1);
+            expect(value.results()).toHaveLength(1);
+            if (decision === "approved") expect(await fs.readFile(path.join(value.cwd, "marker.txt"), "utf8")).toBe("once");
+            else {
+                await expect(fs.access(path.join(value.cwd, "marker.txt"))).rejects.toThrow();
+                expect(value.results()[0]?.isError).toBe(true);
+            }
+        } finally { await value.close(); }
+    }
+});
+
+it("整块批准不能绕过内部工具拒绝，SDK 记录真实 nestedCalls", async () => {
+    const guard: InlineExtension = { name: "deny-write", factory(pi) {
+        pi.on("tool_call", event => event.toolName === "write" ? { block: true, reason: "fixture denied" } : undefined);
+    } };
+    const value = await fixture([action('write(path="marker.txt",content="bad")', "确认写入？"), { text: "done" }],
+        async () => ({ kind: "approved" }), [guard]);
+    try {
+        await value.runtime.session.prompt("Fixture.");
+        await expect(fs.access(path.join(value.cwd, "marker.txt"))).rejects.toThrow();
+        expect(value.results()[0]?.isError).toBe(true);
+        expect(JSON.stringify(value.results()[0])).toContain("fixture denied");
+    } finally { await value.close(); }
+});
+
+it("等待确认期间取消，不接受迟到批准，不执行", async () => {
+    const ui = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
+    const value = await fixture([action(marker, "确认？")], (request, signal) => ui.confirmCodeAct(request, signal));
+    try {
+        const running = value.runtime.session.prompt("Fixture.");
+        await vi.waitFor(() => expect(ui.list()).toHaveLength(1));
+        const id = ui.list()[0]?.id ?? "";
+        await value.runtime.session.abort();
+        await running;
+        expect(ui.list()).toEqual([]);
+        expect(() => ui.respond(id, "yes")).toThrow();
+        await expect(fs.access(path.join(value.cwd, "marker.txt"))).rejects.toThrow();
+        expect(value.server.requests).toHaveLength(1);
+    } finally { await value.close(); }
+});
+
+it("模型直接调用隐藏内部函数被拒绝", async () => {
+    const value = await fixture([{ tool: "write", args: { path: "marker.txt", content: "bad" } }]);
+    try {
+        await value.runtime.session.prompt("Fixture.");
+        await expect(fs.access(path.join(value.cwd, "marker.txt"))).rejects.toThrow();
+        expect(value.server.requests).toHaveLength(1);
+    } finally { await value.close(); }
+});
+
+it("递归 execute 不进入 Python 函数目录", async () => {
+    const value = await fixture([action('execute(code="42",desc="nested")'), { text: "done" }]);
+    try {
+        await value.runtime.session.prompt("Fixture.");
+        expect(value.results()[0]?.isError).toBe(true);
+        expect(JSON.stringify(value.results()[0]?.content)).toContain("execute");
+        expect(value.server.requests[0]?.tools?.[0]?.function.description).not.toContain("execute(code:");
+    } finally { await value.close(); }
+});
+
+/** 只替换一次供应商终态，执行仍走真实 AgentSession 调度。 */
+function replyOnce(value: Awaited<ReturnType<typeof fixture>>, reason: "toolUse" | "length" | "error" | "aborted", calls: number) {
+    const provider = value.runtime.session.agent.streamFunction;
+    let sent = false;
+    value.runtime.session.agent.streamFunction = (model, context, options) => {
+        if (sent) return provider(model, context, options);
+        sent = true;
+        const stream = createAssistantMessageEventStream();
+        const message: AssistantMessage = {
+            role: "assistant", api: model.api, provider: model.provider, model: model.id, timestamp: Date.now(),
+            stopReason: reason, usage: { input: 10, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 20,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+            content: Array.from({ length: calls }, (_, index) => ({ type: "toolCall", id: `candidate-${index}`,
+                name: "execute", arguments: { code: marker, desc: "隔离验证" } })),
+        };
+        stream.push({ type: "start", partial: message });
+        if (reason === "error" || reason === "aborted") stream.push({ type: "error", reason, error: message });
+        else stream.push({ type: "done", reason, message });
+        stream.end();
+        return stream;
+    };
+}
+
+it("同轮两个 execute 在任何代码启动前全部拒绝", async () => {
+    const value = await fixture([]);
+    try {
+        replyOnce(value, "toolUse", 2);
+        await value.runtime.session.prompt("Fixture.");
+        await expect(fs.access(path.join(value.cwd, "marker.txt"))).rejects.toThrow();
+        expect(value.results()).toHaveLength(2);
+        expect(value.results().every(result => result.isError)).toBe(true);
+        expect(value.server.requests).toHaveLength(0);
+    } finally { await value.close(); }
+});
+
+it.each(["length", "error", "aborted"] as const)("完整参数但终态 %s 不执行", async reason => {
+    const value = await fixture([]);
+    try {
+        replyOnce(value, reason, 1);
+        await value.runtime.session.prompt("Fixture.");
+        await expect(fs.access(path.join(value.cwd, "marker.txt"))).rejects.toThrow();
+        expect(value.results()).toHaveLength(reason === "length" ? 1 : 0);
+        if (reason === "length") expect(value.results()[0]?.isError).toBe(true);
+    } finally { await value.close(); }
+});
+
+it("运行中取消保留已写入文件，不执行后项、不自动重试", async () => {
+    const value = await fixture([action(marker + '\nimport time\ntime.sleep(30)\nPath("late.txt").write_text("bad")')]);
+    try {
+        const running = value.runtime.session.prompt("Fixture.");
+        await vi.waitFor(async () => expect(await fs.readFile(path.join(value.cwd, "marker.txt"), "utf8")).toBe("once"), { timeout: 5000 });
+        await value.runtime.session.abort();
+        await running;
+        await expect(fs.access(path.join(value.cwd, "late.txt"))).rejects.toThrow();
+        expect(await fs.readFile(path.join(value.cwd, "marker.txt"), "utf8")).toBe("once");
+        expect(value.server.requests).toHaveLength(1);
+        expect(value.results()).toHaveLength(1);
+        expect(value.results()[0]?.isError).toBe(true);
+    } finally { await value.close(); }
+});
+
+it("持久化重开保留调用结果与单工具投影，清楚提醒 Python 状态丢失，不重放写入", async () => {
+    const first = await fixture([action(marker + "\nsentinel=42"), { text: "done" }]);
+    let sessionFile: string | undefined;
+    try {
+        await first.runtime.session.prompt("Fixture.");
+        sessionFile = first.runtime.session.sessionManager.getSessionFile();
+        expect(sessionFile).toBeTruthy();
+    } finally { await first.close(); }
+    if (!sessionFile) throw new Error("没有会话文件");
+    const next = await fixture([action('assert "sentinel" not in globals()\nnative_read("marker.txt")'), { text: "done" }],
+        undefined, [], { root: first.root, sessionFile });
+    try {
+        await next.runtime.session.prompt("Continue without replay.");
+        expect(next.results()).toHaveLength(2);
+        expect(next.results().at(-1)?.isError).toBe(false);
+        expect(await fs.readFile(path.join(next.cwd, "marker.txt"), "utf8")).toBe("once");
+        expect(JSON.stringify(next.server.requests[0])).toContain("Python 内存为空");
+        expect(next.server.requests[0]?.tools?.map(tool => tool.function.name)).toEqual(["execute"]);
+        expect(next.server.requests[0]?.messages.some(message => message.role === "tool")).toBe(true);
+    } finally { await next.close(); }
+});
+
+it("原生生命周期被 GUI 投影为一个根执行和一个内部调用，不重复完成", async () => {
+    const value = await fixture([action('write(path="marker.txt",content="once")'), { text: "done" }]);
+    const live = new GuiLiveTools(new GuiPayloads());
+    const unsubscribe = value.runtime.session.subscribe(event => {
+        if (event.type === "tool_execution_start" || event.type === "tool_execution_update" || event.type === "tool_execution_end") live.accept(event);
+    });
+    try {
+        await value.runtime.session.prompt("Fixture.");
+        expect(live.project()).toHaveLength(1);
+        expect(live.project()[0]).toMatchObject({ toolName: "execute", completion: { isError: false },
+            nestedCalls: { calls: [{ name: "write", status: "ok" }] } });
+        expect(live.size).toBe(0);
+    } finally { unsubscribe(); await value.close(); }
+});
+
+it("JSON 解码保留 Unicode、引号、反斜线和旧 XML 标记，不二次反转义", async () => {
+    const payload = '中文😀 "quoted" \\n <' + '/execute>';
+    const code = `value=${JSON.stringify(payload)}\nwrite(path="payload.txt",content=value)\nvalue`;
+    const value = await fixture([action(code), { text: "done" }]);
+    try {
+        await value.runtime.session.prompt("Fixture.");
+        expect(await fs.readFile(path.join(value.cwd, "payload.txt"), "utf8")).toBe(payload);
+        expect(value.results()[0]?.isError).toBe(false);
+    } finally { await value.close(); }
+});
+
+it.each([
+    { code: marker, desc: "" },
+    { code: " ", desc: "空源码" },
+    { code: marker, desc: "未知参数", extra: true },
+    { code: marker, desc: "空确认", confirm: " " },
+])("无效原生参数不执行：%j", async args => {
+    const value = await fixture([{ tool: "execute", args }, { text: "done" }]);
+    try {
+        await value.runtime.session.prompt("Fixture.");
+        await expect(fs.access(path.join(value.cwd, "marker.txt"))).rejects.toThrow();
+        expect(value.results()[0]?.isError).toBe(true);
+    } finally { await value.close(); }
+});
+
+it("确认期间上下文改变使批准失效，不执行旧代码", async () => {
+    const ui = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
+    const value = await fixture([action(marker, "确认？"), { text: "done" }], (request, signal) => ui.confirmCodeAct(request, signal));
+    try {
+        const running = value.runtime.session.prompt("Fixture.");
+        await vi.waitFor(() => expect(ui.list()).toHaveLength(1));
+        value.runtime.session.sessionManager.appendCustomEntry("context-changed", {});
+        ui.respond(ui.list()[0]?.id ?? "", "yes");
+        await running;
+        await expect(fs.access(path.join(value.cwd, "marker.txt"))).rejects.toThrow();
+        expect(JSON.stringify(value.results()[0])).toContain("confirmation_invalidated");
+    } finally { await value.close(); }
+});
+
+it("旧文本执行历史明确拒绝继续，不伪造原生调用身份", async () => {
+    const value = await fixture([]);
+    try {
+        value.runtime.session.sessionManager.appendCustomMessageEntry("codeact_result", "old result", false);
+        await value.runtime.session.prompt("Fixture.");
+        expect(value.server.requests).toHaveLength(0);
+        expect(JSON.stringify(value.runtime.session.messages)).toContain("原生执行请新建会话");
+    } finally { await value.close(); }
+});

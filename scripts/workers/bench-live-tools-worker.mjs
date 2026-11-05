@@ -20,6 +20,7 @@ await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ transp
 const scenario = scenarios[scenarioName];
 await scenario.setup(cwd);
 const codeAct = CodeAct ? new CodeAct() : undefined;
+const native = app === "pimoon-native";
 const factories = [{ name: "file-tools", factory: fileTools }];
 if (promptMode === "runtime") factories.push({ name: "system-prompt", factory: systemPrompt });
 if (codeAct) factories.unshift(codeAct.extension);
@@ -50,7 +51,8 @@ factories.push({ name: "stream-probe", factory(pi) {
 			trace.accounting.input = estimateRequestTokens(payload);
 			if (payload.model !== model.id || !trace.accounting.input || trace.accounting.input.tool_definitions <= 0)
 				throw new Error("模型或工具计量不完整，拒绝无效对测");
-			if (codeAct ? trace.payload.tools !== 0 || !trace.payload.hasCodeAct : trace.payload.tools === 0)
+			const declarations = [...(payload.tools ?? []), ...(payload.input ?? []).flatMap(item => item.tools ?? [])];
+			if (native ? declarations.length !== 1 || declarations[0].name !== "execute" : codeAct ? trace.payload.tools !== 0 || !trace.payload.hasCodeAct : trace.payload.tools === 0)
 				throw new Error("实际工具协议与被测应用不符，拒绝无效对测");
 		}
 	});
@@ -70,7 +72,7 @@ const started = performance.now();
 let failure;
 const observe = event => {
 	if (event.type === "message_update" && event.assistantMessageEvent.partial.codeact) mark("codeOpenMs");
-	if (event.type === "tool_execution_start" && event.toolName === "codeact") mark("executionStartMs");
+	if (event.type === "tool_execution_start" && ["codeact", "execute"].includes(event.toolName)) mark("executionStartMs");
 	if (event.type === "message_end" && event.message.role === "assistant") mark("finishedMs");
 	if (event.type === "tool_execution_start") pendingTools.set(event.toolCallId, performance.now());
 	if (event.type === "tool_execution_end") {
@@ -96,7 +98,7 @@ const observe = event => {
 		}
 		modelMs += message.durationMs ?? 0;
 		for (const key of Object.keys(usage)) usage[key] += message.usage[key] ?? 0;
-		if (message.codeactStop?.usage !== undefined && message.codeactStop.usage !== "complete") incompleteUsage++;
+		if (responseUsageStatus(message) !== "complete") incompleteUsage++;
 		messages.push(message);
 		if (["error", "aborted", "length"].includes(message.stopReason)) failure ??= message.errorMessage ?? message.stopReason;
 	}
@@ -106,8 +108,8 @@ try {
 		const services = await createAgentSessionServices({ cwd, agentDir, modelRuntime, resourceLoaderOptions: { extensionFactories: factories, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true } });
 		const extensions = services.resourceLoader.getExtensions();
 		if (extensions.errors.length) throw new Error(JSON.stringify(extensions.errors));
-		if (codeAct && !extensions.extensions.some(extension => extension.path === "builtin:codeact")) throw new Error("CodeAct 扩展未加载，拒绝无效对测");
-		const result = await createAgentSessionFromServices({ services, sessionManager, model, thinkingLevel, tools: ["read", "write", "edit", "find", "grep", "ls"] });
+		if (codeAct && !extensions.extensions.some(extension => extension.path === `builtin:${native ? "native-codeact-candidate" : "codeact"}`)) throw new Error("CodeAct 扩展未加载，拒绝无效对测");
+		const result = await createAgentSessionFromServices({ services, sessionManager, model, thinkingLevel, tools: [...(native ? ["execute"] : []), "read", "write", "edit", "find", "grep", "ls"] });
 		const provider = result.session.agent.streamFunction;
 		result.session.agent.streamFunction = (model, context, options) => {
 			if (requests >= 12) throw new Error("测试请求预算 12 已用尽");
