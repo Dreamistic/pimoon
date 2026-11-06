@@ -11,7 +11,7 @@
 - 工作区与所有配置、临时目录均隔离于 `.tmp/tests/live-tools/`。源 OAuth 凭据仅只读，经 stdin 传入进程，不落盘、不刷新；运行后校验源凭据未改变。
 
 ```bash
-node scripts/bench-live-tools.mjs --live --upstream=D:/Code/githubproject/o-pi --model=gpt-6.1-sol --thinking=low --runs=1 --scenarios=locate-edit,aggregate,conditional-edit
+node scripts/bench-live-tools.mjs --live --upstream=../o-pi --model=gpt-6.1-sol --thinking=low --runs=1 --scenarios=locate-edit,aggregate,conditional-edit
 ```
 
 ## 计量口径

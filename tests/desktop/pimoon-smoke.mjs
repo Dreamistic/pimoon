@@ -12,8 +12,13 @@ const home = path.join(root, '.private/pimoon-smoke', id);
 const cwd = path.join(run, 'workspace');
 await fs.mkdir(path.join(home, 'agent'), { recursive: true });
 await fs.mkdir(cwd, { recursive: true });
-const original = path.join('D:/Code/opi-agent-lab-20261103/.private/agent');
+const modelMode = process.argv.includes('--model');
+const original = process.env.PIMOON_SMOKE_AUTH_SOURCE;
+if (modelMode && !original) throw new Error('付费烟测需要显式设置 PIMOON_SMOKE_AUTH_SOURCE 为自己的 agent 目录。');
+let sourceHash = null;
+if (modelMode) {
 const raw = await fs.readFile(path.join(original, 'auth.json'));
+sourceHash = createHash('sha256').update(raw).digest('hex');
 const auth = JSON.parse(raw)['openai-codex'];
 if (auth.type !== 'oauth' || auth.expires < Date.now() + 600_000) throw new Error('访问凭据过期或不足十分钟；不刷新、不替换模型。');
 const credential = Object.fromEntries(['type', 'access', 'expires', 'accountId'].map(key => [key, auth[key]]));
@@ -21,8 +26,9 @@ credential.refresh = 'DISABLED_IN_PIMOON_COPY';
 await fs.writeFile(path.join(home, 'agent/auth.json'), JSON.stringify({'openai-codex':credential}), { mode:0o600 });
 const store = JSON.parse(await fs.readFile(path.join(original, 'models-store.json'), 'utf8'));
 await fs.writeFile(path.join(home, 'agent/models-store.json'), JSON.stringify({'openai-codex':store['openai-codex']}), {mode:0o600});
+}
 await fs.writeFile(path.join(cwd, 'sample.txt'), 'pimoon synthetic sample\n');
-const manifest = {id, home, cwd, model:'openai-codex/gpt-6-astra', jev:false, mode:process.argv.includes('--model')?'model':'inspect', auth_source_sha256:createHash('sha256').update(raw).digest('hex')};
+const manifest = {id, home, cwd, model:'openai-codex/gpt-6-astra', jev:false, mode:modelMode?'model':'inspect', auth_source_sha256:sourceHash};
 await fs.writeFile(path.join(run, 'manifest.json'), JSON.stringify(manifest,null,2));
 const env = {...process.env, PIMOON_HOME:home, PIMOON_WORKSPACE:cwd, PIMOON_HEADLESS:'1', HOME:home, USERPROFILE:home, APPDATA:path.join(home,'appdata'), LOCALAPPDATA:path.join(home,'localappdata')};
 for(const folder of ['src','scripts'])await fs.cp(path.join(root,folder),path.join(run,'sources',folder),{recursive:true});
@@ -107,5 +113,5 @@ try {
  const pids=(await events()).filter(e=>e.type==='code_end').map(e=>e.metrics.python_pid).filter(Boolean);
  await wait(async()=>pids.every(pid=>{try{process.kill(pid,0);return false;}catch{return true;}}),'Python 子进程退出',10);
  if(report && !process.exitCode){report.cleanup_verified=true;await fs.writeFile(path.join(run,'result.json'),JSON.stringify(report,null,2));console.log(JSON.stringify({ok:true,run,model_requests:report.model_requests,code_calls:report.code_calls}));}
- assert.equal(createHash('sha256').update(await fs.readFile(path.join(original,'auth.json'))).digest('hex'),manifest.auth_source_sha256);
+ if(modelMode) assert.equal(createHash('sha256').update(await fs.readFile(path.join(original,'auth.json'))).digest('hex'),manifest.auth_source_sha256);
 }

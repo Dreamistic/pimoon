@@ -78,7 +78,7 @@
 本地结果 `.tmp/tests/live-tools/run-dQ6o8p/results.json`；同目录 manifest 保存模型、参数、源码输入指纹和 `sourceAuthUnchanged=true`。合成 transcript 留在隔离会话目录，不提交原始轨迹或凭据。
 
 ```powershell
-node scripts/bench-live-tools.mjs --live --upstream=D:/Code/githubproject/o-pi --model=gpt-6.1-sol --thinking=low --transport=sse --prompt=runtime --runs=3 --scenarios=aggregate
+node scripts/bench-live-tools.mjs --live --upstream=../o-pi --model=gpt-6.1-sol --thinking=low --transport=sse --prompt=runtime --runs=3 --scenarios=aggregate
 ```
 
 验证：6/6 任务通过；实际 payload 的模型和 low 档位、请求数与时间区间检查通过；3 个 pimoon 后台报告的请求数、供应商用量状态和全部 Token 分项与基准逐项相等。未改业务代码，因此未重复运行类型检查或单元测试；未启动窗口、未重建桌面包。

@@ -1,66 +1,116 @@
 # pimoon
 
-**Dream 的个人桌面 CodeAct 应用。** 月亮标识、月紫配色，基于 o-pi / Pi SDK 源码重新构建，使用独立应用身份与数据目录。
+<img src="assets/icons/icon.svg" width="88" alt="pimoon 月亮标识">
 
-## 启动
+Dream 维护的开源 AI 编程桌面工作台，基于 [o-pi](https://github.com/Orion-zhen/o-pi) 与 [Pi SDK](https://github.com/earendil-works/pi)。以持久 Python CodeAct 为核心，把文件分析、工具调用和进程执行放在同一段可编排代码中。
 
-双击 **`启动 pimoon.cmd`**，或运行 `dist/pimoon/pimoon.exe`。移动应用时请移动整个 `dist/pimoon` 文件夹，不要只复制 EXE。本机需要可通过 PATH 启动的 Python 3.12+；Node/Bun 不用于运行成品。
+目前验证范围为 **Windows x64 桌面目录版**。未提供已验收的 macOS / Linux 版本、安装器或公开二进制下载；保留的 TUI / Web 代码不代表交付支持。
 
-- 主模型固定 `openai-codex/gpt-6-astra`，仅走 Codex 订阅端点；不自动换模型。
-- **桌面模型使用自建文本 CodeAct 协议，不依赖 API 原生 tool calling。** 模型在独立行的 `<execute>` 与行首 `</execute>` 之间写 Python，结束标签后的内容丢弃；宿主函数目录仍从真实 schema 生成，但不再向模型 API 发送原生工具声明。不再注册 `codemode` 工具：执行块在轮次边界直接运行，结果使用自定义消息持久化；内部函数保留审批、取消和界面展示。完整块闭合会触发本地停止序列，中止当前生成并等待取消收尾后执行；用户取消、缺少完整结束标记或已知输出超限时不启动代码。截流缺少完整用量时界面会明确标注，费用不按零计算。参见 [协议与自动反馈](docs/codeact-protocol.md)。
-- 不必用 `print(tool(...))`：未赋值调用的非 `None` 结果自动给有界预览，最多保留八项完整值到 `_results`，直到下一个产生值的代码块替换它。代码块最后一个顶层表达式完整展示，最近的完整结果保留在 `_`。赋值的中间结果不自动输出；静默宿主调用给计数摘要，失败始终报告。字符串保留原文，列表与字典显示为 JSON，图片不重复输出 Base64。
-- 普通 `print` 不再自动缩成预览；大结果可用 `observe(value, fields=[...], limit=8)` 主动筛选。仍保留统一输出上限和截断提示。宿主返回的图片内容块随 CodeAct 父结果原样转交，不转换为 Python 字符串。
-- 文件分析直接使用持久 Python 与已安装的库，支持直接导入项目函数；不自动安装依赖，不通过 `bash` 再启动 Python。用循环、条件、推导式和函数根据结果选择后续操作，而不只是把工具调用排成直线；独立读取和无共享写入的独立进程任务用 `batch()`；进程默认 2、最多 4 并发，依赖链与重复测速仍串行。普通文件允许跨工作区读取，`native_read` 和只读宿主函数也不再受工作区范围限制；Python 写入与文件修改工具仍限当前工作区。pimoon 登录凭据及常见用户凭据目录保持禁止直接访问，宿主文件工具另有自身路径策略。这不是任意隐私文件的读取授权，也不是强安全沙箱。
-- 同一会话保留 Python 变量和导入；新会话隔离。关闭应用、取消执行、会话淘汰后不会恢复 Python 内存，文件写入不会回滚。
-- 默认工作区是 `%APPDATA%/pimoon/workspace`。可在左侧选择可信项目；建议先用副本。
-- CodeAct 固定启用，不再是可勾选工具。函数面板控制文件、进程、HTTP、搜索等 I/O 权限；全部关闭仍能执行纯 Python。新配置默认提供 `process_run`、`http`、文件与网页函数。启动时将全局旧默认列表中的 `bash` 一次性替换为 `process_run`，移除废弃的 `codemode` 及其配置；不补开其他权限。已保存的会话权限不改写，旧会话需在函数面板启用“进程”或选择 Vanilla 预设；旧原生工具历史不兼容，请新建会话。
-- Git、构建和测试使用 `process_run(argv=[...], cwd=..., env={...})`，不拼 Shell 字符串；Windows npm/Gradle Wrapper 映射为 Node/Java 入口，不需要外层 PowerShell 或 Git Bash。默认失败抛异常，取消及超时回收活动进程树；进程超时按代码块剩余预算预留清理时间，正常的命令超时不清空 Python 状态。原始 GET、测速和下载用 `http(...)` 替代 curl；搜索、网页提取用 `websearch(...)`、`webfetch(...)`。外部程序仍使用宿主权限，Python 的直接进程、网络和 FFI 保持受限，**不是强安全沙箱**。参见[函数环境与限制](docs/reference/codeact/README.md)。
-- **JEV 未接入本桌面版本，不会向它发送聊天。** Discord 状态同步默认关闭。
+## 特性
 
-## 数据与访问凭据
+- **桌面编程工作台**：月紫主题、多会话与项目切换、流式 Markdown、代码高亮、文件预览和差异查看。
+- **持久 Python CodeAct**：同一会话复用变量与导入，常用标准库预载；用循环、条件和数据结构处理工具结果，减少机械往返。历史可保存，应用重启不恢复 Python 内存。
+- **明确的并发边界**：`parallel()` 编排独立读取，`subprocess.run([...])` 执行显式进程命令；普通循环不自动并发。界面展示执行状态与并发估算节省，不把估算当实测加速。
+- **统一 I/O**：文件读写、代码检索、网页搜索与提取、HTTP 下载，以及带取消和超时处理的进程执行。以实际启用的函数目录为准。
+- **审批与权限控制**：工具开关、项目可信状态及审批流程，常见凭据目录受保护。外部程序仍以当前用户权限运行，**不是强安全沙箱**，请只操作可信项目。
+- **独立数据与执行复盘**：只使用 pimoon 自己的数据目录，提供本地执行遥测、用量与时间线报告；不自动借用原版登录或聊天历史。
 
-默认根目录 `%APPDATA%/pimoon`；可用 `PIMOON_HOME` 覆盖。
+默认模型为 `openai-codex/gpt-6-astra`，当前桌面请求边界仅允许 Codex 订阅端点；可用模型和额度取决于自己的账号。不自动更换模型，不内置共享账号、密钥或模型额度。JEV 未接入，Discord 状态同步默认关闭。
 
-| 目录 | 内容 |
+## 从源码编译
+
+### 环境
+
+在 Windows 10 / 11 x64 安装并加入 PATH：
+
+| 工具 | 要求 |
 | --- | --- |
-| `agent/` | pimoon 自己的配置、访问凭据和会话 |
-| `desktop/` | 窗口状态与 Electron 缓存 |
-| `telemetry/` | 本地执行及 SDK 遥测 |
-| `logs/` | 桌面诊断 |
-| `workspace/` | 默认工作区 |
+| Git | 克隆源码 |
+| Node.js | 24+，构建脚本与测试使用 |
+| Bun | 1.4+（本次验证 1.4.4） |
+| Python | 3.12+，确保 `python --version` 可用；成品运行也需要 |
+| Rust | stable，包含 Cargo、rustc 与目标平台链接器；推荐 rustup 的 MSVC 工具链及 Visual Studio C++ Build Tools |
 
-会话文件含聊天正文，请按私人资料保管。新增执行遥测只记录关联 ID、哈希、大小、用量、时序、错误状态和输出完整性，不记录提示词、代码正文或请求头；不声称覆盖任意 Python 内部行为。
+首次安装需要联网下载 npm 包及 Electron。不需要原作者的目录、全局 Pi 安装、依赖 junction 或私人配置。
 
-本试用构建使用有效访问凭据副本，**不复制刷新令牌、不刷新原登录**。过期后先在原版自行正常登录，再运行 `python scripts/sync-pimoon-access.py --replace` 同步副本。同步器不会输出凭据，也不会改原文件。桌面内重新登录暂不在此构建的验证范围。
+```powershell
+git clone https://github.com/Dreamistic/pimoon.git
+cd pimoon
+bun install --frozen-lockfile
+bun run build:desktop
+.\dist\pimoon\pimoon.exe
+```
 
-生成不含正文的使用摘要：`python -X utf8 -B scripts/pimoon-report.py`。
+构建依次执行 Rust 测试与编译、前后端资源构建、Electron 目录封装。直接依赖固定版本，`bun.lock` 锁定传递依赖。不要删除锁文件再安装 `latest`。
 
-逐轮复盘（模型请求、CodeAct、内部工具、批次及状态恢复）：`python -X utf8 -B scripts/pimoon-report.py --timeline --format markdown`。可加 `--session <会话ID>`、`--agent <轮次ID>` 或 `--run <应用运行ID>` 筛选；默认输出 JSON。报告会合并工具事实，包含项目路径，不包含提示词、代码或文件正文，请按私人资料保管。新增关联信息从更新后的运行开始采集，旧记录不猜测补全。
-
-遥测触顶、缺少结束事件、检查点不一致会明确标出；运行中的日志与异常退出可能无法区分。执行成功或一轮结束不代表任务完成、测试通过或用户确认。GUI 的 CodeAct 执行量包含内部调用，搜索采用分析仍只使用模型直接调用，避免把脚本结果当成模型曝光。
-
-## 构建与验证
-
-当前交付范围是 Windows x64 未签名目录版，不是安装器；其他平台、TUI/Web 分支未验收。
+`dist/pimoon` 必须是新目录，封装拒绝覆盖已有成品。再次构建请退出旧应用并移走旧目录，或指定独立输出：
 
 ```powershell
 python -X utf8 -B scripts/build-pimoon-runtime.py
 bun scripts/build.mjs desktop --dir
-node scripts/build-pimoon-portable.mjs
-
-node scripts/test-isolated.mjs node_modules/typescript/bin/tsc --noEmit
-node scripts/test-isolated.mjs --test tests/pimoon/runtime.test.mjs
-node scripts/test-isolated.mjs node_modules/vitest/vitest.mjs run tests/pimoon/boundary.test.ts
-node tests/desktop/pimoon-smoke.mjs          # 隐藏窗口、零模型请求
-node tests/desktop/pimoon-smoke.mjs --model  # 合成真实订阅调用，消耗额度
+node scripts/build-pimoon-portable.mjs --output dist/pimoon-next
 ```
 
-应用运行中不要覆盖其目录。可先构建 `bun scripts/build.mjs desktop --dir`，再运行 `node scripts/build-pimoon-portable.mjs --output dist/pimoon-next` 生成独立新版；保存并退出旧应用后，运行 `dist/pimoon-next/pimoon.exe`。原启动脚本仍指向 `dist/pimoon`；要继续使用该脚本，请退出所有版本后重新执行默认封装命令。仅修改源码或新建会话不会更新已加载的桌面后端。
+`PIMOON_RUST_BIN` 可指定含 Cargo / rustc 的目录。默认 Electron 来自安装依赖中的 `electron/dist`；也可用 `PIMOON_ELECTRON_DIST` 指定原始 Electron 分发目录（需含 `electron.exe`），不复用其他应用的安装目录。
 
-原生构建使用已有 Rust 工具链，可设置 `PIMOON_RUST_BIN`。目录封装复用本机 Electron 运行时，可设置 `PIMOON_ELECTRON_DIST`；不修改来源目录。开发依赖目前为本机上游依赖目录的 junction，勿在该 junction 中安装或升级；独立安装依赖时请使用新目录。
+### 首次运行与认证
 
-测试记录位于 `.tmp/tests/pimoon-desktop/`，测试凭据位于受限 `.private/pimoon-smoke/`。详细结果、已知限制和早期失败见 [VALIDATION.md](VALIDATION.md)。保留的上游文档可能仍描述旧配置路径，以本页为准。
+首次运行会创建自己的配置和默认工作区。GUI 提供模型服务登录入口，但本项目尚未验收完整的首次登录、续期流程；编译或离线烟测通过不代表账号可调用模型。
 
-## 来源与许可
+已有自己的 Pi Codex 登录时，可显式同步有效访问凭据副本：
 
-应用改版与维护：**Dream**。保留 [AGPL-3.0-only 许可证](LICENSE)及上游、第三方版权说明，见 [NOTICE.md](NOTICE.md)。此目录同时提供本次修改的完整应用源码；分发时须保留相应许可证与对应源码。
+```powershell
+python -X utf8 -B scripts/sync-pimoon-access.py --source "<自己的 Pi agent 目录>"
+```
+
+同步器仅复制有效访问凭据和对应模型服务信息，不复制刷新令牌、不触发刷新、不改原登录。过期后先在原应用正常登录，再加 `--replace` 同步。没有兼容登录时不要使用他人的 `auth.json`；仓库不提供认证文件。使用前需确认账号能够访问所选模型。
+
+### 部署与升级
+
+把整个 `dist/pimoon/` 文件夹复制到目标 Windows x64 电脑，安装 Python 3.12+ 后运行 `pimoon.exe`。成品无需 Node.js、Bun 或 Rust；仓库中的 `启动 pimoon.cmd` 需要 Node.js，是开发辅助入口，不是分发必需文件。目录版未签名，无自动更新。
+
+升级时在独立新目录构建，保留旧目录，正常退出旧应用后再切换快捷方式。不要覆盖运行中的目录；本流程不自动修改桌面快捷方式。
+
+## 数据与隐私
+
+默认根目录 `%APPDATA%/pimoon`，可用 `PIMOON_HOME` 覆盖，不回落到 `~/.pi`。
+
+| 目录 | 内容 |
+| --- | --- |
+| `agent/` | 配置、访问凭据、会话与记忆 |
+| `desktop/` | 窗口状态与 Electron 缓存 |
+| `workspace/` | 默认工作区，可另选可信项目 |
+| `telemetry/`、`logs/` | 本地执行指标与诊断 |
+
+会话含聊天正文。凭据与这些目录应按私人资料保管，不能提交到 Git。执行遥测以关联 ID、哈希、用量、时序和错误状态为主，不记录提示词、代码正文或请求头；诊断与报告仍可能含项目路径，不要未经检查公开。
+
+```powershell
+python -X utf8 -B scripts/pimoon-report.py
+python -X utf8 -B scripts/pimoon-report.py --timeline --format markdown
+```
+
+仓库忽略运行数据、依赖、构建产物、临时目录和常见密钥文件。公开前还需检查 Git 历史与提交作者信息：删除当前文件不能删除历史中的内容。
+
+## 验证
+
+本次已验证已有依赖环境下的类型检查、Rust 测试与桌面源码构建；全新依赖安装及 Electron 下载因网络超时未完成，尚不能宣称全新电脑端到端构建验收通过。详见 [VALIDATION.md](VALIDATION.md)。
+
+测试数据固定隔离到 `.tmp/tests` 或 `.private`，不使用真实用户配置：
+
+```powershell
+node scripts/test-isolated.mjs node_modules/typescript/bin/tsc --noEmit
+node scripts/test-isolated.mjs --test tests/pimoon/runtime.test.mjs tests/pimoon/public-build.test.mjs
+node scripts/test-isolated.mjs node_modules/vitest/vitest.mjs run tests/pimoon/boundary.test.ts
+node scripts/smoke-codeact-artifact.mjs .tmp/tests/public-smoke dist/pimoon
+```
+
+最后一项使用本地合成模型服务，无窗口、不读真实凭据、不消耗额度。真实订阅烟测需显式提供自己的凭据来源并主动启用 `--model`，不是常规构建步骤。验证范围与限制见 [VALIDATION.md](VALIDATION.md)。
+
+## 文档与许可
+
+- [安装与故障排查](docs/guides/getting-started.md)
+- [构建实现](docs/reference/runtime/build.md)
+- [CodeAct 函数环境与限制](docs/reference/codeact/README.md)
+- [文档索引](docs/README.md)（部分上游文档尚未适配，以本页交付范围与路径为准）
+
+应用改版与维护：**Dream**。遵循 [AGPL-3.0-only](LICENSE)，保留上游及第三方作者归属，见 [NOTICE.md](NOTICE.md)。分发应用时须按许可证提供对应源码和许可说明。

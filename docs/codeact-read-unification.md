@@ -22,5 +22,5 @@
 - 成品源提交：`db7ae7aee688390a3462222cfa282b462473c269`；独立目录：`dist/pimoon-unified-read-db7ae7a`。从独立 worktree 构建，显式复制本次离线重编译的运行时资源，依赖仅借用。
 - 无窗口成品烟测通过：原文与展示读取、统一缺失错误码、单项 ToolError、并发元数据、标准进程及副作用仅一次；2 次合成模型请求均只声明 execute。成品中旧 native_read 定义和操作码不存在，新连续执行提示保留。
 - `release.json` 保存全部 1101 个文件的 SHA-256；快捷方式切换后逐项复验通过。后端 SHA-256：`7f72ecd5341fb26f6ba861bb9e029f1bb3607e89e1014ddea4c66c9edd296e7e`；运行时 SHA-256：`9379be68e10777465d3d6bc6b0c9dca4436d31b6c4d51deadc27805edc8d5166`。
-- 桌面 `pimoon.lnk` 已重新读取并切至 `D:\Code\pimoon\dist\pimoon-unified-read-db7ae7a\pimoon.exe`；旧快捷方式备份：`D:\Code\pimoon\dist\shortcut-backups\pimoon-before-unified-read-db7ae7a.lnk`。旧正式目录及运行进程不动，用户正常退出全部窗口后从桌面重开才使用新版。
+- 桌面 `pimoon.lnk` 已重新读取并切至 `dist\pimoon-unified-read-db7ae7a\pimoon.exe`；旧快捷方式备份：`dist\shortcut-backups\pimoon-before-unified-read-db7ae7a.lnk`。旧正式目录及运行进程不动，用户正常退出全部窗口后从桌面重开才使用新版。
 - 未启动可见 GUI，未运行 E2E，未推送远端。

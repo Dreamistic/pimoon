@@ -1,0 +1,52 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
+
+const require = createRequire(import.meta.url);
+const root = path.resolve(import.meta.dirname, "../..");
+const base = path.join(root, ".tmp/tests/public-packaging");
+const editor = path.join(path.dirname(require.resolve("electron-winstaller/package.json")), "vendor/rcedit.exe");
+
+test("默认封装使用安装的 Electron，保留其他 EXE 与许可，拒绝覆盖和重叠目录", { skip: process.platform !== "win32" }, async () => {
+    await fs.mkdir(base, { recursive: true });
+    const cwd = await fs.mkdtemp(path.join(base, "case-"));
+    const source = path.join(cwd, "node_modules/electron/dist");
+    await fs.mkdir(source, { recursive: true });
+    await fs.writeFile(path.join(cwd, "node_modules/electron/package.json"), '{"name":"electron","version":"0.0.0"}');
+    // 使用合法 PE 夹具验证封装与资源修改；不启动它，也不冒充 Electron 启动验收。
+    await fs.copyFile(editor, path.join(source, "electron.exe"));
+    await fs.writeFile(path.join(source, "helper.exe"), "helper-fixture");
+    await fs.writeFile(path.join(source, "LICENSE"), "license-fixture");
+    await fs.mkdir(path.join(source, "resources"));
+    await fs.writeFile(path.join(source, "resources/not-app.txt"), "must-not-copy");
+    await fs.mkdir(path.join(cwd, "dist/desktop/app"), { recursive: true });
+    await fs.writeFile(path.join(cwd, "dist/desktop/app/package.json"), '{"name":"pimoon"}');
+    await fs.mkdir(path.join(cwd, "assets/icons"), { recursive: true });
+    await fs.copyFile(path.join(root, "assets/icons/icon.ico"), path.join(cwd, "assets/icons/icon.ico"));
+    await fs.mkdir(path.join(cwd, "scripts"));
+    const script = path.join(cwd, "scripts/build-pimoon-portable.mjs");
+    await fs.copyFile(path.join(root, "scripts/build-pimoon-portable.mjs"), script);
+    const env = { ...process.env };
+    delete env.PIMOON_ELECTRON_DIST;
+    const run = (...args) => spawnSync(process.execPath, [script, ...args], { cwd, env, encoding: "utf8", windowsHide: true });
+    const original = await fs.readFile(path.join(source, "electron.exe"));
+    const result = run();
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(await fs.readFile(path.join(cwd, "dist/pimoon/helper.exe"), "utf8"), "helper-fixture");
+    assert.equal(await fs.readFile(path.join(cwd, "dist/pimoon/LICENSE"), "utf8"), "license-fixture");
+    assert.equal(await fs.readFile(path.join(cwd, "dist/pimoon/resources/app/package.json"), "utf8"), '{"name":"pimoon"}');
+    await assert.rejects(fs.access(path.join(cwd, "dist/pimoon/resources/not-app.txt")), { code: "ENOENT" });
+    await fs.access(path.join(cwd, "dist/pimoon/pimoon.exe"));
+    assert.deepEqual(await fs.readFile(path.join(source, "electron.exe")), original);
+    const occupied = run();
+    assert.notEqual(occupied.status, 0);
+    assert.match(occupied.stderr, /EEXIST/);
+    assert.equal(await fs.readFile(path.join(cwd, "dist/pimoon/helper.exe"), "utf8"), "helper-fixture");
+    const overlap = run("--output", source);
+    assert.notEqual(overlap.status, 0);
+    assert.match(overlap.stderr, /重叠/);
+    assert.deepEqual(await fs.readFile(path.join(source, "electron.exe")), original);
+});

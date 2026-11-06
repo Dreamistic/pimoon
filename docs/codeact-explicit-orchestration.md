@@ -57,6 +57,6 @@ Codex 订阅，Sol `gpt-6.1-sol` 与 Astra `gpt-6-astra`，low/SSE；不在任�
 - 正式目录：`dist/pimoon-explicit-446b0d3`。先提交，再构建，独立封装后执行 `scripts/smoke-codeact-artifact.mjs`；仅合成模型网络响应，2 次请求都只声明 execute，无 GUI 窗口。
 - 成品通过显式读取并发、普通读取不额外形成批次、两类缺失错误码、单项 ToolError、标准进程返回值及副作用只写 once 验收；旧隐式调度模块未打包。
 - `release.json` 保存源码 commit/tree、全部 1098 个文件的 SHA-256；切换后逐个复验全部通过。后端 SHA-256：`b282ef67b0fc5964b5d56ecd049c8883a662d46724b81084c4f82c425641980a`。
-- 已重新读取桌面 `pimoon.lnk`，目标为 `D:\Code\pimoon\dist\pimoon-explicit-446b0d3\pimoon.exe`。切换前再次确认旧目标未变；旧快捷方式备份于 `dist/shortcut-backups/pimoon-before-explicit-446b0d3.lnk`，旧目录保留。
+- 已重新读取桌面 `pimoon.lnk`，目标为 `dist\pimoon-explicit-446b0d3\pimoon.exe`。切换前再次确认旧目标未变；旧快捷方式备份于 `dist/shortcut-backups/pimoon-before-explicit-446b0d3.lnk`，旧目录保留。
 - 没有结束用户进程、覆盖旧正式目录、修改真实用户测试配置或启动可见 GUI；当前实例不会热更新，需正常退出全部窗口后从桌面入口重开。未推送远端。
 - 本机进程接口不支持 PowerShell/Shell 包装；快捷方式采用显式 `cscript.exe` 脚本直接调用 Windows COM 完成读取、备份与切换，不修改工具权限。

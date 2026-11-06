@@ -1,10 +1,12 @@
 # 文档
 
+当前交付范围、数据目录和安装入口以[根目录 README](../README.md)为准。部分文档仍保留上游 TUI / Web 行为，不代表 pimoon 已验收支持。
+
 ## 用户使用指南
 
 | 文档 | 内容 |
 | --- | --- |
-| [安装与启动](guides/getting-started.md) | 构建三端、开发运行、升级 |
+| [安装与启动](guides/getting-started.md) | Windows 桌面源码构建、部署与升级 |
 | [配置](guides/configuration.md) | 模型、工具、模块和项目配置 |
 | [TUI](guides/tui.md) | 终端操作、快捷键、会话与模板 |
 | [GUI](guides/gui.md) | 工作区、会话、文件、模型和设置 |

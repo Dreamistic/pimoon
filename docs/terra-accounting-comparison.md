@@ -19,7 +19,7 @@
 ## 方法
 
 - 两边同用 pimoon 现有 Codex 访问凭据，`gpt-6.1-terra / low / SSE`；没有刷新凭据、切换服务等级或回退模型。
-- o-pi 源码基线为 `D:/Code/githubproject/o-pi`；分别加载两边当前 system-prompt 和文件工具，pimoon 使用当前文本 CodeAct。
+- o-pi 源码基线为 `../o-pi`；分别加载两边当前 system-prompt 和文件工具，pimoon 使用当前文本 CodeAct。
 - 3 个合成文件任务，各重复 3 次，共 18 个独立会话，按轮次和场景交错顺序。不是把每个子工具计成一轮。
 - 每会话最多 12 次逻辑模型请求、180 秒；父进程另有 240 秒上限。不启动 Electron，不加载私人项目上下文、历史会话或全部桌面扩展。
 - 轮数是逻辑模型请求数，包含最终作答。总时间包含会话初始化、模型/工具回路、验收和清理，不含打包与 ModelRuntime 创建。
@@ -101,7 +101,7 @@
 前置计量探针 `.tmp/tests/live-tools/run-xkx1Xg/` 的两次会话也已保留；当时尚未将 additional_tools 归因到工具说明，该探针不纳入上述 18 次对比。
 
 ```powershell
-node scripts/bench-live-tools.mjs --live --upstream=D:/Code/githubproject/o-pi --model=gpt-6.1-terra --thinking=low --transport=sse --prompt=runtime --runs=3
+node scripts/bench-live-tools.mjs --live --upstream=../o-pi --model=gpt-6.1-terra --thinking=low --transport=sse --prompt=runtime --runs=3
 ```
 
 该命令会实际使用订阅。无 `--live` 会拒绝执行；帮助和参数校验在读取凭据之前完成。源码改动未自动重建或覆盖桌面包。

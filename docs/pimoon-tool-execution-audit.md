@@ -14,7 +14,7 @@
 
 ## 测试边界
 
-检查了 `D:/Program/o-pi/app/resources/app.asar`，安装版为 o-pi 1.4.0；其文件工具描述与仓库实现一致。性能基线使用 `D:/Code/githubproject/o-pi` 的文件工具源码：文件工具扩展与 pimoon 相同，工具目录仅会话观察状态的品牌标识有差异。
+检查了 `<o-pi 安装目录>/resources/app.asar`，安装版为 o-pi 1.4.0；其文件工具描述与仓库实现一致。性能基线使用 `../o-pi` 的文件工具源码：文件工具扩展与 pimoon 相同，工具目录仅会话观察状态的品牌标识有差异。
 
 基准通过 esbuild 分别打包两个仓库的工具扩展，使用同一 Pi SDK、本地固定响应 HTTP 服务及现有桌面构建的解析 worker/资源。真实执行文件工具、宿主路径检查、Python/Rust 桥接和 pimoon 遥测。不启动 Electron，不调用付费模型。
 
@@ -64,14 +64,14 @@ CodeAct：
 - 直接 read/edit 测试确认预热阶段没有模型请求，文件工具不经过 Python，并验证 GUI 使用的过滤规则与真实模型声明一致。
 - SDK 集成测试确认首次 CodeAct 复用预热 PID，重启同一历史会话后不会误认变量已恢复。执行器测试覆盖预热无代码执行、会话隔离、初始化失败、提前关闭、等待预热时取消，以及 Python 意外退出后的恢复。
 - 遥测测试覆盖写盘挂起时生产者仍可入队、并发排空顺序、总量/队列上限、写入失败和隐私；基准检查排空后事件序号连续。
-- 没有运行抢焦点的桌面测试或付费模型烟测；没有重建桌面包，源码优化尚未进入现有 `dist/pimoon`。后续已安装官方 Bun 1.4.4 至 `D:/Program/Bun/bin`，官方 npm SHA-512 校验、构建帮助及 `bun run typecheck` 均通过，构建环境阻塞已解除。
+- 没有运行抢焦点的桌面测试或付费模型烟测；没有重建桌面包，源码优化尚未进入现有 `dist/pimoon`。后续已安装官方 Bun 1.4.4 至 `<Bun 安装目录>`，官方 npm SHA-512 校验、构建帮助及 `bun run typecheck` 均通过，构建环境阻塞已解除。
 
 ## 复现
 
 已有桌面资源构建后运行：
 
 ```powershell
-node scripts/bench-pimoon-tools.mjs D:/Code/githubproject/o-pi
+node scripts/bench-pimoon-tools.mjs ../o-pi
 ```
 
 不传路径则只测 pimoon。脚本自动把 HOME、USERPROFILE、APPDATA、LOCALAPPDATA、PIMOON_HOME 和 TEMP/TMP 隔离到 `.tmp/tests/tool-benchmark/run-*`，不改上游或 node_modules。

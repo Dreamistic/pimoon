@@ -8,7 +8,7 @@ import subprocess
 import time
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--source', type=Path, default=Path.home() / '.pi/agent')
+parser.add_argument('--source', type=Path, required=True, help='自己已登录的 Pi agent 目录；不自动查找原版配置')
 parser.add_argument('--home', type=Path, default=Path(os.environ.get('PIMOON_HOME', str(Path(os.environ.get('APPDATA', str(Path.home()))) / 'pimoon'))))
 parser.add_argument('--replace', action='store_true', help='明确替换 pimoon 自己的访问凭据副本')
 args = parser.parse_args()

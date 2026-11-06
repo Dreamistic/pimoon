@@ -1,90 +1,30 @@
 # 安装与启动
 
-## 准备
+当前只交付 Windows x64 桌面目录版。环境要求、认证限制和部署步骤见[根目录 README](../../README.md)。
 
-构建需要 Git 和 Bun >= 1.4.0。首次安装依赖会下载 Electron。
-
-```bash
-git clone https://github.com/Orion-zhen/o-pi.git
-cd o-pi
-bun install --no-save
-```
-
-仓库可放在任意目录。运行时按功能使用 Bash、Git 和语言服务器等外部程序。
-
-## TUI
-
-```bash
-bun run build:tui
-./dist/tui/opi
-```
-
-将产物放入 PATH 后可直接运行 `opi`。Windows 产物名为 `opi.exe`。
-
-进入项目目录后启动。用 `/login` 配置认证，用 `/model` 选择模型。自定义模型服务见[配置指南](configuration.md)。
-
-## Web
-
-```bash
-bun run build:web
-./dist/web/opi-web --cwd /path/to/project --host 127.0.0.1
-```
-
-打开启动输出中的地址。Windows 产物名为 `opi-web.exe`。其他设备访问见[远程访问](remote-access.md)。
-
-## Desktop
-
-先构建应用目录并预览：
-
-```bash
-bun run build:desktop --dir
-bun run desktop
-```
-
-制作当前平台的安装包：
-
-```bash
+```powershell
+git clone https://github.com/Dreamistic/pimoon.git
+cd pimoon
+bun install --frozen-lockfile
 bun run build:desktop
+.\dist\pimoon\pimoon.exe
 ```
 
-产物位于 `dist/desktop/release/`：
+首次安装需要联网，包含 Electron 下载。依赖固定版本并提交锁文件，不删除锁文件、不使用 `latest` 升级。
 
-| 平台 | 文件 |
-| --- | --- |
-| Linux | `opi-desktop.AppImage` |
-| macOS | `opi-desktop.dmg` |
-| Windows | `opi-desktop.exe`，NSIS 安装程序 |
+## 常见问题
 
-构建使用当前系统和 CPU 架构。桌面包未配置签名、公证和自动更新。
+- **找不到 Python**：安装 Python 3.12+ 并加入 PATH，确认 `python --version`；成品也需要 Python。
+- **找不到 Rust / linker**：安装 Rust stable 和对应链接器；MSVC 用户安装 Visual Studio C++ Build Tools。自定义工具链可设置 `PIMOON_RUST_BIN`。
+- **没有 Electron 运行时**：不要跳过依赖安装脚本。检查 `node_modules/electron/dist/electron.exe`，确认网络允许下载 Electron。
+- **下载停滞**：确认终端网络或代理可访问 npm 和 Electron；浏览器能访问不代表 Bun 使用相同代理。不要把私人代理地址写进仓库。
+- **封装报 EEXIST**：输出目录已存在。移走旧目录或用 `node scripts/build-pimoon-portable.mjs --output dist/pimoon-next`，不要覆盖运行中的成品。
+- **能打开但不能聊天**：启动和模型认证是两件事。使用自己的 Codex 登录，确认凭据、模型权限与额度；不自动切换其他端点。
 
-## 配置与会话
+## 数据与升级
 
-三端沿用 Pi 的认证、模型和会话目录，默认是 `~/.pi/agent/`。GUI 可以直接打开 TUI 的历史会话。Web 读取服务端电脑的数据。
+数据默认保存在 `%APPDATA%/pimoon`，可用 `PIMOON_HOME` 覆盖，不自动读取 `~/.pi`。同步原应用登录必须自己显式指定来源，详见 README。
 
-TUI 和 Web 是包含 Bun 运行时的单文件程序，Desktop 包含 Electron。运行产物无需另外安装 Node.js 或 Bun。
+更新源码后运行 `bun install --frozen-lockfile`，在独立目录重新构建、验证，正常退出旧版后再切换快捷方式。移动成品时必须移动整个目录。
 
-## 从源码运行
-
-```bash
-bun run dev:tui
-bun run dev:web
-```
-
-`dev:web` 先构建前端，再启动 Web 后端。前端修改后重新运行该命令。
-
-`bun run build` 构建全部应用。打包资源和构建选项见 [构建 Reference](../reference/runtime/build.md)。
-
-## 升级
-
-更新源码后重新安装依赖并构建需要的应用：
-
-```bash
-git pull
-rm -f bun.lock
-bun install --no-save --no-cache
-bun run build:tui
-```
-
-依赖跟随 `latest`，仓库不提交锁文件。验证产物后再替换原程序，运行中的实例需要重启。验证命令见[测试](../reference/runtime/testing.md)。
-
-opi 沿用 Pi 的版本和更新提示。升级通过重新构建完成。Pi 的 `install`、`remove`、`uninstall`、`update`、`list`、`config` 包管理命令在 opi 中不可用。已有 settings 中的 `packages` 应移除或改为直接配置本地资源。
+保留的 TUI / Web 入口未作为 pimoon 交付验收，其历史文档不能替代当前桌面安装流程。

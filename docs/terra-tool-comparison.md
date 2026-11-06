@@ -15,7 +15,7 @@
 
 ## 方法与边界
 
-分别打包 `D:/Code/githubproject/o-pi` 和本仓库的文件扩展，共用借用的同一 Pi SDK、解析 worker 与模型；pimoon 另外绑定当前源码 CodeAct 和 Python 执行资源。模型可用能力均为 read/write/edit/find/grep/ls，只有 pimoon 使用 Python 编排。
+分别打包 `../o-pi` 和本仓库的文件扩展，共用借用的同一 Pi SDK、解析 worker 与模型；pimoon 另外绑定当前源码 CodeAct 和 Python 执行资源。模型可用能力均为 read/write/edit/find/grep/ls，只有 pimoon 使用 Python 编排。
 
 这是真实远程模型 + SDK + 工具执行链路对测，不是两个安装版的完整宿主、系统提示词、GUI 或端到端产品对测。没有启用其他扩展、技能、进程或网页工具。pimoon 工作树已有执行器/遥测草稿被实际测到，但没有纳入本次提交。不得把工作树实测等同于纯提交快照实测。
 
@@ -81,7 +81,7 @@
 已有桌面资源构建及有效 pimoon 访问凭据时：
 
 ```powershell
-node scripts/bench-live-tools.mjs --live --upstream=D:/Code/githubproject/o-pi --model=gpt-6.1-terra --thinking=low --transport=auto --prompt=sdk --runs=1
+node scripts/bench-live-tools.mjs --live --upstream=../o-pi --model=gpt-6.1-terra --thinking=low --transport=auto --prompt=sdk --runs=1
 ```
 
 可用 `--scenarios=locate-edit` 限制订阅消耗；没有 `--live` 不会请求模型。不安装依赖、不修改上游或真实配置。新运行会保存打包源码输入的指纹、合成对话/执行结果和完整指标，均留在忽略目录；不将私人会话或凭据提交到 Git。

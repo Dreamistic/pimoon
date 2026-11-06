@@ -32,6 +32,6 @@
 
 - 成品来源提交：`39bb60a17afef83e9b42f57bd3a724d770abd21c`，目录 `dist/pimoon-parallel-ui-39bb60a`。后续文档提交不改变成品代码。
 - 提交后完成独立 desktop/portable 构建；无窗口成品验收确认进度与最终调度记录、原文读取、失败状态和只写 once，仍只声明 execute。
-- 桌面 `pimoon.lnk` 已切至 `D:\Code\pimoon\dist\pimoon-parallel-ui-39bb60a\pimoon.exe` 并重新读取验证；旧快捷方式备份 `dist/shortcut-backups/pimoon-before-parallel-ui-39bb60a.lnk`，旧目录保留，未结束用户进程。
+- 桌面 `pimoon.lnk` 已切至 `dist\pimoon-parallel-ui-39bb60a\pimoon.exe` 并重新读取验证；旧快捷方式备份 `dist/shortcut-backups/pimoon-before-parallel-ui-39bb60a.lnk`，旧目录保留，未结束用户进程。
 - release.json 保存源码 commit/tree 和全部 1099 个成品文件校验值，切换后全部复验通过；后端 SHA-256：`a1114823c950144c2136b3fad41ed22f911b8eafe9f82e2db77e3b2b26232f55`。
 - 当前运行实例不会热更新，正常退出全部窗口并从桌面快捷方式重开后生效。此前历史最多显示已保存的并发汇总，新执行才具有完整分组时间线。未推送远端。

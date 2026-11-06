@@ -20,7 +20,6 @@ TASK.md
 subagents/
 .pi/
 
-bun.lock
 
 .DS_Store
 

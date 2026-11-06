@@ -21,4 +21,4 @@
 
 ## 正式交付
 
-源提交 `9c65b371dc78dab712af61bb4a3e0530f9d07027`，成品目录 `dist/pimoon-preloads-9c65b37`。提交后独立 worktree 构建，成品无窗口烟测验证免 import 的标准库、统一读取、并发与一次性副作用通过。桌面快捷方式已备份到 `D:\Code\pimoon\dist\shortcut-backups\pimoon-before-preloads-9c65b37.lnk` 并切换到新 exe；切换前后重新读取目标，`release.json` 的 1102 个文件哈希全部复验通过。后端 SHA-256：`ed72d31984b058d5b2f5021ad384412bce419df156e6668798c9e6d19bb5a91a`。未结束旧进程或覆盖旧正式目录，正常退出后从桌面重开生效；未推送。
+源提交 `9c65b371dc78dab712af61bb4a3e0530f9d07027`，成品目录 `dist/pimoon-preloads-9c65b37`。提交后独立 worktree 构建，成品无窗口烟测验证免 import 的标准库、统一读取、并发与一次性副作用通过。桌面快捷方式已备份到 `dist\shortcut-backups\pimoon-before-preloads-9c65b37.lnk` 并切换到新 exe；切换前后重新读取目标，`release.json` 的 1102 个文件哈希全部复验通过。后端 SHA-256：`ed72d31984b058d5b2f5021ad384412bce419df156e6668798c9e6d19bb5a91a`。未结束旧进程或覆盖旧正式目录，正常退出后从桌面重开生效；未推送。
