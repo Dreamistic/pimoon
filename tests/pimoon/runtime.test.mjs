@@ -304,7 +304,16 @@ test('预热启动失败不会产生未处理拒绝，实际调用保留失败',
  runtime.close();runtime.close();assert.equal(runtime.hasState,false);
 });
 
-test('协议拒绝超过8MiB的帧',()=>{const header=Buffer.alloc(17);header.write('CA02');header.writeUInt32LE(8*1024*1024+1,13);assert.throws(()=>new Decoder(()=>{}).push(header),/8 MiB/);});
+test('协议完整接收20MiB分段数据并拒绝多一个字节的帧',()=>{
+ const size=20*1024*1024,header=Buffer.alloc(17),frames=[];
+ header.write('CA02');header.writeUInt32LE(size,13);
+ const decoder=new Decoder(frame=>frames.push(frame));decoder.push(header);
+ const chunk=Buffer.alloc(1024*1024,120);
+ for(let i=0;i<20;i++)decoder.push(chunk);
+ assert.equal(frames.length,1);assert.equal(frames[0].data.length,size);
+ assert.ok(frames[0].data.equals(Buffer.alloc(size,120)));
+ header.writeUInt32LE(size+1,13);assert.throws(()=>new Decoder(()=>{}).push(header),/20 MiB/);
+});
 
 test('显式 collect 关联 SDK 子调用，结构化失败进入逐项结果与部分失败',async()=>{
  const tool={name:'read',parameters:{type:'object',properties:{path:{type:'string'}}},outputSchema:{type:'object'}};

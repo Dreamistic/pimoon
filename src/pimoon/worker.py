@@ -29,7 +29,7 @@ from parallel import Parallel, ParallelError
 import worker_hooks as hooks
 
 HEADER = struct.Struct('<4sBIII')
-MAX_FRAME = 8 * 1024 * 1024
+MAX_FRAME = 20 * 1024 * 1024
 INPUT, OUTPUT = sys.stdin.buffer, sys.stdout.buffer
 ROOT = Path.cwd().resolve()
 # 支持直接导入项目函数；运行时与标准库优先，避免项目文件遮蔽宿主模块。

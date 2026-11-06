@@ -91,11 +91,23 @@ test('独立五文件中间失败仍读完，必需输入检查阻止写入',()=
  const recovery=await run('assert rows[4]["ok"]');assert.equal(recovery.isError,false);assert.equal(calls.length,5);
 },{fail:'fail'}));
 
-test('大组回传超出既有帧边界时明确失败，不丢内存或自动重放',()=>fixture(async({runtime,run,calls,context})=>{
- let count=0;
- const result=await runtime.run('sentinel=42\ntry:\n rows=parallel([(read,{"path":str(i),"mode":"raw"}) for i in range(3)])\nexcept ToolError as error:\n assert error.code=="RESULT_TOO_LARGE"\nelse:\n raise AssertionError("must not report truncated success")',{
-  ...context,executeTool:async()=>{count++;return {isError:false,result:{content:[{type:'text',text:'x'.repeat(3*1024*1024)}]}};}
- });
- assert.equal(result.isError,false,result.content[0].text);assert.equal(count,3);assert.equal(result.details.metrics.outcome,'tool_partial_failure');
- assert.equal((await run('assert sentinel==42 and "rows" not in globals()')).isError,false);assert.equal(count,3);assert.equal(calls.length,0);
-}));
+for(const transport of ['direct','rust']){
+ test(`${transport}: 超过旧8MiB的并行结果完整返回，Unicode与顺序保留`,()=>fixture(async({runtime,run,context})=>{
+  let count=0;
+  const result=await runtime.run('values=parallel([(read,{"path":str(i),"mode":"raw"}) for i in range(5)])\nassert all(value=="中"*(1024*1024)+str(i) for i,value in enumerate(values))',{
+   ...context,executeTool:async(_name,args)=>{count++;return {isError:false,result:{content:[{type:'text',text:'中'.repeat(1024*1024)+args.path}]}};}
+  });
+  assert.equal(result.isError,false,result.content[0].text);assert.equal(count,5);
+  assert.equal(result.details.metrics.outcome,'success');
+  const retained=await run('assert len(values)==5 and values[4].endswith("4")');
+  assert.equal(retained.isError,false,retained.content[0].text);assert.equal(count,5);
+ },{transport}));
+ test(`${transport}: 超过20MiB明确失败，不丢状态或自动重放`,()=>fixture(async({runtime,run,calls,context})=>{
+  let count=0;
+  const result=await runtime.run('sentinel=42\ntry:\n rows=parallel([(read,{"path":str(i),"mode":"raw"}) for i in range(7)])\nexcept ToolError as error:\n assert error.code=="RESULT_TOO_LARGE" and "20 MiB" in str(error)\nelse:\n raise AssertionError("must not report truncated success")',{
+   ...context,executeTool:async()=>{count++;return {isError:false,result:{content:[{type:'text',text:'x'.repeat(3*1024*1024)}]}};}
+  });
+  assert.equal(result.isError,false,result.content[0].text);assert.equal(count,7);assert.equal(result.details.metrics.outcome,'tool_partial_failure');
+  assert.equal((await run('assert sentinel==42 and "rows" not in globals()')).isError,false);assert.equal(count,7);assert.equal(calls.length,0);
+ },{transport}));
+}

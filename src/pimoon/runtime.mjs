@@ -10,7 +10,7 @@ import { DEFAULT_PROCESS_TIMEOUT_SECONDS, limitProcessTimeout } from './codeact/
 
 export const OP = { INIT:1, EXEC:2, REPLY:3, CANCEL:4, CLOSE:5, PING:6,
   READY:101, DONE:102, CALL:103, PONG:108, ERROR:109, METRICS:110 };
-const MAX_FRAME=8*1024*1024;
+const MAX_FRAME=20*1024*1024;
 const ROOT=fileURLToPath(new URL('../../assets',import.meta.url));
 
 export class Decoder {
@@ -24,7 +24,7 @@ export class Decoder {
         if(this.used<17)continue;
         if(this.header.toString('ascii',0,4)!=='CA02')throw Error('Invalid protocol magic');
         const size=this.header.readUInt32LE(13);
-        if(size>MAX_FRAME)throw Error('Frame exceeds 8 MiB');
+        if(size>MAX_FRAME)throw Error('Frame exceeds 20 MiB');
         this.frame={op:this.header[4],session:this.header.readUInt32LE(5),request:this.header.readUInt32LE(9)};
         this.data=Buffer.allocUnsafe(size);this.offset=0;
       }
@@ -229,7 +229,7 @@ export class Runtime {
           else throw Error('Unknown bridge operation');
           if(!stopReason){
             const reply=JSON.stringify({ok:true,value});
-            if(Buffer.byteLength(reply)>MAX_FRAME)throw Object.assign(Error('Tool reply exceeds 8 MiB; request less content or smaller read groups. Completed calls were not rolled back.'),{code:'RESULT_TOO_LARGE'});
+            if(Buffer.byteLength(reply)>MAX_FRAME)throw Object.assign(Error('Tool reply exceeds 20 MiB; request less content or smaller read groups. Completed calls were not rolled back.'),{code:'RESULT_TOO_LARGE'});
             this.send(OP.REPLY,session,request,reply);
           }
         }catch(error){if(!stopReason)this.send(OP.REPLY,session,request,JSON.stringify({ok:false,error:error.message,error_code:typeof error.code==='string'?error.code:'TOOL_ERROR'}));}

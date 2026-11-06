@@ -8,7 +8,7 @@ use std::sync::mpsc::{self, Sender};
 use std::thread;
 use std::time::Instant;
 
-const MAX_FRAME: usize = 8 * 1024 * 1024;
+const MAX_FRAME: usize = 20 * 1024 * 1024;
 const INIT: u8 = 1;
 const EXEC: u8 = 2;
 const REPLY: u8 = 3;
@@ -31,7 +31,7 @@ impl Frame {
         if &header[..4] != b"CA02" { return Err(io::Error::new(io::ErrorKind::InvalidData, "bad protocol magic")); }
         let number = |i| u32::from_le_bytes(header[i..i + 4].try_into().unwrap());
         let len = number(13) as usize;
-        if len > MAX_FRAME { return Err(io::Error::new(io::ErrorKind::InvalidData, "frame exceeds 8 MiB")); }
+        if len > MAX_FRAME { return Err(io::Error::new(io::ErrorKind::InvalidData, "frame exceeds 20 MiB")); }
         let mut data = vec![0; len]; reader.read_exact(&mut data)?;
         Ok(Some(Self { op: header[4], session: number(5), request: number(9), data }))
     }
@@ -168,6 +168,15 @@ fn main() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn frame_twenty_mib_boundary() {
+        let mut frame = Frame { op: REPLY, session: 1, request: 1, data: vec![b'x'; 20 * 1024 * 1024] };
+        let mut bytes = Vec::new();
+        frame.write(&mut bytes).unwrap();
+        assert_eq!(Frame::read(&mut bytes.as_slice()).unwrap().unwrap().data, frame.data);
+        frame.data.push(b'x');
+        assert!(frame.write(&mut Vec::new()).is_err());
+    }
     #[test]
     fn frame_roundtrip_and_bound() {
         let frame = Frame { op: EXEC, session: 2, request: 9, data: "print('中文')".as_bytes().to_vec() };
