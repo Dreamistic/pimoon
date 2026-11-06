@@ -30,3 +30,13 @@
 - `release.json` 保存全部 1101 个文件的 SHA-256；快捷方式切换后逐项复验通过。后端 SHA-256：`7f72ecd5341fb26f6ba861bb9e029f1bb3607e89e1014ddea4c66c9edd296e7e`；运行时 SHA-256：`9379be68e10777465d3d6bc6b0c9dca4436d31b6c4d51deadc27805edc8d5166`。
 - 桌面 `pimoon.lnk` 已重新读取并切至 `dist\pimoon-unified-read-db7ae7a\pimoon.exe`；旧快捷方式备份：`dist\shortcut-backups\pimoon-before-unified-read-db7ae7a.lnk`。旧正式目录及运行进程不动，用户正常退出全部窗口后从桌面重开才使用新版。
 - 未启动可见 GUI，未运行 E2E，未推送远端。
+
+## 20 MiB 桌面交付（2026-11-06）
+
+- 成品源提交：`53750f62bffff31085f7c2efc3231c4808dadbc0`，source tree：`8d6b5618722347234128e90bf562cc4a20f50db3`；独立目录 `dist/pimoon-frame20-53750f6`。从已提交源码的独立 worktree 构建，Rust 执行器重新编译；依赖只读借用，没有安装或重建 junction 中的依赖。
+- 本机复用已验收的 Electron 45.2.1 运行时：复制前按旧发布清单校验 71 个运行时文件，排除旧应用资源及 release.json，在临时目录将运行时 EXE 规范为 electron.exe 后显式指定封装来源。未改公开构建脚本的默认依赖路径；这不是全新安装验收。
+- 本次验证通过：TypeScript 类型检查、Rust 2 项、Node 71 项、模型请求边界 18 项；原有无窗口成品烟测和扩展大结果烟测各使用 2 次本地合成请求，均只声明 execute，不读取真实凭据或消耗模型额度。
+- 扩展成品烟测完整返回 5 个 Unicode 原文，共 15,728,645 UTF-8 字节，顺序与同轮状态保留，副作用仅写 once。首次扩展测试触及验收脚本自身 4 MiB stdout maxBuffer；仅将临时测试缓冲改为 128 MiB，并使用新的隔离目录后通过，没有调整应用限制或隐藏错误。20 MiB 越界拒绝另由本次 Node/Rust 定向测试覆盖。
+- `release.json` 记录源提交、tree、验证边界和全部 1103 个文件 SHA-256，快捷方式切换后全部复验通过。后端 SHA-256：`718e0e634d29ec69209dea3816e72caf352073b3824e3b3e4089fb679ec8b0e9`；执行器 SHA-256：`9b92f3698dc96803d73e9e0d4c59fc593f301dc88bfbaabf9c5f06e8a6a3d4fe`；清单 SHA-256：`3b2bf8b95bcede9fb280bb7b3837ad649b1560e135fa4012293056698032c1e6`。
+- 桌面 `pimoon.lnk` 已备份并切换到新目录的 pimoon.exe，切换前后重新读取目标。旧快捷方式备份：`dist/shortcut-backups/pimoon-before-frame20-53750f6-20261106-230816.lnk`。旧应用目录与进程保留，当前实例不会热更新，正常退出后从桌面重开生效。
+- 没有启动可见 GUI、改真实用户测试配置或运行真实登录续期验收。本文档提交不改变上述成品源码，未推送新文档提交。
