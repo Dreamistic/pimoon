@@ -45,7 +45,7 @@ for(const code of [
  'parallel([(read,{"path":"first"}),(subprocess.run,{"args":["node"]})])',
  'parallel([(read,{"path":"first"}),(lambda: 1,{})])',
  'parallel([(read,{"path":"first"}),(read,{"path":object()})])',
- 'parallel([(read,{"path":"first"}),(native_read,{"path":"bad","lines":"1"})])',
+ 'parallel([(read,{"path":"first"}),(read,{1:"bad"})])',
  'parallel([(read,{"path":"first"})],errors="retry")',
  'parallel([(read,{"path":"first"})]*257)',
  'parallel([(read,{"path":"first"}),42])',
@@ -90,3 +90,12 @@ test('独立五文件中间失败仍读完，必需输入检查阻止写入',()=
  assert.equal(result.isError,true);assert.equal(calls.length,5);assert.ok(calls.some(([,args])=>args.path==='e'));assert.ok(!calls.some(([name])=>name==='write'));
  const recovery=await run('assert rows[4]["ok"]');assert.equal(recovery.isError,false);assert.equal(calls.length,5);
 },{fail:'fail'}));
+
+test('大组回传超出既有帧边界时明确失败，不丢内存或自动重放',()=>fixture(async({runtime,run,calls,context})=>{
+ let count=0;
+ const result=await runtime.run('sentinel=42\ntry:\n rows=parallel([(read,{"path":str(i),"mode":"raw"}) for i in range(3)])\nexcept ToolError as error:\n assert error.code=="RESULT_TOO_LARGE"\nelse:\n raise AssertionError("must not report truncated success")',{
+  ...context,executeTool:async()=>{count++;return {isError:false,result:{content:[{type:'text',text:'x'.repeat(3*1024*1024)}]}};}
+ });
+ assert.equal(result.isError,false,result.content[0].text);assert.equal(count,3);assert.equal(result.details.metrics.outcome,'tool_partial_failure');
+ assert.equal((await run('assert sentinel==42 and "rows" not in globals()')).isError,false);assert.equal(count,3);assert.equal(calls.length,0);
+}));

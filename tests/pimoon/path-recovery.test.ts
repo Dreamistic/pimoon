@@ -62,23 +62,16 @@ it.each(["find", "grep"])("%s 全部搜索根缺失时给出定位提示", async
 	} finally { await value.close(); }
 });
 
-it("native_read 不授予写版本，read 后编辑保留 CRLF，捕获的失败显式显示", async () => {
-	const code = `native_read("config.py")
-try:
- edit(path="config.py", edits=[{"old":"value = 1", "new":"value = 9"}])
-except RuntimeError:
- pass
-read(path="config.py")
-edit(path="config.py", edits=[{"old":"value = 1\\n", "new":"value = 2\\n"}])`;
-	const value = await fixture([action(code), { text: "done" }], undefined, [], undefined, ["execute", "read", "edit"]);
-	try {
-		await fs.writeFile(path.join(value.cwd, "config.py"), "value = 1\r\n");
-		await value.runtime.session.prompt("Fixture.");
-		const result = value.results()[0];
-		expect(result?.isError).toBe(false);
-		expect(result?.content[0]).toMatchObject({ type: "text", text: expect.stringMatching(/^partial_failure\n/) });
-		expect(JSON.stringify(result?.content)).toContain("Read the file before editing");
-		expect(await fs.readFile(path.join(value.cwd, "config.py"), "utf8")).toBe("value = 2\r\n");
-		expect(JSON.stringify(value.server.requests[0]?.tools)).toContain("without establishing an edit/write version");
-	} finally { await value.close(); }
+it("raw 读取直接建立编辑版本，编辑保留 CRLF", async () => {
+ const code = `source=read(path="config.py",mode="raw")
+assert source=="value = 1\\r\\n"
+edit(path="config.py", edits=[{"old":"value = 1", "new":"value = 2"}])`;
+ const value = await fixture([action(code), { text: "done" }], undefined, [], undefined, ["execute", "read", "edit"]);
+ try {
+  await fs.writeFile(path.join(value.cwd, "config.py"), "value = 1\r\n");
+  await value.runtime.session.prompt("Fixture.");
+  expect(value.results()[0]?.isError).toBe(false);
+  expect(await fs.readFile(path.join(value.cwd, "config.py"), "utf8")).toBe("value = 2\r\n");
+  expect(JSON.stringify(value.server.requests[0]?.tools)).not.toContain("native_read");
+ } finally { await value.close(); }
 });

@@ -15,10 +15,10 @@ SCALARS = set('''schema run pid seq at mono_ms type application_run_id session_i
  request_budget code_timeout_ms batch_max_jobs batch_max_concurrency telemetry_enqueue_ms telemetry_pending_bytes'''.split())
 METRICS = set('''outcome metrics_complete ok error_type host_ms python_ms compile_ms compile_cache_hit bridge_wait_ms
  observation_ms auto_observations explicit_observations observation_readbacks observation_readback_errors
- observation_input_rows observation_shown_rows python_pid cached_blocks frames broker_service_us native_read_us
+ observation_input_rows observation_shown_rows python_pid cached_blocks frames broker_service_us
  expression_results output_complete output_chars retained_output_chars displayed_output_chars display_truncated model_returned_text_chars
  tool_failure_count internal_tool_calls internal_tool_failures internal_output_text_chars batch_calls
- native_read_calls_observed native_read_trace_complete worker_telemetry_cpu_ms stdout_chars stderr_chars'''.split())
+ worker_telemetry_cpu_ms stdout_chars stderr_chars'''.split())
 FIELDS = METRICS | set('''status error_code changed input_edit_count input_old_chars input_new_chars input_old_lines input_new_lines
  replacement_count before_size_bytes after_size_bytes input_query_chars input_query_lines input_query_sha256
  input_glob_chars input_glob_sha256 input_mode input_path_count scope_count scope_error_count query_mode truncated
@@ -60,9 +60,6 @@ def sanitize(event):
         result['metrics'] = pick(raw, METRICS)
         result['metrics']['filesystem_audit_attempts'] = pick(raw.get('filesystem_audit_attempts'),
             {'open', 'os.remove', 'os.rmdir', 'os.mkdir', 'os.chdir', 'os.rename', 'os.replace', 'os.listdir', 'os.scandir'})
-        if isinstance(raw.get('native_read_trace'), list):
-            result['metrics']['native_read_trace'] = [pick(item, {'index', 'target_sha256', 'ok', 'elapsed_ms', 'result_chars'})
-                                                       for item in raw['native_read_trace'][:128]]
     if isinstance(event.get('tool_calls'), list):
         result['tool_calls'] = [pick(item, {'id', 'name'}) for item in event['tool_calls'][:64]]
     if isinstance(event.get('usage'), dict):

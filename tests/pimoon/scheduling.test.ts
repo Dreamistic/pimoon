@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { SchedulingTrace } from "../../src/pimoon/scheduling.ts";
 import { executionScheduling } from "../../src/gui/shared/messages/scheduling.ts";
 afterEach(() => vi.useRealTimers());
-const jobs = [{name:"read",args:{path:"a.txt"}},{name:"native_read",args:{path:"b.txt"}}];
+const jobs = [{name:"read",args:{path:"a.txt"}},{name:"read",args:{path:"b.txt"}}];
 it("重叠按区间并集计算，空闲间隔不算加速",()=>{
  let time=0;const trace=new SchedulingTrace(undefined,()=>time),id=trace.begin(jobs,"raise");
  trace.observe(id,"start",0);time=10;trace.observe(id,"start",1);time=30;trace.observe(id,"end",0,true);time=50;trace.observe(id,"end",1,true);

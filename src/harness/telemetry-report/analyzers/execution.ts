@@ -58,7 +58,6 @@ export function analyzeExecution(calls: readonly CallRecord[]) {
 				stdout: total("stdout_chars"), stderr: total("stderr_chars"), auto_results: total("auto_results"), expressions: total("expression_results"),
 			},
 			native: {
-				read_calls: total("native_read_calls_observed"), read_failures: total("native_read_failures"), read_chars: total("native_read_result_chars"), read_ms: summary("native_read_ms"),
 				file_reads: total("fs_open_read_attempts"), file_writes: total("fs_open_write_attempts"), directory_lists: total("fs_list_attempts"), mutations: total("fs_mutation_attempts"),
 			},
 			state: { reused: booleanRate("state_reused"), lost: booleanRate("state_lost"), reinitialized: booleanRate("runtime_reinitialized") },

@@ -28,6 +28,8 @@ export interface ReadTextSegment {
 }
 
 export interface ReadSuccess {
+	/** 原文模式保留完整内容，不添加展示标记。 */
+	raw?: true;
 	path: string;
 	segments: ReadTextSegment[];
 	total_lines: number;

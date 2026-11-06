@@ -56,7 +56,7 @@ try {
         await fs.writeFile(path.join(cwd, "input.json"), JSON.stringify(Array.from({ length: 10000 }, (_, i) => i)));
         // 0 秒衡量短任务，2 秒仅是可控延迟夹具，不冒充真实工具延迟。
         const delay = round === 0 ? 0 : 2;
-        const code = `import json, time\nfrom pathlib import Path\nrows = json.loads(native_read("input.json"))\ntime.sleep(${delay})\nresult = {"count": len(rows), "total": sum(rows)}\nPath("summary.json").write_text(json.dumps(result), encoding="utf-8")\nresult\n`;
+        const code = `import json, time\nfrom pathlib import Path\nrows = json.loads(Path("input.json").read_text(encoding="utf-8"))\ntime.sleep(${delay})\nresult = {"count": len(rows), "total": sum(rows)}\nPath("summary.json").write_text(json.dumps(result), encoding="utf-8")\nresult\n`;
         const python = new Runtime({ cwd, tools: [], observe: false, transport: "rust", timeoutMs: 10000 });
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 60000);

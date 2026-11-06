@@ -11,7 +11,7 @@ test("并发标记融入标题且不覆盖折叠，减少动效、深浅色和�
  const group=schedulingFixture.groups[0];if(!group)throw Error("fixture missing");
  const {overlapMs: _overlap, ...unfinished}=group;
  const running:ExecutionScheduling={...schedulingFixture,state:"running",groups:[{...unfinished,state:"running",operations:group.operations.map(({durationMs: _duration,...op})=>({...op,state:"running"}))}]};
- const args={code:'items=parallel([(read,{"path":"src/main.ts"}),(native_read,{"path":"settings.json"})])',desc:"读取并核对配置"};
+ const args={code:'items=parallel([(read,{"path":"src/main.ts"}),(read,{"path":"settings.json","mode":"raw"})])',desc:"读取并核对配置"};
  const message=assistant([{type:"toolCall",id:"parallel-execution",name:"execute",arguments:args}],"toolUse");
  const model=guiModelFixture();
  const snapshot:GuiSnapshot={...guiSnapshot(),model,models:[model],running:true,streaming:true,

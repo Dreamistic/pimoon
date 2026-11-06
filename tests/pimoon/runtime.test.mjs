@@ -31,7 +31,7 @@ from helper import total
 rows=[json.loads(line) for line in (external / "events.jsonl").read_text(encoding="utf-8").splitlines()]
 assert total(rows)==42
 assert (external / "events.jsonl").name in os.listdir(external)
-assert native_read(str(external / "events.jsonl")).strip().startswith('{')
+assert "native_read" not in globals()
 assert Path("external-link/events.jsonl").read_text().strip().startswith('{')
 print(total(rows))`;
   const result=await runtime.run(setup,context);assert.equal(result.isError,false,result.content[0].text);
@@ -47,10 +47,6 @@ print(total(rows))`;
    'Path("external-link/events.jsonl").write_text("blocked")',
    '(external / "credentials/secret.txt").read_text()',
    'Path("credential-link/secret.txt").read_text()',
-   'native_read(str(external / "credentials/secret.txt"))',
-   'native_read("credential-link/secret.txt")',
-   'native_read(str(external / "large.txt"))',
-   'native_read(str(external / "binary.txt"))',
    'import subprocess; subprocess.run(["python", "-V"])',
    'import socket; socket.socket()',
   ]){const denied=await runtime.run(code,context);assert.equal(denied.isError,true,code);assert.doesNotMatch(denied.content[0].text,/SYNTHETIC_SECRET/);}
@@ -173,10 +169,12 @@ test('真实 Python 持久性与 live-object 预览/回读',()=>runTest(async ru
  assert.equal(second.isError,false);assert.equal(second.details.metrics.python_pid,pid);assert.equal(second.details.metrics.observation_readbacks,1);
 }));
 
-test('native_read 失败捕获后仍保留，stderr 独立计数',()=>runTest(async(runtime,cwd)=>{
- await fs.writeFile(path.join(cwd,'sample.txt'),'synthetic');
- const result=await runtime.run('import sys\nassert native_read("sample.txt")=="synthetic"\ntry: native_read("missing.txt")\nexcept RuntimeError: pass\nprint("err",file=sys.stderr)',context);
- assert.equal(result.isError,false);assert.equal(result.details.metrics.native_read_calls_observed,2);assert.equal(result.details.metrics.native_read_trace[1].ok,false);assert.equal(result.details.metrics.stderr_chars,4);assert.equal(result.details.metrics.tool_failure_count,1);assert.match(result.content[0].text,/tool_failures/);
+test('读取失败捕获后仍保留，stderr 独立计数',()=>runTest(async runtime=>{
+ const tool={name:'read',parameters:{type:'object',properties:{path:{type:'string'},mode:{type:'string'}}}};
+ const result=await runtime.run('import sys\ntry: read(path="missing.txt",mode="raw")\nexcept ToolError as error: assert error.code=="FILE_NOT_FOUND"\nprint("err",file=sys.stderr)',{
+  tools:[tool],executeTool:async()=>({isError:true,result:{content:[{type:'text',text:'missing'}],details:{status:'failed',error:{code:'FILE_NOT_FOUND'}}}})
+ });
+ assert.equal(result.isError,false,result.content[0].text);assert.equal(result.details.metrics.internal_tool_calls,1);assert.equal(result.details.metrics.stderr_chars,4);assert.equal(result.details.metrics.tool_failure_count,1);
 }));
 
 test('异常与大输出的不完整状态均可见',()=>runTest(async runtime=>{

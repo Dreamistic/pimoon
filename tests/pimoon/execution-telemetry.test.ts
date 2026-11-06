@@ -29,9 +29,9 @@ it("真实执行的部分失败、Python 异常与超时都进入会话报告，
 	await fs.writeFile(path.join(cwd, "fixture.txt"), source);
 	const replies: ModelResponse[] = [
 		execute(`from pathlib import Path
-assert native_read("fixture.txt")==${JSON.stringify(source)}
+assert read(path="fixture.txt",mode="raw")==${JSON.stringify(source)}
 try:
- native_read("missing.txt")
+ read(path="missing.txt",mode="raw")
 except RuntimeError:
  pass
 assert Path("fixture.txt").read_text()==${JSON.stringify(source)}
@@ -70,16 +70,16 @@ except RuntimeError:
 			const snapshot = service.snapshot();
 			const code = snapshot.records.filter(record => record.type === "call" && record.tool === "execute");
 			expect(code).toHaveLength(3);
-			expect(code[0]).toMatchObject({ status: "success", fields: { outcome: "tool_partial_failure", internal_tool_calls: 3, internal_tool_failures: 1,
+			expect(code[0]).toMatchObject({ status: "success", fields: { outcome: "tool_partial_failure", internal_tool_calls: 5, internal_tool_failures: 2,
 				batch_calls: 1, batch_jobs: 2, batch_completed: 2, batch_failures: 0, batch_peak_concurrency: 2,
-				native_read_calls_observed: 2, native_read_failures: 1, native_read_result_chars: source.length, fs_open_write_attempts: 1 } });
+				fs_open_write_attempts: 1 } });
 			expect(code[1]).toMatchObject({ status: "error", fields: { outcome: "python_error", error_type: "SyntaxError", metrics_complete: true, state_reused: true } });
 			expect(code[2]).toMatchObject({ status: "error", fields: { outcome: "timeout", metrics_complete: false, state_lost: true, internal_tool_calls: 0 } });
 			const report = createLiveTelemetryReport(snapshot).report;
-			expect(report.execution.host.calls).toBe(3);
+			expect(report.execution.host.calls).toBe(5);
 			expect(report.execution.codeact.clean_success_rate).toMatchObject({ numerator: 0, samples: 3 });
 			expect(report.execution.codeact.native.file_reads.total).toBeGreaterThan(0);
-			expect(report.execution.codeact.native.read_failures).toEqual({ samples: 2, total: 1 });
+			expect(report.execution.codeact.internal_failures.total).toBe(2);
 			expect(JSON.stringify(snapshot)).not.toContain(source);
 			expect(JSON.stringify(snapshot)).not.toContain("native_read_trace");
 			expect(code.every(record => record.type === "call" && record.fields?.["telemetry_result_limited"] !== true)).toBe(true);

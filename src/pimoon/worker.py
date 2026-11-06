@@ -25,8 +25,8 @@ ROOT = Path.cwd().resolve()
 # 支持直接导入项目函数；运行时与标准库优先，避免项目文件遮蔽宿主模块。
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
-INIT, EXEC, REPLY, CANCEL, CLOSE, PING, NATIVE = range(1, 8)
-READY, DONE, CALL, NATIVE_RESULT, PONG, ERROR = 101, 102, 103, 107, 108, 109
+INIT, EXEC, REPLY, CANCEL, CLOSE, PING = range(1, 7)
+READY, DONE, CALL, PONG, ERROR = 101, 102, 103, 108, 109
 SESSION = REQUEST = 0
 EXECUTION_THREAD = get_ident()
 
@@ -122,10 +122,6 @@ def bridge(kind, **payload):
         failures.append({'tool': 'subprocess.run' if payload.get('name') == 'process_run' else payload.get('name'), 'error': reply.get('error', 'failed')[:600]})
         raise ToolError(reply.get('error', 'tool failed'), reply.get('error_code', 'TOOL_ERROR'))
     if kind == 'schedule':
-        for job, item in zip(payload['jobs'], reply['value']):
-            if job['name'] == 'native_read' and not item.get('skipped'):
-                hooks.record_native(job['args']['path'], item['ok'], item.get('value'), item.get('elapsed_ms', 0))
-    if kind == 'schedule':
         failures.extend({'tool': payload['jobs'][i]['name'],
                          'item': i, 'error': item.get('error', 'failed')[:600]}
                         for i, item in enumerate(reply['value']) if not item.get('ok') and not item.get('skipped'))
@@ -147,24 +143,6 @@ def tool(name, keys):
     return call
 
 
-def native_read(path):
-    global bridge_ms
-    if get_ident() != EXECUTION_THREAD:
-        raise RuntimeError("Host functions require synchronous calls on the execution thread")
-    start = perf_counter()
-    send(NATIVE, os.fspath(path).encode('utf-8'), raw=True)
-    response = receive()
-    bridge_ms += (perf_counter() - start) * 1000
-    if response is None or response[0] != NATIVE_RESULT or response[1:3] != (SESSION, REQUEST):
-        raise RuntimeError('invalid native response')
-    payload = response[3]
-    text = payload[1:].decode('utf-8')
-    if payload[:1] != b'\x01':
-        failures.append({'tool': 'native_read', 'error': text[:600]})
-        raise RuntimeError(text)
-    return text
-
-
 class Capture(io.StringIO):
     def __init__(self):
         super().__init__(); self.total = 0
@@ -175,7 +153,6 @@ class Capture(io.StringIO):
         return len(text)
 
 
-native_read = hooks.wrap_native(native_read)
 sys.addaudithook(hooks.audit)
 first = receive()
 if first is None or first[0] != INIT:
@@ -189,7 +166,7 @@ system_write_roots = tuple(Path(p).resolve() for p in (
     if os.name == 'nt' else ['/etc', '/usr', '/bin', '/sbin', '/System', '/Library', '/var']))
 observer = Observations()
 agent_print = config.get('observe', False)
-namespace = {'__builtins__': builtins, 'json': json, 'native_read': native_read,
+namespace = {'__builtins__': builtins, 'json': json,
              'observe': observer.observe, 'get_observation': observer.get}
 function_names = set()
 from process_api import install
@@ -241,7 +218,7 @@ while True:
         try:
             cell = json.loads(payload)
             proxies = bind_functions(cell['tools'])
-            parallel.bind({**proxies, "native_read": native_read})
+            parallel.bind(proxies)
             namespace['parallel'] = parallel
             namespace['ParallelError'] = ParallelError
             namespace['ToolError'] = ToolError

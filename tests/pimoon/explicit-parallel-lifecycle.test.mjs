@@ -64,7 +64,7 @@ test('七十项显式读取在单组完成，后续表达式只执行一次',()=
  assert.equal(result.isError,false,result.content[0].text);assert.equal(calls,71);assert.equal(result.content[0].text,'ok\nlast\n');
 }));
 
-for(const call of ['read(path="thread")','native_read("thread.txt")'])test(`模型自建线程不能读写共享协议：${call}`,()=>fixture(async runtime=>{
+for(const call of ['read(path="thread")','read(path="thread.txt",mode="raw")'])test(`模型自建线程不能读写共享协议：${call}`,()=>fixture(async runtime=>{
  let calls=0;
  const result=await runtime.run('from concurrent.futures import ThreadPoolExecutor\nwith ThreadPoolExecutor(2) as pool:\n future=pool.submit(lambda: '+call+')\n future.result()',
   {tools,executeTool:async()=>{calls++;throw Error('must not reach host');}});
@@ -73,50 +73,16 @@ for(const call of ['read(path="thread")','native_read("thread.txt")'])test(`模�
  assert.equal(next.isError,false,next.content[0].text);
 }));
 
-for(const transport of ['direct','rust'])test(`${transport}: 原文显式映射保留 Unicode、重复键、读取计数和失败`,()=>fixture(async runtime=>{
- await fs.writeFile(path.join(runtime.cwd,'a.txt'),'原文😀a');await fs.writeFile(path.join(runtime.cwd,'b.txt'),'原文😀b');
- const context={tools,executeTool:async()=>{throw Error('native read is not an SDK tool');}};
- const events=[];
- const result=await runtime.run('paths=["a.txt","b.txt","a.txt"]\nraw=dict(zip(paths,parallel([(native_read,{"path":p}) for p in paths])))\nassert raw=={"a.txt":"原文😀a","b.txt":"原文😀b"}\nassert "p" not in globals()',context,undefined,1,(type,fields)=>events.push({type,...fields}));
- assert.equal(result.isError,false,result.content[0].text);assert.equal(result.details.metrics.native_read_calls_observed,3);assert.equal(result.details.metrics.internal_tool_calls,0);
- assert.equal(events.filter(event=>event.type==='scheduled_native_read').length,3);
- const failure=await runtime.run('raw2=parallel([(native_read,{"path":p}) for p in ["a.txt","missing.txt","b.txt"]])',context);
- assert.equal(failure.isError,true);assert.equal(failure.details.metrics.native_read_calls_observed,3);assert.equal(failure.details.metrics.tool_failure_count,1);
- assert.equal((await runtime.run('assert "raw2" not in globals()',context)).isError,false);
+for(const transport of ['direct','rust'])test(`${transport}: 原文模式沿用宿主桥接，顺序、错误码与计数一致`,()=>fixture(async runtime=>{
+ const calls=[];
+ const context={tools,executeTool:async(_name,args)=>{
+  calls.push(args);await new Promise(resolve=>setTimeout(resolve,args.path==='slow'?20:1));
+  return args.path==='missing'?{isError:true,result:{content:[{type:'text',text:'missing'}],details:{status:'failed',error:{code:'FILE_NOT_FOUND'}}}}:
+   {isError:false,result:{content:[{type:'text',text:args.path==='slow'?'原文😀\\r\\n':'other'}]}};
+ }};
+ const result=await runtime.run('assert "native_read" not in globals()\nrows=parallel([(read,{"path":p,"mode":"raw"}) for p in ["slow","missing","fast"]],errors="collect")\nassert rows[0]["ok"] and rows[2]["value"]=="other"\nassert rows[1]["error_code"]=="FILE_NOT_FOUND"',context);
+ assert.equal(result.isError,false,result.content[0].text);assert.equal(calls.length,3);assert.ok(calls.every(args=>args.mode==='raw'));
+ assert.equal(result.details.metrics.internal_tool_calls,3);assert.equal(result.details.metrics.tool_failure_count,1);
+ const denied=await runtime.run('read(path="slow",mode="raw")',{tools:[],executeTool:async()=>{throw Error('must not call');}});
+ assert.equal(denied.isError,true);assert.equal(calls.length,3);
 },{transport}));
-test('原文读取仍拒绝受保护路径；前项结果不丢且不泄露文件内容',async()=>{
- const protectedDir=await fs.mkdtemp(path.join(base,'protected-'));await fs.writeFile(path.join(protectedDir,'private.txt'),'SYNTHETIC_SECRET');
- await fixture(async runtime=>{
-  await fs.writeFile(path.join(runtime.cwd,'a.txt'),'allowed');
-  const context={tools,executeTool:async()=>{throw Error('must not call');}};
-  const source='a=native_read("a.txt")\nb=native_read('+JSON.stringify(path.join(protectedDir,'private.txt'))+')';
-  const result=await runtime.run(source,context);assert.equal(result.isError,true);assert.doesNotMatch(result.content[0].text,/SYNTHETIC_SECRET/);
-  assert.equal((await runtime.run('assert a=="allowed"\nassert "b" not in globals()',context)).isError,false);
- },{protectedPaths:[protectedDir]});
-});
-
-test('原文读取签名错误退回 Python，不被调度器改成别的错误类型',()=>fixture(async runtime=>{
- const context={tools,executeTool:async()=>{throw Error('must not call');}};
- for(const source of ['a=native_read(path="a",lines="1")\nb=native_read("b")','values=[native_read(path=p,lines="1") for p in ["a","b"]]','values=[native_read(path=1) for p in ["a","b"]]']){
-  const events=[];const result=await runtime.run(source,context,undefined,1,type=>events.push(type));
-  assert.equal(result.isError,true);assert.match(result.content[0].text,/TypeError/);assert.ok(!events.includes('schedule_start'));
- }
-}));
-
-for(const transport of ['direct','rust'])test(`${transport}: 打印原文与工具结果混合并行，保持 Unicode 和输出顺序`,()=>fixture(async runtime=>{
- await fs.writeFile(path.join(runtime.cwd,'a.txt'),'原文😀a');await fs.writeFile(path.join(runtime.cwd,'c.txt'),'原文😀c');
- const events=[];
- const result=await runtime.run('a,b,c=parallel([(native_read,{"path":"a.txt"}),(read,{"path":"b.txt"}),(native_read,{"path":"c.txt"})])\nprint(a)\nprint(b)\nprint(c)',
-  {tools,executeTool:async()=>({isError:false,result:{content:[{type:'text',text:'工具😀b'}]}})},
-  undefined,1,(type,fields)=>events.push({type,...fields}));
- assert.equal(result.isError,false,result.content[0].text);
- assert.equal(result.content[0].text,'ok\n原文😀a\n工具😀b\n原文😀c\n');
- assert.equal(result.details.metrics.native_read_calls_observed,2);assert.equal(result.details.metrics.internal_tool_calls,1);
- assert.equal(events.filter(event=>event.type==='scheduled_native_read').length,2);
- assert.equal(events.filter(event=>event.type==='schedule_start').length,1);
-},{transport}));
-
- test('collect 原文缺失保留系统错误码，不用自然语言匹配',()=>fixture(async runtime=>{
-  const result=await runtime.run('rows=parallel([(native_read,{"path":"missing.json"})],errors="collect")\nassert rows[0]["error_code"]=="ENOENT"\nrows[0]["error_code"]',{tools,executeTool:async()=>{throw Error('must not call');}});
-  assert.equal(result.isError,false,result.content[0].text);assert.match(result.content[0].text,/ENOENT/);
- }));

@@ -19,10 +19,10 @@ it("保留字符串最小长度，避免模型把空查询当成枚举接口", (
 
 it("返回值说明沿用 schema 的联合分支，明确 read 展示文本与原文解析的区别", () => {
 	const catalog = functionCatalog([{ name: "read", description: "Read one file.", parameters: Type.Object({ path: Type.String() }), outputSchema: readOutputSchema }]);
-	expect(catalog).toContain("  returns str: Rendered <read> view, not raw text; use native_read(path) for JSON/CSV parsing.");
-	expect(catalog.match(/Rendered <read> view/gu)).toHaveLength(1);
+	expect(catalog).toContain("  returns str: Default: rendered <read> view. mode=raw: complete UTF-8 text for JSON/CSV parsing, preserving BOM and newlines.");
+	expect(catalog.match(/rendered <read> view/gu)).toHaveLength(1);
 	expect(nativeInstructions).toContain("Only listed functions are enabled");
-	expect(nativeInstructions).toContain("native_read(path)");
+	expect(nativeInstructions).not.toContain("native_read");
 	const custom = functionCatalog([{ name: "custom_data", description: "Fixture.", parameters: Type.Object({}),
 		outputSchema: Type.Object({ value: Type.Integer() }, { description: "Parsed value, not serialized JSON." }) }]);
 	expect(custom).toContain("  returns {value: int}: Parsed value, not serialized JSON.");

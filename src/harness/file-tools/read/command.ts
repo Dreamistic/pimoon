@@ -35,6 +35,9 @@ export async function readFile(
 	params: ReadParams,
 	context: ReadCommandContext,
 ): Promise<ToolOutcome<ReadFileSuccess>> {
+	if (params.mode === "raw" && (params.lines !== undefined || params.pages !== undefined)) {
+		return fail("INVALID_OPERATION", "Raw mode requires a complete text file without ranges.", { path: params.path });
+	}
 	const ranges = parseRanges(params);
 	if ("status" in ranges) return ranges;
 
@@ -60,13 +63,16 @@ export async function readFile(
 
 	const loaded = await context.filesystem.content.readBytes(
 		file,
-		{ maxBytes: context.limits.read_max_file_bytes },
+		{ maxBytes: params.mode === "raw" ? Math.min(context.limits.read_max_file_bytes, 4 * 1024 * 1024) : context.limits.read_max_file_bytes },
 	);
 	if (!loaded.ok) return mapFsError(loaded.error, { notFound: "file" });
 	if (isAborted(context.operation)) return aborted(file.displayPath);
 
 	const detected = await detectFileType(loaded.value.bytes);
 	if (isAborted(context.operation)) return aborted(file.displayPath);
+	if (params.mode === "raw" && detected !== undefined) {
+		return fail("BINARY_FILE_UNSUPPORTED", "Raw mode supports UTF-8 text only.", { path: file.displayPath });
+	}
 	if (detected?.kind === "image") {
 		if (ranges.lines !== undefined || ranges.pages !== undefined) {
 			return fail("INVALID_OPERATION", "Range parameters do not apply to image files.", { path: file.displayPath });
@@ -128,6 +134,23 @@ export async function readFile(
 	const decoded = context.filesystem.content.decodeText(loaded.value, file.displayPath);
 	if (!decoded.ok) return mapFsError(decoded.error, { notFound: "file" });
 	context.observation.remember(file, decoded.value);
+
+	if (params.mode === "raw") {
+		const result: ReadFileSuccess = {
+			path: file.displayPath,
+			raw: true,
+			segments: [{ content: Buffer.from(loaded.value.bytes).toString("utf8"), start_line: 1, end_line: decoded.value.totalLines }],
+			total_lines: decoded.value.totalLines,
+			size_bytes: decoded.value.sizeBytes,
+			version: decoded.value.hash,
+			encoding: "utf-8",
+			newline: decoded.value.newline,
+			bom: decoded.value.hasBom,
+			truncated: false,
+		};
+		applyIgnore(result, ignoreSource);
+		return result;
+	}
 
 	const result = await readTextRanges(file, decoded.value, ranges.lines, context);
 	if (isFailed(result)) return result;

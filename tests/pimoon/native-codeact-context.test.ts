@@ -53,7 +53,7 @@ it("运行中注册的 codemode 函数在下一轮进入目录与 Python，不�
 
 it("裁剪候选与旧检查点均保留 execute 源码和结果，下一轮变量不重放", async () => {
     const value = await fixture([action('sentinel=42\nwrite(path="once.txt",content="once")\n"x"*5000'), { text: "ready" },
-        action('assert sentinel==42\nnative_read("once.txt")'), { text: "done" }]);
+        action('assert sentinel==42\nread(path="once.txt",mode="raw")'), { text: "done" }]);
     try {
         await value.runtime.session.prompt("Initialize.");
         const messages = value.runtime.session.messages;
@@ -106,7 +106,7 @@ it("真实摘要请求压缩原生会话后保留 Python 状态，继续执行�
         { text: "状态已确认，准备压缩。" },
         { text: "已写入 once.txt，Python sentinel=42；不要重放写入，下一步读取确认。" },
         { text: "当前轮状态已确认；sentinel=42，禁止重放写入。" },
-        action('assert sentinel==42\nnative_read("once.txt")'), { text: "verified" },
+        action('assert sentinel==42\nread(path="once.txt",mode="raw")'), { text: "verified" },
     ]);
     try {
         await value.runtime.session.prompt("Initialize once.");
@@ -195,7 +195,7 @@ it("压缩后重开明确提示状态丢失，不重放写入，原生调用仍�
         sessionFile = first.runtime.session.sessionManager.getSessionFile();
     } finally { await first.close(); }
     if (!sessionFile) throw new Error("缺少会话文件");
-    const next = await fixture([action('assert "sentinel" not in globals()\nnative_read("once.txt")'), { text: "done" }],
+    const next = await fixture([action('assert "sentinel" not in globals()\nread(path="once.txt",mode="raw")'), { text: "done" }],
         undefined, [], { root: first.root, sessionFile });
     try {
         await next.runtime.session.prompt("Continue without replay.");

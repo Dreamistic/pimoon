@@ -1,7 +1,7 @@
 """显式只读并发：普通 Python 不改写，任务参数在派发前全部验证。"""
 import json
 
-READ_ONLY = frozenset({"read", "find", "grep", "ls", "native_read"})
+READ_ONLY = frozenset({"read", "find", "grep", "ls"})
 MAX_JOBS = 256
 
 
@@ -33,11 +33,9 @@ class Parallel:
             fn, args = job
             name = next((name for name, proxy in self.proxies.items() if fn is proxy), None)
             if name is None:
-                raise TypeError("parallel accepts current enabled read/find/grep/ls/native_read functions only; writes, processes and callbacks stay sequential")
+                raise TypeError("parallel accepts current enabled read/find/grep/ls functions only; writes, processes and callbacks stay sequential")
             if type(args) is not dict or any(type(key) is not str for key in args):
                 raise TypeError("parallel kwargs must be a dict with string keys")
-            if name == "native_read" and (set(args) != {"path"} or type(args["path"]) is not str):
-                raise TypeError("native_read requires a string path")
             prepared.append({"name": name, "args": args})
         # 一次验证整个参数快照；无效后项不导致前项被提前派发。
         json.dumps(prepared, allow_nan=False)

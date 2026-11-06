@@ -41,8 +41,6 @@ export function ExecutionReport({ code }: { code: Code }) {
 		</Section>
 		<Section title="Python 原生操作" detail>
 			<Facts items={[
-				["native_read 调用", total(code.native.read_calls)], ["native_read 失败", total(code.native.read_failures)],
-				["native_read 返回字符", total(code.native.read_chars)], ["每单元 native_read 耗时", distribution(code.native.read_ms, duration)],
 				["只读打开尝试", total(code.native.file_reads)], ["写入打开尝试", total(code.native.file_writes)],
 				["目录列举尝试", total(code.native.directory_lists)], ["文件系统变更尝试", total(code.native.mutations)],
 			]} />

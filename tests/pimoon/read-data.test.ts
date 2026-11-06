@@ -55,14 +55,14 @@ it("JSON 误读保留失败且说明展示文本契约，原文读取在单个�
 			expect(executionMetrics(failed)).toMatchObject({ outcome: "python_error", error_type: "JSONDecodeError", internal_tool_calls: 1 });
 			expect(JSON.stringify(failed?.content)).toContain("rendered read view, not raw JSON");
 			expect(server.requests).toHaveLength(2);
-			expect(JSON.stringify(server.requests[0])).toContain("Rendered <read> view");
-			expect(JSON.stringify(server.requests[0])).toContain("native_read(path)");
+			expect(JSON.stringify(server.requests[0])).toContain("rendered <read> view");
+			expect(JSON.stringify(server.requests[0])).toContain("mode=raw");
 
 			const good = `import json
-rows=[json.loads(native_read(f"invoices/{i}.json")) for i in range(12)]
+rows=[json.loads(read(path=f"invoices/{i}.json",mode="raw")) for i in range(12)]
 assert rows[0]["note"] == "原文😀</read><read literal>"
 try:
- native_read("invoices/missing.json")
+ read(path="invoices/missing.json",mode="raw")
 except RuntimeError:
  missing=True
 else:
@@ -80,12 +80,12 @@ written=write(path="summary.json",content=json.dumps(summary,ensure_ascii=False)
 			await runtime.session.prompt("Aggregate raw invoice JSON and preserve all inputs in one execution block.");
 			const success = runtime.session.messages.filter(isExecutionResult).at(-1);
 			expect(success?.isError).toBe(false);
-			expect(executionMetrics(success)).toMatchObject({ outcome: "tool_partial_failure", tool_failure_count: 1, internal_tool_calls: 1, internal_tool_failures: 0 });
+			expect(executionMetrics(success)).toMatchObject({ outcome: "tool_partial_failure", tool_failure_count: 1, internal_tool_calls: 14, internal_tool_failures: 1 });
 			expect(server.requests).toHaveLength(4);
 			expect(JSON.parse(await fs.readFile(path.join(cwd, "summary.json"), "utf8"))).toEqual(expected);
 			for (const [index, original] of originals.entries()) expect(await fs.readFile(path.join(cwd, "invoices", `${index}.json`), "utf8")).toBe(original);
 
-			replies.push({ tool: "execute", args: { code: 'json.loads(native_read("invalid.json"))', desc: "无效数据" } }, { text: "done" });
+			replies.push({ tool: "execute", args: { code: 'json.loads(read(path="invalid.json",mode="raw"))', desc: "无效数据" } }, { text: "done" });
 			await runtime.session.prompt("Keep genuine malformed raw JSON errors unchanged.");
 			const invalid = runtime.session.messages.filter(isExecutionResult).at(-1);
 			expect(invalid?.isError).toBe(true);

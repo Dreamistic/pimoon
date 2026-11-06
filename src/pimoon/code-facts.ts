@@ -13,7 +13,7 @@ export function codeFacts(details: unknown): TelemetryFacts {
 	for (const key of ["execution_metrics_version", "host_ms", "python_ms", "compile_ms", "bridge_wait_ms", "startup_wait_ms",
 		"internal_tool_calls", "internal_tool_failures", "internal_output_text_chars", "batch_calls", "batch_jobs", "batch_completed", "batch_failures", "batch_peak_concurrency",
 		"output_chars", "retained_output_chars", "displayed_output_chars", "model_returned_text_chars", "stdout_chars", "stderr_chars", "auto_results", "expression_results",
-		"native_read_calls_observed", "native_read_failures", "native_read_result_chars", "native_read_ms", "tool_failure_count",
+		"tool_failure_count",
 		"explicit_observations", "observation_input_rows", "observation_shown_rows", "observation_readbacks", "observation_readback_errors"]) {
 		const value = metrics[key];
 		if (typeof value === "number" && Number.isFinite(value) && value >= 0) fields[key] = value;

@@ -48,11 +48,11 @@ it("CodeAct 只注册一个模型执行入口，保留函数权限、外部读�
 			await runtime.session.prompt("Reuse Python memory.");
 			expect(results().at(-1)?.content).toEqual([{ type: "text", text: "ok\n42\n" }]);
 			const external = path.join(folder, "external.txt"); await fs.writeFile(external, "external fixture");
-			replies.push(execute(`from pathlib import Path\nexternal=Path(${JSON.stringify(external)})\nassert external.read_text()=="external fixture"\nassert native_read(str(external))=="external fixture"\nassert "external fixture" in read(path=str(external))\nassert "external.txt" in ls(path=str(external.parent))\nassert "external.txt" in str(find(query="external",path=[str(external.parent)]))\nassert "external fixture" in str(grep(query="external fixture",path=[str(external)]))`), { text: "done" });
+			replies.push(execute(`from pathlib import Path\nexternal=Path(${JSON.stringify(external)})\nassert external.read_text()=="external fixture"\nassert read(path=str(external),mode="raw")=="external fixture"\nassert "external fixture" in read(path=str(external))\nassert "external.txt" in ls(path=str(external.parent))\nassert "external.txt" in str(find(query="external",path=[str(external.parent)]))\nassert "external fixture" in str(grep(query="external fixture",path=[str(external)]))`), { text: "done" });
 			await runtime.session.prompt("Analyze ordinary external files.");
 			expect(results().at(-1)?.isError).toBe(false);
 			const credential = path.join(agentHome, "auth.json"); await fs.writeFile(credential, JSON.stringify({ key: "SYNTHETIC_PRIVATE_CREDENTIAL" }));
-			replies.push(execute(`read(path=${JSON.stringify(credential)})`), { text: "done" });
+			replies.push(execute(`read(path=${JSON.stringify(credential)},mode="raw")`), { text: "done" });
 			await runtime.session.prompt("Try the protected synthetic credential.");
 			expect(results().at(-1)?.isError).toBe(true);
 			expect(JSON.stringify(results().at(-1)?.content)).not.toContain("SYNTHETIC_PRIVATE_CREDENTIAL");

@@ -177,7 +177,7 @@ it("持久化重开保留调用结果与单工具投影，清楚提醒 Python �
         expect(sessionFile).toBeTruthy();
     } finally { await first.close(); }
     if (!sessionFile) throw new Error("没有会话文件");
-    const next = await fixture([action('assert "sentinel" not in globals()\nnative_read("marker.txt")'), { text: "done" }],
+    const next = await fixture([action('assert "sentinel" not in globals()\nread(path="marker.txt",mode="raw")'), { text: "done" }],
         undefined, [], { root: first.root, sessionFile });
     try {
         await next.runtime.session.prompt("Continue without replay.");

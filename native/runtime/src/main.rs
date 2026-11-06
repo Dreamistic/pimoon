@@ -15,11 +15,9 @@ const REPLY: u8 = 3;
 const CANCEL: u8 = 4;
 const CLOSE: u8 = 5;
 const PING: u8 = 6;
-const NATIVE: u8 = 7;
 const READY: u8 = 101;
 const DONE: u8 = 102;
 const CALL: u8 = 103;
-const NATIVE_RESULT: u8 = 107;
 const PONG: u8 = 108;
 const ERROR: u8 = 109;
 const METRICS: u8 = 110;
@@ -117,7 +115,7 @@ fn main() -> io::Result<()> {
                         sessions.remove(&frame.session);
                         frame.response(READY, b"{}".to_vec()).write(&mut output)?;
                     }
-                    EXEC | REPLY | NATIVE_RESULT => {
+                    EXEC | REPLY => {
                         if let Some(session) = sessions.get_mut(&frame.session) {
                             if frame.op == EXEC && session.active.is_some() {
                                 frame.response(ERROR, b"session busy".to_vec()).write(&mut output)?; continue;
@@ -148,7 +146,7 @@ fn main() -> io::Result<()> {
                         frame.response(METRICS, stats.into_bytes()).write(&mut output)?;
                         frame.write(&mut output)?; session.active = None;
                     }
-                    READY | CALL | NATIVE => { frame.write(&mut output)?; session.service_us += start.elapsed().as_micros(); }
+                    READY | CALL => { frame.write(&mut output)?; session.service_us += start.elapsed().as_micros(); }
                     _ => { frame.response(ERROR, b"invalid worker opcode".to_vec()).write(&mut output)?; }
                 }
             }

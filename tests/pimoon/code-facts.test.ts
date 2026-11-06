@@ -12,10 +12,10 @@ it("执行事实保留失败计数，过滤正文、轨迹、自定义异常名�
 		stdout_chars: 20, stderr_chars: -1, python_ms: Infinity, compile_ms: "wrong", output_chars: NaN, output: "PRIVATE_OUTPUT",
 	} });
 	expect(facts.fields).toMatchObject({ outcome: "timeout", metrics_complete: false, error_type: "OtherError", host_ms: 100, state_lost: true,
-		internal_tool_calls: 3, internal_tool_failures: 1, native_read_calls_observed: 130, native_read_failures: 2,
+		internal_tool_calls: 3, internal_tool_failures: 1,
 		fs_open_read_attempts: 5, fs_open_write_attempts: 4, fs_list_attempts: 3, fs_mutation_attempts: 1,
 	});
-	expect(JSON.stringify(facts)).not.toMatch(/PRIVATE|stderr_chars|python_ms|compile_ms|output_chars/);
+	expect(JSON.stringify(facts)).not.toMatch(/PRIVATE|native_read|stderr_chars|python_ms|compile_ms|output_chars/);
 	expect(safeProject(() => facts)).toEqual({ facts, limited: false });
 });
 

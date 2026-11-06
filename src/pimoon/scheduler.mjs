@@ -1,9 +1,8 @@
 // 调度只读工具；不接纳进程或写入，也不替代宿主权限校验。
-const READ_ONLY = new Set(['read', 'find', 'grep', 'ls', 'native_read']);
+const READ_ONLY = new Set(['read', 'find', 'grep', 'ls']);
 export async function scheduleReads(jobs, invoke, cancelled = () => false, observe = () => {}, errors = 'raise') {
   if (!Array.isArray(jobs) || jobs.length > 256 || !['raise','collect'].includes(errors) || jobs.some(job =>
-    !job || !READ_ONLY.has(job.name) || !job.args || typeof job.args !== 'object' || Array.isArray(job.args) ||
-    job.name === 'native_read' && (typeof job.args.path !== 'string' || Object.keys(job.args).length !== 1)))
+    !job || !READ_ONLY.has(job.name) || !job.args || typeof job.args !== 'object' || Array.isArray(job.args)))
     throw Error('Invalid read schedule');
   const rows = Array(jobs.length); let cursor = 0, failed = false;
   await Promise.all(Array.from({length: jobs.length}, async () => {

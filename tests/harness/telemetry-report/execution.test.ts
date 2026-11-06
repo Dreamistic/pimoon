@@ -23,7 +23,7 @@ it("父子调用不混算成功率，部分失败和超时独立归类，未知�
 		calls: 4, metrics_samples: 2, clean_success_rate: { numerator: 1, samples: 3, value: 1 / 3 },
 		outcomes: { success: 1, tool_partial_failure: 1, timeout: 1, unknown: 1 }, error_types: { Error: 1 },
 		timing: { host_ms: { samples: 2, mean: 55 }, python_active_ms: { samples: 1, mean: 2 } },
-		output: { returned: { samples: 1, total: 80 } }, native: { file_reads: { samples: 1, total: 2 }, read_calls: { samples: 0, total: 0 } },
+		output: { returned: { samples: 1, total: 80 } }, native: { file_reads: { samples: 1, total: 2 } },
 		state: { reused: { numerator: 0, samples: 1, value: 0 }, lost: { numerator: 1, samples: 1, value: 1 } },
 	});
 	expect(value.tools.find(tool => tool.tool === "grep")?.work).toMatchObject({ searched_file_count: { samples: 1, mean: 10 }, returned_match_count: { samples: 1, mean: 3 } });
@@ -32,9 +32,9 @@ it("父子调用不混算成功率，部分失败和超时独立归类，未知�
 
 it("批处理汇总、原生操作和输出层次独立，历史缺失值没有伪造分布", () => {
 	const value = report([call(0, "codeact", { fields: { batch_calls: 1, batch_jobs: 4, batch_completed: 4, batch_failures: 1, batch_peak_concurrency: 2,
-		native_read_calls_observed: 2, native_read_failures: 1, output_chars: 1000, model_returned_text_chars: 100, display_truncated: true, output_complete: false } }), call(1, "codeact")]).execution.codeact;
+		fs_open_read_attempts: 2, output_chars: 1000, model_returned_text_chars: 100, display_truncated: true, output_complete: false } }), call(1, "codeact")]).execution.codeact;
 	expect(value.batch).toMatchObject({ calls: { samples: 1, total: 1 }, jobs: { samples: 1, total: 4 }, failures: { samples: 1, total: 1 }, peak_concurrency: { samples: 1, mean: 2 } });
-	expect(value.native.read_calls).toEqual({ samples: 1, total: 2 });
+	expect(value.native.file_reads).toEqual({ samples: 1, total: 2 });
 	expect(value.display_truncated).toEqual({ numerator: 1, samples: 1, value: 1 });
 	expect(value.retention_incomplete).toEqual({ numerator: 1, samples: 1, value: 1 });
 	expect(value.timing.host_ms).toEqual({ samples: 0 });

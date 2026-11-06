@@ -46,7 +46,7 @@ const { once } = await import("node:events");
 
 // grammar 能力只在实验模型副本启用，实际请求类型必须被 onPayload 验证。
 const results = [];
-const code = 'import json\nfrom pathlib import Path\nresult = {"total": sum(json.loads(native_read("input.json")))}\nPath("summary.json").write_text(json.dumps(result), encoding="utf-8")\nresult\n';
+const code = 'import json\nfrom pathlib import Path\nresult = {"total": sum(json.loads(Path("input.json").read_text(encoding="utf-8")))}\nPath("summary.json").write_text(json.dumps(result), encoding="utf-8")\nresult\n';
 try {
     for (let round = 0; round < 3; round++) for (const mode of (round % 2 ? ["json", "custom"] : ["custom", "json"])) {
         const model = { ...catalogModel, compat: { ...catalogModel.compat, supportsOpenAIGrammarTools: mode === "custom" } };

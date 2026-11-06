@@ -52,7 +52,7 @@ function presentResult(
 ) {
 	if (isFailed(result)) return failedToolResult(result);
 	if (!("media_type" in result)) {
-		const text = formatReadModelResult(result);
+		const text = result.raw ? result.segments.map(segment => segment.content).join("") : formatReadModelResult(result);
 		return { content: [{ type: "text" as const, text }], structuredContent: text, details: result };
 	}
 	if (result.media_type === "image") {

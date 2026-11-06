@@ -4,6 +4,7 @@ import { READ_RANGE_PATTERN } from "../../content-ranges.ts";
 export const readParameters = Type.Object(
 	{
 		path: Type.String({ description: "Text, image or PDF file path." }),
+		mode: Type.Optional(Type.Union([Type.Literal("view"), Type.Literal("raw")], { description: "raw: complete UTF-8 text <=4 MiB (or configured file limit); no ranges or media. Default view." })),
 		lines: Type.Optional(Type.String({
 			minLength: 1,
 			pattern: READ_RANGE_PATTERN,
