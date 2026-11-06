@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { zstdDecompressSync } from "node:zlib";
 const base = process.argv[2], app = process.argv[3];
 if(!base||!app)throw Error("Usage: node scripts/smoke-codeact-artifact.mjs TEST_DIR APP_DIR");
-const code="from pathlib import Path\nassert \"batch\" not in globals() and \"process_run\" not in globals()\nassert not hasattr(functions,\"process_run\")\na,b=parallel([(read,{\"path\":\"a.txt\"}),(read,{\"path\":\"b.txt\"})])\nassert \"alpha\" in a and \"beta\" in b\nresult=subprocess.run([\"node\", \"-e\", \"require(\\\"node:fs\\\").appendFileSync(\\\"packaged.txt\\\",\\\"once\\\");console.log(42)\"],capture_output=True,text=True,check=True)\nassert result.returncode==0 and result.stdout.strip()==\"42\"\nnonzero=subprocess.run([\"node\", \"-e\", \"process.exit(7)\"],capture_output=True,text=True)\nassert nonzero.returncode==7\nPath(\"proof.json\").write_text(json.dumps({\"returncode\":result.returncode,\"failed_returncode\":nonzero.returncode,\"reads\":2}),encoding=\"utf-8\")\n{\"complete\":True}\n";
+const code="from pathlib import Path\nassert \"batch\" not in globals() and \"process_run\" not in globals()\nassert not hasattr(functions,\"process_run\")\na,b=parallel([(read,{\"path\":\"a.txt\"}),(read,{\"path\":\"b.txt\"})])\nassert \"alpha\" in a and \"beta\" in b\nserial_a=read(path=\"a.txt\")\nserial_b=read(path=\"b.txt\")\nassert serial_a==a and serial_b==b\nrows=parallel([(native_read,{\"path\":\"missing-native.txt\"}),(read,{\"path\":\"missing-tool.txt\"})],errors=\"collect\")\nassert [r[\"error_code\"] for r in rows]==[\"ENOENT\",\"FILE_NOT_FOUND\"]\ntry:\n read(path=\"missing-single.txt\")\nexcept ToolError as error:\n assert error.code==\"FILE_NOT_FOUND\"\nresult=subprocess.run([\"node\", \"-e\", \"require(\\\"node:fs\\\").appendFileSync(\\\"packaged.txt\\\",\\\"once\\\");console.log(42)\"],capture_output=True,text=True,check=True)\nassert result.returncode==0 and result.stdout.strip()==\"42\"\nnonzero=subprocess.run([\"node\", \"-e\", \"process.exit(7)\"],capture_output=True,text=True)\nassert nonzero.returncode==7\nPath(\"proof.json\").write_text(json.dumps({\"returncode\":result.returncode,\"failed_returncode\":nonzero.returncode,\"reads\":4,\"missing_codes\":[r[\"error_code\"] for r in rows]}),encoding=\"utf-8\")\n{\"complete\":True}\n";
 const env = { ...process.env, ELECTRON_RUN_AS_NODE: "1", PI_SUBAGENT_CHILD: "1", PI_OFFLINE: "1", PIMOON_NO_NOTIFICATIONS: "1" };
 for (const key of ["PIMOON_HOME","HOME","USERPROFILE","APPDATA","LOCALAPPDATA","TEMP","TMP"]) {
     env[key] = path.join(base, "smoke", key.toLowerCase()); await fs.mkdir(env[key], {recursive:true});
@@ -60,13 +60,13 @@ try{
  await fs.writeFile(path.join(base,"smoke-output.txt"),result.stdout+"\n"+result.stderr);
  const content=await fs.readFile(path.join(cwd,"packaged.txt"),"utf8");
  const proof=JSON.parse(await fs.readFile(path.join(cwd,"proof.json"),"utf8"));
- if(JSON.stringify(proof)!=='{"returncode":0,"failed_returncode":7,"reads":2}')throw Error("Packaged subprocess result mismatch");
+ if(JSON.stringify(proof)!=='{"returncode":0,"failed_returncode":7,"reads":4,"missing_codes":["ENOENT","FILE_NOT_FOUND"]}')throw Error("Packaged subprocess result mismatch");
  const telemetry=[];
  for(const directory of await fs.readdir(path.join(env.PIMOON_HOME,"telemetry")))for(const file of await fs.readdir(path.join(env.PIMOON_HOME,"telemetry",directory))){
   if(file.endsWith(".jsonl"))telemetry.push(...(await fs.readFile(path.join(env.PIMOON_HOME,"telemetry",directory,file),"utf8")).trim().split("\n").filter(Boolean).map(line=>JSON.parse(line)));
  }
  const execution=telemetry.find(row=>row.type==="code_end");
- if(execution?.metrics?.batch_peak_concurrency!==2||execution?.metrics?.batch_calls!==1)throw Error("Packaged read scheduling was not enabled");
+ if(execution?.metrics?.batch_peak_concurrency!==2||execution?.metrics?.batch_calls!==2)throw Error("Packaged explicit groups or sequential boundary mismatch");
  if(content!=="once"||requests!==2||!result.stdout.includes("packaged complete")||declarations.some(names=>JSON.stringify(names)!=='["execute"]'))throw Error("packaged verification failed");
  console.log(JSON.stringify({ok:true,requests,declarations,content,windowStarted:false}));
  await fs.writeFile(path.join(base,"smoke-result.json"),JSON.stringify({ok:true,requests,declarations,content,windowStarted:false},null,2));
