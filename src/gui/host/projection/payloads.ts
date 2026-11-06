@@ -1,3 +1,4 @@
+import { executionScheduling } from "../../shared/messages/scheduling.ts";
 import { isPythonExecution } from "../../shared/messages/execution.ts";
 import { CODEACT_RESULT, isCodeActResult } from "../../../pimoon/codeact/types.ts";
 import { randomUUID } from "node:crypto";
@@ -111,7 +112,9 @@ export class GuiPayloads {
 					status: details.status, error: details.error,
 					...(isPythonExecution(name) && record(details.metrics) ? { metrics: {
 						outcome: details.metrics.outcome, executed: details.metrics.executed,
+						batch_peak_concurrency: details.metrics.batch_peak_concurrency,
 					} } : {}),
+					...(isPythonExecution(name) && executionScheduling(details) ? { scheduling: executionScheduling(details) } : {}),
 				},
 			},
 		};

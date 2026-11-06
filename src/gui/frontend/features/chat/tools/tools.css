@@ -117,3 +117,29 @@
 	.nested-call-duration { margin-left: 1.1875rem; }
 	.parameter-fields > div { gap: 0.5rem; }
 }
+
+/* 并发轨迹使用薄填充和语义色，不将重叠时间标成真实加速。 */
+.codeact-scheduling-summary { margin-inline-start: 1.8125rem; }
+.codeact-scheduling-summary:empty { display: none; }
+.scheduling-badge { display: inline-flex; align-items: center; gap: var(--space-1); margin-block-end: var(--space-2); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); background: var(--secondary); color: var(--muted-foreground); font-size: var(--text-caption); flex-wrap: wrap; }
+.scheduling-badge[data-mode="parallel"] { background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--primary); }
+.scheduling-badge svg, .scheduling-heading svg { inline-size: 1em; block-size: 1em; flex: none; }
+.scheduling-panel { min-inline-size: 0; padding: var(--space-3); margin-block: var(--space-2); border-radius: var(--radius-md); background: var(--secondary); font-size: var(--text-caption); }
+.scheduling-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.scheduling-heading > span { color: var(--muted-foreground); }
+.scheduling-group { margin-block-start: var(--space-2); padding-block-start: var(--space-2); border-block-start: 1px solid var(--border); }
+.scheduling-group > .disclosure-trigger { inline-size: 100%; text-align: start; color: var(--foreground); }
+.scheduling-group-title { display: flex; flex: 1; min-inline-size: 0; flex-wrap: wrap; gap: var(--space-1) var(--space-3); font-variant-numeric: tabular-nums; }
+.scheduling-group-title > span:last-child { color: var(--muted-foreground); }
+.scheduling-policy, .scheduling-note { margin-block: var(--space-2); color: var(--muted-foreground); overflow-wrap: anywhere; }
+.scheduling-operations { display: grid; gap: var(--space-3); margin-block: var(--space-3); list-style: none; padding: 0; }
+.scheduling-operation { min-inline-size: 0; }
+.scheduling-operation-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-1) var(--space-2); font-variant-numeric: tabular-nums; }
+.scheduling-operation-heading > span:last-child { color: var(--muted-foreground); }
+.scheduling-target { display: block; margin-block: var(--space-1); overflow-wrap: anywhere; font-size: inherit; }
+.scheduling-track { display: flex; block-size: 0.35rem; overflow: hidden; border-radius: var(--radius-sm); background: var(--border); }
+.scheduling-track > span { min-inline-size: 2px; background: var(--primary); border-radius: inherit; }
+.scheduling-operation[data-operation-state="error"] .scheduling-track > span { background: var(--destructive); }
+.scheduling-operation[data-operation-state="error"] .scheduling-operation-heading > span:last-child { color: var(--destructive); }
+.scheduling-operation[data-operation-state="interrupted"] .scheduling-track > span { background: var(--warning); }
+.scheduling-operation:is([data-operation-state="queued"], [data-operation-state="skipped"]) { color: var(--muted-foreground); }

@@ -12,7 +12,7 @@ export async function scheduleReads(jobs, invoke, cancelled = () => false, obser
       const started = performance.now(); observe('start', index);
       try { rows[index] = {ok: true, value: await invoke(job.name, job.args, index)}; }
       catch (error) { rows[index] = {ok: false, error: error.message, ...(typeof error.code === 'string' ? {error_code: error.code} : {})}; failed = true; }
-      finally { rows[index].elapsed_ms = performance.now() - started; observe('end', index); }
+      finally { rows[index].elapsed_ms = performance.now() - started; observe('end', index, rows[index]); }
     }
   }));
   return Array.from(rows, row => row ?? {ok: false, skipped: true, error: 'Not started after failure or cancellation'});

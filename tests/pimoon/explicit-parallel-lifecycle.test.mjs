@@ -28,7 +28,7 @@ for(const form of ['assign','print'])for(const reason of ['cancelled','timeout']
  const pending=runtime.run(source,context,controller.signal,1,(type,fields)=>events.push({type,...fields}));
  await ready;if(reason==='cancelled')controller.abort();
  await assert.rejects(pending);
- assert.equal(started,6);assert.equal(ended,6);assert.equal(runtime.lastMetrics.outcome,reason);
+ assert.equal(started,6);assert.equal(ended,6);assert.equal(runtime.lastMetrics.outcome,reason);assert.equal(runtime.lastScheduling.state,'interrupted');assert.equal(runtime.lastScheduling.groups[0].state,'interrupted');
  assert.equal(events.find(event=>event.type==='runtime_state_lost').reason,reason);
  const next=await runtime.run('assert "r0" not in globals()\n"recovered"',{tools,executeTool:async()=>{throw Error('must not replay');}});
  assert.equal(next.isError,false,next.content[0].text);

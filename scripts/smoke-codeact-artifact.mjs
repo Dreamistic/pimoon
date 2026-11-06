@@ -58,6 +58,13 @@ for(const file of ["auto-title","discord-presence"])await fs.writeFile(path.join
 try{
  const result=await promisify(execFile)(path.join(app,"pimoon.exe"),["--require",preload,path.join(app,"resources/app/backend.mjs"),"--provider","openai-codex","--model","test","--thinking","off","--system-prompt","Isolated packaged smoke test. Execute the requested Python once.","--mode","json","-p","--no-session","--tools","read,write,process_run","Run packaged fixture."],{cwd,env,windowsHide:true,timeout:60000,maxBuffer:4*1024*1024});
  await fs.writeFile(path.join(base,"smoke-output.txt"),result.stdout+"\n"+result.stderr);
+ const events=result.stdout.split("\n").filter(line=>line.startsWith("{")).map(line=>JSON.parse(line));
+ const rootResult=events.find(event=>event.type==="tool_execution_end"&&event.toolName==="execute");
+ const scheduling=rootResult?.result?.details?.scheduling;
+ if(scheduling?.version!==1||scheduling.state!=="completed"||scheduling.groups.length!==2
+  ||scheduling.groups[0].peak!==2||scheduling.groups[0].operations.some(item=>item.state!=="ok")
+  ||scheduling.groups[1].operations.some(item=>item.state!=="error")
+  ||!events.some(event=>event.type==="tool_execution_update"&&event.toolName==="execute"&&event.partialResult?.details?.scheduling))throw Error("Packaged scheduling UI metadata mismatch");
  const content=await fs.readFile(path.join(cwd,"packaged.txt"),"utf8");
  const proof=JSON.parse(await fs.readFile(path.join(cwd,"proof.json"),"utf8"));
  if(JSON.stringify(proof)!=='{"returncode":0,"failed_returncode":7,"reads":4,"missing_codes":["ENOENT","FILE_NOT_FOUND"]}')throw Error("Packaged subprocess result mismatch");

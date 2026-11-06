@@ -4,6 +4,7 @@ import { Type } from "@earendil-works/pi-ai";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { AgentSession, ExtensionAPI, ExtensionContext, ExtensionToolContext, InlineExtension } from "@earendil-works/pi-coding-agent";
 import { Runtime } from "../runtime.mjs";
+import type { ExecutionScheduling } from "../scheduling.ts";
 import { fingerprint, labels, record, pimoonTelemetry } from "../telemetry.ts";
 import { agentHome, protectedCredentialPaths } from "../profile.ts";
 import { checkReadablePath, checkWritablePath, protectedControlPaths } from "../paths.ts";
@@ -76,8 +77,8 @@ export class CodeAct {
                 if (args.confirm) update?.({ content: [], details: { confirmationPending: false } });
                 if (blocked) return blocked;
                 const started = performance.now();
-                const result = await this.execute(args.code, id, context);
-                return { ...result, details: { metrics: resultMetrics(result), durationMs: performance.now() - started } };
+                const result = await this.execute(args.code, id, context, scheduling => update?.({ content: [], details: { scheduling } }));
+                return { ...result, details: { metrics: resultMetrics(result), scheduling: this.runtime?.lastScheduling, durationMs: performance.now() - started } };
             },
         });
         const restoreFunctions = (ctx: ExtensionContext) => {
@@ -146,7 +147,7 @@ export class CodeAct {
 		return;
 	}
 
-	private async execute(code: string, id: string, ctx: ExtensionContext): Promise<AgentToolResult<unknown>> {
+	private async execute(code: string, id: string, ctx: ExtensionContext, onScheduling: (value: ExecutionScheduling) => void): Promise<AgentToolResult<unknown>> {
 		const started = performance.now(), trace = { ...labels(ctx), tool_call_id: id };
 		record("code_start", { ...trace, code: fingerprint(code) });
 		let errorHash: ReturnType<typeof fingerprint> | undefined;
@@ -160,7 +161,7 @@ export class CodeAct {
             };
 			const runtime = this.runtimeFor(ctx, original);
 			record("code_bound", { ...trace, runtime_id: this.runtimeId, python_pid: runtime.workerInfo?.pid, had_state: runtime.hasState });
-			return await runtime.run(code, executionContext, ctx.signal, 1, (type, fields) => record(type, { ...trace, ...fields, code_call_id: id, runtime_id: this.runtimeId }));
+			return await runtime.run(code, executionContext, ctx.signal, 1, (type, fields) => record(type, { ...trace, ...fields, code_call_id: id, runtime_id: this.runtimeId }), onScheduling);
 		} catch (error) {
 			errorHash = fingerprint(String(error));
 			return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], details: { metrics: this.runtime?.lastMetrics } };

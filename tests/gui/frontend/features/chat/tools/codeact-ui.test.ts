@@ -9,6 +9,8 @@ import { activityCounts } from "../../../../../../src/gui/frontend/features/chat
 import { ApprovalBar } from "../../../../../../src/gui/frontend/features/chat/tools/approval.tsx";
 import { renderWithMemory } from "../../../../helpers/render.ts";
 
+import { schedulingFixture } from "../../../../helpers/scheduling-fixture.ts";
+
 const tools: GuiSnapshot["tools"] = [
 	{ name: "read", exposure: "direct", description: "Read", enabled: true, available: true, callable: true },
 	{ name: "process_run", exposure: "direct", description: "Run argv", enabled: false, available: true, callable: false },
@@ -167,4 +169,28 @@ describe("原生 execute 卡片", () => {
     it("原生执行不再混入普通工具计数，内部函数单独统计", () => {
         expect(activityCounts([{ ...tool, name: "execute" }])).toEqual(["1 次执行", "2 次函数调用"]);
     });
+});
+
+describe("真实并发轨迹",()=>{
+ it("折叠卡片显示并发峰值，展开后列出原文读取和时间线，不声称实测提速",()=>{
+  const value: Activity={...tool,name:"execute",state:"completed",output:{kind:"inline",value:{content:[],details:{scheduling:schedulingFixture}}}};
+  const collapsed=renderTool(value);expect(collapsed.querySelector(".scheduling-badge")?.textContent).toContain("已并发 · 峰值 3");
+  const doc=renderTool(value,true);expect(doc.querySelector(".scheduling-panel")?.textContent).toContain("不是相对串行的实测提速");
+  expect(doc.querySelectorAll(".scheduling-operation")).toHaveLength(3);
+  expect(doc.querySelector(".scheduling-panel")?.textContent).toContain("原文读取");expect(doc.querySelector(".scheduling-group-title")?.textContent).toContain("重叠 140 ms");
+ });
+ it("串行、未保留明细的旧并发与普通旧调用区分展示",()=>{
+  const serial=renderTool({...tool,state:"completed",output:{kind:"inline",value:{content:[],details:{scheduling:{...schedulingFixture,groups:[]}}}}});
+  expect(serial.querySelector(".scheduling-badge")?.textContent).toBe("未使用并发组");
+  const old=renderTool({...tool,state:"completed",output:{kind:"inline",value:{content:[],details:{metrics:{batch_peak_concurrency:4}}}}});
+  expect(old.querySelector(".scheduling-badge")?.textContent).toContain("仅汇总");expect(old.querySelector(".scheduling-panel")).toBeNull();
+  expect(renderTool(tool).querySelector(".scheduling-badge")).toBeNull();
+ });
+ it("失败和未启动保留，未知重叠不补零，目标不作为 HTML",()=>{
+  const group=schedulingFixture.groups[0];if(!group)throw Error("fixture");
+  const scheduling={...schedulingFixture,truncated:true,groups:[{...group,state:"interrupted" as const,overlapMs:undefined,operations:group.operations.map((op,i)=>({...op,target:"<script>bad</script>",state:i===0?"error" as const:"skipped" as const}))}]};
+  const doc=renderTool({...tool,state:"stopped",output:{kind:"inline",value:{content:[],details:{scheduling}}}},true);
+  expect(doc.querySelector("script")).toBeNull();expect(doc.querySelector(".scheduling-panel")?.textContent).toContain("重叠时长未完整记录");
+  expect(doc.querySelectorAll('[data-operation-state="skipped"]')).toHaveLength(2);expect(doc.querySelector(".scheduling-panel")?.textContent).toContain("展示上限");
+ });
 });

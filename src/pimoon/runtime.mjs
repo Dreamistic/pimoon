@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { scheduleReads } from './scheduler.mjs';
+import { SchedulingTrace } from './scheduling.ts';
 import { isProcessResult } from './codeact/process.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -111,12 +112,13 @@ export class Runtime {
       return Buffer.concat([Buffer.from([1]),buffer.subarray(0,total)]);
     }finally{await file.close();}
   }
-  async run(code,context,signal,session=1,onEvent=()=>{}){
+  async run(code,context,signal,session=1,onEvent=()=>{},onScheduling=()=>{}){
     if(this.busy)throw Error('Host is busy; concurrent calls require separate host controllers');
     this.lastMetrics={execution_metrics_version:1,outcome:this.dead?'runtime_crash':'runtime_error',metrics_complete:false,
       state_reused:this.hasState,state_lost:false,runtime_reinitialized:false};
     if(this.dead)throw Error('Runtime unavailable; state lost');
     this.busy=true;this.refs(true);
+    const scheduling=new SchedulingTrace(onScheduling);this.lastScheduling=scheduling.snapshot();
     const emit=(type,fields)=>{try{onEvent(type,fields);}catch{/* 遥测不能改变执行结果。 */}};
     const start=performance.now();let request,stopReason;const images=[],callCounts=new Map();
     const toolController=new AbortController();
@@ -203,7 +205,7 @@ export class Runtime {
           const text=`${result.ok?(result.tool_failures.length?'partial_failure':'ok'):'error'}${result.output?'\n'+result.output:summary}${result.error?'\n'+result.error:''}${result.tool_failures.length?'\ntool_failures: '+JSON.stringify(result.tool_failures):''}${!result.output_complete?'\nOutput retention incomplete.':''}`;
           Object.assign(this.lastMetrics,result.metrics,{ok:result.ok,outcome:result.ok?(result.tool_failures.length?'tool_partial_failure':'success'):'python_error',metrics_complete:true,
             output_complete:result.output_complete,output_chars:result.output_chars,model_returned_text_chars:text.length,tool_failure_count:result.tool_failures.length});
-          return {content:[{type:'text',text},...images],isError:!result.ok,details:{runtime:this.transport,metrics:this.lastMetrics}};
+          return {content:[{type:'text',text},...images],isError:!result.ok,details:{runtime:this.transport,metrics:this.lastMetrics,scheduling:this.lastScheduling=scheduling.finish(false)}};
         }
         if(frame.op===OP.NATIVE){
           let data;try{data=await this.nativeRead(frame.data);}catch(error){data=Buffer.concat([Buffer.from([0]),Buffer.from(error.message)]);}
@@ -216,6 +218,8 @@ export class Runtime {
           if(message.kind==='call')value=await invoke(message.name,message.args);
           else if(message.kind==='schedule'){
             const started=performance.now(),scheduleId=randomUUID(),media=[];
+            const group=Array.isArray(message.jobs)&&message.jobs.every(job=>job&&typeof job.name==='string'&&job.args&&typeof job.args==='object')
+              ? scheduling.begin(message.jobs,message.errors==='collect'?'collect':'raise'):undefined;
             let active=0,peak=0,completed=0;
             const beforeFailures=internalFailures; batches++; batchJobs+=message.jobs?.length??0;
             emit('schedule_start',{schedule_id:scheduleId,jobs:message.jobs?.length,concurrency_limit:6,mode:'explicit',error_policy:message.errors});
@@ -232,10 +236,12 @@ export class Runtime {
                   }finally{emit('scheduled_native_read',{schedule_id:scheduleId,schedule_index:index,ok,elapsed_ms:performance.now()-readStarted});}
                 })();
                 return invoke(name,args,{schedule_id:scheduleId,schedule_index:index},blocks);
-              },()=>Boolean(stopReason||signal?.aborted),(stage)=>{
+              },()=>Boolean(stopReason||signal?.aborted),(stage,index,row)=>{
+                if(group!==undefined)scheduling.observe(group,stage,index,row?.ok);
                 if(stage==='start'){active++;peak=Math.max(peak,active);}else{active--;completed++;}
               },message.errors);
             }finally{
+              if(group!==undefined)scheduling.end(group,value??[],Boolean(stopReason||signal?.aborted));
               // 图片与源码次序一致，不能随完成次序错配到其他读取。
               for(const blocks of media)if(blocks)images.push(...blocks);
               batchCompleted+=completed;batchFailures+=internalFailures-beforeFailures+(value?.filter((row,index)=>message.jobs[index].name==='native_read'&&!row.ok&&!row.skipped).length??0);batchPeak=Math.max(batchPeak,peak);
@@ -250,6 +256,7 @@ export class Runtime {
       if(this.dead)stateLost('supervisor_exit');
       this.lastMetrics.outcome=stopReason??(signal?.aborted?'cancelled':request===undefined?'startup_error':this.dead||!this.sessions.has(session)?'runtime_crash':'runtime_error');
       this.lastMetrics.error_type=error.name;
+      this.lastScheduling=scheduling.finish(true);
       throw error;
     }finally{
       Object.assign(this.lastMetrics,{host_ms:performance.now()-start,internal_tool_calls:internalCalls,internal_tool_failures:internalFailures,internal_output_text_chars:internalOutputChars,

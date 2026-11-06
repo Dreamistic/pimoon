@@ -47,3 +47,12 @@ describe("工具进度载荷", () => {
 		expect(payloads.image(previous.imageId)).toBe("ZmluYWw=");
 	});
 });
+
+it("大 execute 输出引用和历史回看保留有界调度详情",async()=>{
+ const {schedulingFixture}=await import("../../helpers/scheduling-fixture.ts");
+ const payloads=new GuiPayloads();const result=payloads.retainResult("execute-1","execute",{...large("x"),details:{metrics:{outcome:"success",batch_peak_concurrency:3},scheduling:schedulingFixture}});
+ expect(result.kind).toBe("reference");if(result.kind!=="reference")throw Error("reference expected");
+ expect(result.preview.details).toMatchObject({scheduling:schedulingFixture,metrics:{batch_peak_concurrency:3}});
+ const history=payloads.message({role:"toolResult",toolCallId:"execute-1",toolName:"execute",content:[],isError:false,timestamp:1});
+ expect(history).toMatchObject({output:result});expect(payloads.toolOutput(result.id).details).toMatchObject({scheduling:schedulingFixture});
+});

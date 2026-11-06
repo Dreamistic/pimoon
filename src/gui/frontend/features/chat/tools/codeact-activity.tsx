@@ -16,6 +16,8 @@ import { useToolOutput } from "./use-tool-output.ts";
 import type { ToolActivity } from "./activity.ts";
 import { codeActOutcome, codeActOutputSummary, codeActStateLabel } from "./codeact-summary.ts";
 
+import { SchedulingBadge, SchedulingPanel, schedulingView } from "./codeact-scheduling.tsx";
+
 export function CodeActActivity({ tool }: { tool: ToolActivity }) {
 	const [expanded, setExpanded] = useDisclosureMemory(`tool:${tool.id}`, null);
 	const active = tool.state === "running" || tool.state === "preparing" || tool.state === "pending";
@@ -32,6 +34,7 @@ export function CodeActActivity({ tool }: { tool: ToolActivity }) {
 	const target = !desc && calls.length === 1 && first ? toolTarget(first.name, first.arguments) : "";
 	const failedCall = calls.find(call => call.status === "error");
 	const outcome = codeActOutcome(tool.output);
+	const scheduling = schedulingView(tool.output);
 	const waiting = tool.state === "pending" && args.confirmationPending === true;
 	const error = tool.state === "failed" ? codeActOutputSummary(tool.output, true) || (failedCall && errorSummary(failedCall)) || errorSummary(tool) : "";
 	const summary = !active && tool.state === "completed" ? codeActOutputSummary(tool.output) : "";
@@ -50,9 +53,11 @@ export function CodeActActivity({ tool }: { tool: ToolActivity }) {
 				</span>
 			</CollapsibleTrigger>
 			{(facts || summary) && <p className="codeact-overview">{[facts, summary].filter(Boolean).join(" · ")}</p>}
+			<div className="codeact-scheduling-summary"><SchedulingBadge output={tool.output} /></div>
 			<ActivityError>{error}</ActivityError>
 			<CollapsibleContent lazy>
 				<div className="activity-body codeact-body">
+					{scheduling && <SchedulingPanel value={scheduling} />}
 					<div className="codeact-calls">
 						{calls.map((call) => <NestedCallRow key={call.id} call={call} active={active} stopped={tool.state === "stopped"} />)}
 					</div>
