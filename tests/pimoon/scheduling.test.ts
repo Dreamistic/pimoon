@@ -11,6 +11,12 @@ it("重叠按区间并集计算，空闲间隔不算加速",()=>{
  expect(result.groups[0]?.operations).toMatchObject([{startMs:0,durationMs:30,state:"ok"},{startMs:10,durationMs:40,state:"ok"}]);
  expect(executionScheduling({scheduling:result})).toEqual(result);
 });
+it("进程显示统一名称且不复制 argv 和环境到调度轨迹",()=>{
+ const trace=new SchedulingTrace();const id=trace.begin([{name:"process_run",args:{argv:["C:/node/node.exe","--token","PRIVATE"],env:{KEY:"PRIVATE"}}}],"raise");
+ trace.observe(id,"start",0);trace.observe(id,"end",0,true);trace.end(id,[{ok:true}]);
+ const value=trace.finish(false);expect(value.groups[0]?.operations[0]).toMatchObject({name:"subprocess.run",target:"node.exe"});
+ expect(JSON.stringify(value)).not.toContain("PRIVATE");expect(executionScheduling({scheduling:value})).toEqual(value);
+});
 it("显式组实际无重叠时不产生节省时间",()=>{
  let time=0;const trace=new SchedulingTrace(undefined,()=>time),id=trace.begin(jobs,"collect");
  trace.observe(id,"start",0);time=10;trace.observe(id,"end",0,true);time=30;trace.observe(id,"start",1);time=40;trace.observe(id,"end",1,true);

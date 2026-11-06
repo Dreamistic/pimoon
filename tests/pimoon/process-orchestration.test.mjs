@@ -14,9 +14,9 @@ for(const file of ['worker.py','process_api.py','parallel.py','execution.py','fe
 await fs.copyFile('assets/runtime/pimoon-runtime.exe',path.join(resources,'pimoon/pimoon-runtime.exe'));
 process.env.PIMOON_RESOURCE_DIR=resources;
 const tool={name:'process_run',parameters:{type:'object',properties:{argv:{type:'array',items:{type:'string'}},timeout:{type:'number'},check:{type:'boolean'}}},outputSchema:{type:'object'}};
-async function fixture(run,timeoutMs=7000){
+async function fixture(run,timeoutMs=7000,transport='rust'){
  const cwd=await fs.mkdtemp(path.join(base,'case-'));
- const runtime=new Runtime({transport:'rust',cwd,tools:[tool],observe:false,timeoutMs});
+ const runtime=new Runtime({transport,cwd,tools:[tool],observe:false,timeoutMs});
  const calls=[];
  const context={tools:[tool],executeTool:async(_name,input,{signal})=>{
   calls.push(input);
@@ -28,6 +28,73 @@ async function fixture(run,timeoutMs=7000){
  finally{const exited=once(runtime.child,'exit');runtime.close();await exited;}
 }
 const job=(code,extra={})=>({argv:[process.execPath,'-e',code],...extra});
+const parallelCode=(commands, policy='raise')=>`parallel([(subprocess.run,kw) for kw in json.loads(${JSON.stringify(JSON.stringify(commands.map(command=>({args:job(command).argv,capture_output:true,text:true,check:true}))))})],errors=${JSON.stringify(policy)})`;
+
+test('统一进程并发最多两个，顺序结果为 CompletedProcess，普通后继等待全组结束',()=>fixture(async({runtime,cwd,context})=>{
+ const commands=Array.from({length:4},(_,i)=>`setTimeout(()=>{require('node:fs').writeFileSync('done-${i}','ok');console.log(${i})},${i===0?250:70})`);
+ const result=await runtime.run(`saved=42\nvalues=${parallelCode(commands)}\nassert [v.stdout.strip() for v in values]==["0","1","2","3"]\nassert all(isinstance(v,subprocess.CompletedProcess) for v in values)\nassert saved==42`,context);
+ assert.equal(result.isError,false,result.content[0].text);
+ assert.equal(result.details.metrics.batch_peak_concurrency,2);
+ assert.equal(result.details.scheduling.groups[0].state,'completed');
+ assert.deepEqual(result.details.scheduling.groups[0].operations.map(op=>op.name),Array(4).fill('subprocess.run'));
+ assert.equal((await fs.readdir(cwd)).filter(x=>x.startsWith('done-')).length,4);
+}));
+
+for(const policy of ['raise','collect'])test(`进程非零退出在宿主停止派发，已有副作用不回滚 ${policy}`,()=>fixture(async({runtime,cwd,context,calls})=>{
+ const commands=[`console.error('expected');process.exit(7)`,`setTimeout(()=>require('node:fs').writeFileSync('inflight','ok'),250)`,`require('node:fs').writeFileSync('queued','ok')`];
+ const code=policy==='raise'?`try:\n values=${parallelCode(commands,policy)}\nexcept ParallelError as error:\n rows=error.results\nelse:\n raise AssertionError("must fail")`:`rows=${parallelCode(commands,policy)}`;
+ const result=await runtime.run(code+`\nassert not rows[0]["ok"] and rows[0]["error_code"]=="PROCESS_EXIT"\nassert "expected" in rows[0]["error"]\nassert rows[1]["ok"]`,context);
+ assert.equal(result.isError,false,result.content[0].text);assert.equal(result.details.metrics.tool_failure_count,1);
+ assert.equal(result.details.metrics.internal_tool_failures,1);assert.equal(result.details.scheduling.groups[0].state,'failed');
+ assert.equal(calls.length,policy==='raise'?2:3);assert.equal(await fs.readFile(path.join(cwd,'inflight'),'utf8'),'ok');
+ if(policy==='raise')await assert.rejects(fs.access(path.join(cwd,'queued')));
+ assert.equal((await runtime.run('assert rows[2].get("skipped",False)=='+(policy==='raise'?'True':'False'),context)).isError,false);
+}));
+
+for(const transport of ['direct','rust'])test(`同一 parallel 混合原文读取和进程，别名复用仍受禁用检查 ${transport}`,()=>fixture(async({runtime,context,calls})=>{
+ // 传输由 fixture 参数控制；两个 callable 共用同一调度通道。
+ const readTool={name:'read',parameters:{type:'object',properties:{path:{type:'string'}}}};
+ const mixed={tools:[tool,readTool],executeTool:async(name,args,options)=>name==='read'?{isError:false,result:{content:[{type:'text',text:'{"answer":42}'}]}}:context.executeTool(name,args,options)};
+ const argv=JSON.stringify(job('console.log("ok")').argv);
+ const result=await runtime.run(`alias=subprocess.run\nsource,checked=parallel([(read,{"path":"config.json"}),(alias,{"args":${argv},"check":True,"capture_output":True,"text":True})])\nassert json.loads(source)["answer"]==42 and checked.stdout.strip()=="ok"`,mixed);
+ assert.equal(result.isError,false,result.content[0].text);assert.equal(result.details.metrics.batch_jobs,2);
+ const disabled=await runtime.run(`parallel([(alias,{"args":${argv}})])`,{...mixed,tools:[readTool]});assert.equal(disabled.isError,true);assert.equal(calls.length,1);
+},7000,transport));
+
+test('并发进程保留 env 替换、cwd、反馈和 UTF-8，启动失败可收集',()=>fixture(async({runtime,cwd,context})=>{
+ await fs.mkdir(path.join(cwd,'nested'));
+ const args=JSON.stringify(job('console.log(JSON.stringify({mark:process.env.MARK,home:process.env.PIMOON_HOME,cwd:require("node:path").basename(process.cwd())}));console.error("诊断😀")').argv);
+ const annotated={...context,executeTool:async(...args)=>{const outcome=await context.executeTool(...args);const data=outcome.result.structuredContent;return {...outcome,result:{content:[...outcome.result.content,{type:'text',text:'approval note'}],details:data}};}};
+ const result=await runtime.run(`results=parallel([(subprocess.run,{"args":${args},"cwd":"nested","env":{"MARK":"isolated"},"capture_output":True,"text":True,"check":True})])\nassert json.loads(results[0].stdout)=={"mark":"isolated","cwd":"nested"}\nassert results[0].stderr.strip()=="诊断😀"\nrows=parallel([(subprocess.run,{"args":["missing-pimoon-executable"]})],errors="collect")\nassert rows[0]["error_code"]=="PROCESS_SPAWN_ERROR"`,annotated);
+ assert.equal(result.isError,false,result.content[0].text);assert.match(result.content[0].text,/approval note/);assert.equal(result.details.metrics.tool_failure_count,1);
+}));
+
+test('check=False 非零退出仍返回结果；超时失败不重启 Python',()=>fixture(async({runtime,context})=>{
+ const pid=runtime.workerInfo.pid,argv=JSON.stringify(job(`process.exit(7)`).argv),hang=JSON.stringify(job('setInterval(()=>{},1000)').argv);
+ const result=await runtime.run(`saved=42\nvalues=parallel([(subprocess.run,{"args":${argv},"capture_output":True,"text":True})])\nassert values[0].returncode==7\nrows=parallel([(subprocess.run,{"args":${hang},"timeout":0.2})],errors="collect")\nassert rows[0]["error_code"]=="PROCESS_TIMEOUT"\nassert saved==42`,context);
+ assert.equal(result.isError,false,result.content[0].text);assert.equal(result.details.metrics.tool_failure_count,1);
+ assert.equal(runtime.workerInfo.pid,pid);
+}));
+
+test('进程任务参数先整组检查，禁用及被替换函数不获得调度资格',()=>fixture(async({runtime,context,calls})=>{
+ for(const suffix of ['"timeout":-1','"capture_output":True','"env":{"X":1}','"check":"yes"']){
+  const result=await runtime.run(`parallel([(subprocess.run,{"args":["node"]}),(subprocess.run,{"args":["node"],${suffix}})])`,context);
+  assert.equal(result.isError,true);assert.equal(calls.length,0);
+ }
+ const disabled=await runtime.run('parallel([(subprocess.run,{"args":["node"]})])',{...context,tools:[]});assert.equal(disabled.isError,true);
+ const rebound=await runtime.run('subprocess.run=lambda **kw: 1\nparallel([(subprocess.run,{"args":["node"]})])',context);assert.equal(rebound.isError,true);assert.equal(calls.length,0);
+}));
+
+test('取消并发组回收两个活动进程树且不派发第三项',()=>fixture(async({runtime,cwd,context,calls})=>{
+ const controller=new AbortController();
+ const commands=Array.from({length:3},(_,i)=>`require('node:fs').writeFileSync('pid-${i}',String(process.pid));require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify("require('node:fs').writeFileSync('child-"+i+"',String(process.pid));setInterval(()=>{},1000)")}],{stdio:'ignore',windowsHide:true});setInterval(()=>{},1000)`);
+ const pending=runtime.run(parallelCode(commands),context,controller.signal),rejected=assert.rejects(pending,/cancel/i);
+ const until=Date.now()+3000;
+ while(Date.now()<until){if((await fs.readdir(cwd)).filter(f=>f.startsWith('child-')).length===2)break;await new Promise(resolve=>setTimeout(resolve,10));}
+ assert.equal((await fs.readdir(cwd)).filter(f=>f.startsWith('pid-')).length,2);assert.equal((await fs.readdir(cwd)).filter(f=>f.startsWith('child-')).length,2);
+ controller.abort();await rejected;assert.equal(calls.length,2);assert.equal(runtime.hasState,false);
+ for(const file of (await fs.readdir(cwd)).filter(f=>f.startsWith('pid-')||f.startsWith('child-'))){const pid=Number(await fs.readFile(path.join(cwd,file),'utf8'));assert.throws(()=>process.kill(pid,0));}
+}));
 
 test('单个进程超时只中断依赖链，不清空 Python 变量或重启解释器',()=>fixture(async({runtime,context})=>{
  const pid=runtime.workerInfo.pid;
@@ -64,7 +131,7 @@ test('用户取消中止活动进程，不再派发排队项；取消仍明确�
  controller.abort();await rejected;
  assert.equal(calls.length,1);assert.equal(events.filter(e=>e.type==='bridge_tool_start').length,1);
  assert.equal(events.some(e=>e.type==='runtime_state_lost'),true);assert.equal(runtime.hasState,false);
- for(const file of (await fs.readdir(cwd)).filter(f=>f.startsWith('pid-'))){const pid=Number(await fs.readFile(path.join(cwd,file),'utf8'));assert.throws(()=>process.kill(pid,0));}
+ for(const file of (await fs.readdir(cwd)).filter(f=>f.startsWith('pid-')||f.startsWith('child-'))){const pid=Number(await fs.readFile(path.join(cwd,file),'utf8'));assert.throws(()=>process.kill(pid,0));}
 }));
 
 for(const capture of [true,false])test(`subprocess.run UTF-8 输出、CompletedProcess 与默认流：capture=${capture}`,()=>fixture(async({runtime,context})=>{

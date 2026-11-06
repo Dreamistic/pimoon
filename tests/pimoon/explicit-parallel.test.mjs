@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {once} from 'node:events';
-import {scheduleReads} from '../../src/pimoon/scheduler.mjs';
+import {scheduleJobs} from '../../src/pimoon/scheduler.mjs';
 const base=path.resolve('.tmp/tests/explicit-parallel');await fs.mkdir(base,{recursive:true});
 const resources=await fs.mkdtemp(path.join(base,'resources-'));await fs.mkdir(path.join(resources,'pimoon'));
 for(const file of ['worker.py','process_api.py','parallel.py','execution.py','feedback.py','observations.py','worker_hooks.py'])await fs.copyFile(path.join('src/pimoon',file),path.join(resources,'pimoon',file));
@@ -42,7 +42,7 @@ test('动态过滤到显式映射，空组和单项不需特例，超过六项�
 }));
 for(const code of [
  'parallel([(read,{"path":"first"}),(write,{"path":"bad"})])',
- 'parallel([(read,{"path":"first"}),(subprocess.run,{"args":["node"]})])',
+ 'parallel([(read,{"path":"first"}),(subprocess.run,{"args":["node"],"shell":True})])',
  'parallel([(read,{"path":"first"}),(lambda: 1,{})])',
  'parallel([(read,{"path":"first"}),(read,{"path":object()})])',
  'parallel([(read,{"path":"first"}),(read,{1:"bad"})])',
@@ -74,15 +74,15 @@ for(const observe of [false,true])test(`print 保持原语义，输出与串行�
 });
 for(const errors of ['raise','collect'])test(`宿主无限流与取消 ${errors}`,async()=>{
  let active=0,peak=0,started=0;
- const rows=await scheduleReads(Array.from({length:20},(_,i)=>({name:'read',args:{i}})),async(_,{i})=>{
+ const rows=await scheduleJobs(Array.from({length:20},(_,i)=>({name:'read',args:{i}})),async(_,{i})=>{
   started++;active++;peak=Math.max(peak,active);try{await sleep(i===0?1:10);if(i===0)throw Error('denied');return i;}finally{active--;}
  },()=>false,()=>{},errors);
  assert.equal(peak,20);assert.equal(active,0);assert.equal(started,20);assert.equal(rows.filter(x=>x.skipped).length,0);
- let cancelled=false,count=0;await scheduleReads([{name:'read',args:{}},{name:'read',args:{}}],async()=>{count++;cancelled=true;return 'done';},()=>cancelled);assert.equal(count,1);
+ let cancelled=false,count=0;await scheduleJobs([{name:'read',args:{}},{name:'read',args:{}}],async()=>{count++;cancelled=true;return 'done';},()=>cancelled);assert.equal(count,1);
 });
-test('宿主独立拒绝进程写入与非法错误策略',async()=>{
- for(const name of ['write','edit','process_run','http'])await assert.rejects(scheduleReads([{name,args:{}}],async()=>{throw Error('must not call');}),/Invalid read schedule/);
- await assert.rejects(scheduleReads([{name:'read',args:{}}],async()=>{},()=>false,()=>{},'retry'),/Invalid read schedule/);
+test('宿主拒绝非法进程描述、写入与非法错误策略',async()=>{
+ for(const name of ['write','edit','process_run','http'])await assert.rejects(scheduleJobs([{name,args:{}}],async()=>{throw Error('must not call');}),/Invalid parallel schedule/);
+ await assert.rejects(scheduleJobs([{name:'read',args:{}}],async()=>{},()=>false,()=>{},'retry'),/Invalid parallel schedule/);
 });
 
 test('独立五文件中间失败仍读完，必需输入检查阻止写入',()=>fixture(async({run,calls})=>{

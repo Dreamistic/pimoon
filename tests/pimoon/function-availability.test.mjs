@@ -19,7 +19,7 @@ for(const transport of ['rust','direct'])test(`${transport}: 未启用的批次�
  const read={name:'read',parameters:{type:'object',properties:{path:{type:'string'}}}};
  const runtime=new Runtime({transport,cwd,tools:[tool],observe:false});
  let calls=0;
- const context={tools:[read],executeTool:async()=>{calls++;return {isError:false,result:{content:[],structuredContent:{status:'exited',exit_code:0,stdout:'done',stderr:'',truncated:false}}};}};
+ const context={tools:[read],executeTool:async()=>{calls++;return {isError:false,result:{content:[],structuredContent:{status:'exited',exit_code:0,stdout:'done',stderr:'',truncated:false,duration_ms:1}}};}};
  try{
   await runtime.ready;
   const denied=await runtime.run('saved=42\nsubprocess.run(["git","status","--short"])',context);
@@ -35,6 +35,10 @@ for(const transport of ['rust','direct'])test(`${transport}: 未启用的批次�
   assert.equal(enabled.isError,false,enabled.content[0].text);
   assert.equal(calls,1);
   assert.equal(enabled.details.metrics.python_pid,denied.details.metrics.python_pid);
+  const malformed={tools:[tool],executeTool:async()=>{calls++;return {isError:false,result:{content:[],structuredContent:{status:'exited'}}};}};
+  const invalid=await runtime.run('parallel([(subprocess.run,{"args":["git","status"]})])',malformed);
+  assert.equal(invalid.isError,true);assert.match(invalid.content[0].text,/Invalid process result/);assert.equal(calls,2);
+  const preserved=await runtime.run('assert saved==42',context);assert.equal(preserved.isError,false);assert.equal(calls,2);
  }finally{
   const exit=once(runtime.child,'exit');runtime.close();await exit;
  }

@@ -132,7 +132,7 @@ def bridge(kind, **payload):
         failures.append({'tool': 'subprocess.run' if payload.get('name') == 'process_run' else payload.get('name'), 'error': reply.get('error', 'failed')[:600]})
         raise ToolError(reply.get('error', 'tool failed'), reply.get('error_code', 'TOOL_ERROR'))
     if kind == 'schedule':
-        failures.extend({'tool': payload['jobs'][i]['name'],
+        failures.extend({'tool': 'subprocess.run' if payload['jobs'][i]['name'] == 'process_run' else payload['jobs'][i]['name'],
                          'item': i, 'error': item.get('error', 'failed')[:600]}
                         for i, item in enumerate(reply['value']) if not item.get('ok') and not item.get('skipped'))
     return reply.get('value')
@@ -184,7 +184,7 @@ namespace = {'__builtins__': builtins, **preloaded,
              'observe': observer.observe, 'get_observation': observer.get}
 function_names = set()
 from process_api import install
-namespace['subprocess'] = install(bridge, lambda: 'process_run' in function_names,
+namespace['subprocess'], prepare_process, finish_process = install(bridge, lambda: 'process_run' in function_names,
     lambda error: failures.append({'tool': 'subprocess.run', 'error': error}))
 preloaded['subprocess'] = namespace['subprocess']
 
@@ -200,7 +200,7 @@ def bind_functions(functions):
     return proxies
 
 
-parallel = Parallel(bridge)
+parallel = Parallel(bridge, namespace['subprocess'].run, prepare_process, finish_process)
 bind_functions(config['tools'])
 if agent_print:
     builtins.print = observer.print
@@ -233,7 +233,7 @@ while True:
         try:
             cell = json.loads(payload)
             proxies = bind_functions(cell['tools'])
-            parallel.bind(proxies)
+            parallel.bind(proxies, 'process_run' in function_names)
             namespace['parallel'] = parallel
             namespace['ParallelError'] = ParallelError
             namespace['ToolError'] = ToolError

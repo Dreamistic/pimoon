@@ -3,21 +3,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectAssets } from "./assets.mjs";
 import { runtimePlugin } from "./plugins.mjs";
+import { runBuildTasks } from "./tasks.mjs";
 
-export async function buildDesktop({ root, ui, platform, output, directoryOnly }) {
+export async function buildDesktop({ root, buildUI, platform, output, directoryOnly, serial = false, freshOutput = false }) {
 	if (platform.os !== "win32" || platform.arch !== "x64") throw new Error("pimoon 当前仅提供 Windows x64 原生执行器。");
 	const appDir = path.join(output, "app");
-	await rm(output, { recursive: true, force: true });
+	if (!freshOutput) await rm(output, { recursive: true, force: true });
 	await mkdir(appDir, { recursive: true });
-	await collectAssets(root, path.join(appDir, "resources"), { target: "node", platform });
-	const workerDir = path.join(appDir, "resources", "pimoon");
-	await mkdir(workerDir, { recursive: true });
-	for (const file of ["worker.py","process_api.py", "parallel.py", "execution.py", "feedback.py", "observations.py", "worker_hooks.py"]) await cp(path.join(root, "src/pimoon", file), path.join(workerDir, file));
-	await cp(path.join(root, "assets/runtime/pimoon-runtime.exe"), path.join(workerDir, "pimoon-runtime.exe"));
-	const sdkPackageFile = path.join(appDir, "resources/pi/package.json");
-	const sdkPackage = JSON.parse(await readFile(sdkPackageFile, "utf8"));
-	sdkPackage.piConfig = { ...sdkPackage.piConfig, name: "pimoon", configDir: ".pimoon" };
-	await writeFile(sdkPackageFile, JSON.stringify(sdkPackage, null, 2));
 	const piRoot = new URL("../", import.meta.resolve("@earendil-works/pi-coding-agent"));
 	const backendEntry = path.join(output, "backend-entry.ts");
 	await writeFile(backendEntry, `import { fileURLToPath } from "node:url";
@@ -25,24 +17,39 @@ import ${JSON.stringify(path.join(root, "src/desktop/environment.ts"))};
 const { setEmbeddedQuickJSWasmPath } = await import(${JSON.stringify(fileURLToPath(new URL("dist/config.js", piRoot)))});
 setEmbeddedQuickJSWasmPath(fileURLToPath(new URL("./resources/wasm/quickjs.wasm", import.meta.url)));
 await import(${JSON.stringify(path.join(root, "src/desktop/backend.ts"))});\n`);
-	for (const [source, filename, format] of [
+	const entries = [
 		[path.join(root, "src/desktop/main.ts"), "main.mjs", "esm"],
 		[path.join(root, "src/desktop/preload.ts"), "preload.cjs", "cjs"],
 		[backendEntry, "backend.mjs", "esm"],
 		[fileURLToPath(new URL("dist/utils/image-resize-worker.js", piRoot)), "image-resize-worker.js", "esm"],
-	]) {
-		const result = await Bun.build({
-			entrypoints: [source],
-			target: "node",
-			format,
-			define: { PI_BUNDLED_NODE: "true" },
-			external: ["electron"],
-			minify: true,
-			plugins: [runtimePlugin()],
-		});
-		if (result.outputs.length !== 1) throw new Error(`Unexpected desktop outputs: ${filename}`);
-		await writeFile(path.join(appDir, filename), await result.outputs[0].arrayBuffer());
-	}
+	];
+	const [ui] = await runBuildTasks([
+		{ name: "gui", run: buildUI },
+		{ name: "resources", run: async () => {
+			await collectAssets(root, path.join(appDir, "resources"), { target: "node", platform });
+			const workerDir = path.join(appDir, "resources", "pimoon");
+			await mkdir(workerDir, { recursive: true });
+			for (const file of ["worker.py","process_api.py", "parallel.py", "execution.py", "feedback.py", "observations.py", "worker_hooks.py"]) await cp(path.join(root, "src/pimoon", file), path.join(workerDir, file));
+			await cp(path.join(root, "assets/runtime/pimoon-runtime.exe"), path.join(workerDir, "pimoon-runtime.exe"));
+			const sdkPackageFile = path.join(appDir, "resources/pi/package.json");
+			const sdkPackage = JSON.parse(await readFile(sdkPackageFile, "utf8"));
+			sdkPackage.piConfig = { ...sdkPackage.piConfig, name: "pimoon", configDir: ".pimoon" };
+			await writeFile(sdkPackageFile, JSON.stringify(sdkPackage, null, 2));
+		} },
+		...entries.map(([source, filename, format]) => ({ name: filename, run: async () => {
+			const result = await Bun.build({
+				entrypoints: [source],
+				target: "node",
+				format,
+				define: { PI_BUNDLED_NODE: "true" },
+				external: ["electron"],
+				minify: true,
+				plugins: [runtimePlugin()],
+			});
+			if (result.outputs.length !== 1) throw new Error(`Unexpected desktop outputs: ${filename}`);
+			await writeFile(path.join(appDir, filename), await result.outputs[0].arrayBuffer());
+		} })),
+	], { serial });
 	await rm(backendEntry);
 	await cp(ui, path.join(appDir, "ui"), { recursive: true });
 	await cp(path.join(root, "assets/icons"), path.join(appDir, "icons"), { recursive: true });

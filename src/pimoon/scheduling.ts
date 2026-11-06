@@ -31,7 +31,9 @@ const round = (value: number) => Math.round(Math.max(0, value) * 10) / 10;
 function target(args: Record<string, unknown>): string {
  const path = typeof args.path === "string" ? args.path : Array.isArray(args.path) ? args.path.filter((v): v is string => typeof v === "string").join(", ") : "";
  const query = typeof args.query === "string" ? args.query : "";
- const value = [path, query].filter(Boolean).join(" · ").replace(/[\u0000-\u001f\u007f]/gu, " ");
+ // 进程只展示程序名；不把命令参数或环境变量复制进调度元数据。
+ const program = Array.isArray(args.argv) && typeof args.argv[0] === "string" ? args.argv[0].split(/[\\/]/u).pop() : "";
+ const value = [program, path, query].filter(Boolean).join(" · ").replace(/[\u0000-\u001f\u007f]/gu, " ");
  return value.length > 160 ? value.slice(0, 159) + "…" : value;
 }
 
@@ -56,7 +58,7 @@ export class SchedulingTrace {
   this.truncated ||= selected.length < jobs.length;
   this.groups.push({ started: this.now(), active: 0, intervals: [], operationStarts: new Map(), view: {
    id, policy, total: jobs.length, state: "running", elapsedMs: 0, peak: 0,
-   operations: selected.map((job, index) => ({ index, name: job.name, target: target(job.args), state: "queued" })),
+   operations: selected.map((job, index) => ({ index, name: job.name === "process_run" ? "subprocess.run" : job.name, target: target(job.args), state: "queued" })),
   } });
   this.publish(true);
   return id;

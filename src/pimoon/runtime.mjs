@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { scheduleReads } from './scheduler.mjs';
+import { scheduleJobs, processFailure, PROCESS_CONCURRENCY } from './scheduler.mjs';
 import { SchedulingTrace } from './scheduling.ts';
 import { isProcessResult } from './codeact/process.ts';
 import { rawReadText } from './codeact/read-result.ts';
@@ -144,8 +144,12 @@ export class Runtime {
         const text=content.filter(c=>c.type==='text').map(c=>c.text).join('\n');
         failed=outcome.isError;chars=text.length;
         // 审批反馈可能使 SDK 撤销结构化文本；进程数据取执行器 details，反馈独立回传。
-        if(name==='process_run'&&!failed&&isProcessResult(outcome.result.details))
-          return {...outcome.result.details,timeout:input.timeout??DEFAULT_PROCESS_TIMEOUT_SECONDS,feedback:content.slice(1).filter(c=>c.type==='text').map(c=>c.text).join('\n')};
+        if(name==='process_run'&&!failed){
+          const result=isProcessResult(outcome.result.details)?outcome.result.details:outcome.result.structuredContent;
+          if(batch)failed=Boolean(processFailure(result,batch.process_check));
+          if(isProcessResult(result))return {...result,timeout:input.timeout??DEFAULT_PROCESS_TIMEOUT_SECONDS,feedback:content.slice(1).filter(c=>c.type==='text').map(c=>c.text).join('\n')};
+          failed=true;throw Error('Invalid process result; do not replay completed operations');
+        }
         if(failed){
           const detail=outcome.result.details;
           const code=detail?.status==='failed'&&typeof detail.error?.code==='string'?detail.error.code:'TOOL_ERROR';
@@ -157,11 +161,7 @@ export class Runtime {
           attachmentSink.push(...content.slice(1).filter(c=>c.type==='text'));
           return raw;
         }
-        if(tool.outputSchema&&outcome.result.structuredContent!==undefined){
-          return name==='process_run'&&isProcessResult(outcome.result.structuredContent)
-            ? {...outcome.result.structuredContent,timeout:input.timeout??DEFAULT_PROCESS_TIMEOUT_SECONDS}
-            : outcome.result.structuredContent;
-        }
+        if(tool.outputSchema&&outcome.result.structuredContent!==undefined)return outcome.result.structuredContent;
         return text;
       }finally{
         if(failed)internalFailures++;
@@ -209,11 +209,11 @@ export class Runtime {
               ? scheduling.begin(message.jobs,message.errors==='collect'?'collect':'raise'):undefined;
             let active=0,peak=0,completed=0;
             const beforeFailures=internalFailures; batches++; batchJobs+=message.jobs?.length??0;
-            emit('schedule_start',{schedule_id:scheduleId,jobs:message.jobs?.length,concurrency_limit:null,mode:'explicit',error_policy:message.errors});
+            emit('schedule_start',{schedule_id:scheduleId,jobs:message.jobs?.length,concurrency_limit:null,process_concurrency_limit:PROCESS_CONCURRENCY,mode:'explicit',error_policy:message.errors});
             try{
-              value=await scheduleReads(message.jobs,(name,args,index)=>{
+              value=await scheduleJobs(message.jobs,(name,args,index)=>{
                 const blocks=[];media[index]=blocks;
-                return invoke(name,args,{schedule_id:scheduleId,schedule_index:index},blocks);
+                return invoke(name,args,{schedule_id:scheduleId,schedule_index:index,process_check:message.jobs[index].check},blocks);
               },()=>Boolean(stopReason||signal?.aborted),(stage,index,row)=>{
                 if(group!==undefined)scheduling.observe(group,stage,index,row?.ok);
                 if(stage==='start'){active++;peak=Math.max(peak,active);}else{active--;completed++;}

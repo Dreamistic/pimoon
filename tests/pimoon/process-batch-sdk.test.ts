@@ -49,6 +49,27 @@ it("标准 subprocess 经过真实 SDK，超时不丢变量，依赖链按顺序
   for(const request of f.server.requests){expect(request.tools?.map(tool=>tool.function.name)).toEqual(["execute"]);const text=JSON.stringify(request.tools);expect(text).toContain("subprocess.run");expect(text).not.toContain("process_run(");expect(text).not.toContain("batch(");}
  }finally{await f.close();}
 });
+it("统一 parallel 经真实 SDK 并发进程，结果与调度投影一致",async()=>{
+ const commands=[0,1,2].map(i=>({args:job(`setTimeout(()=>console.log(${i}),150)`).argv,check:true,capture_output:true,text:true}));
+ const code=`values=parallel([(subprocess.run,kw) for kw in json.loads(${JSON.stringify(JSON.stringify(commands))})])\nassert [r.stdout.strip() for r in values]==["0","1","2"]`;
+ const f=await fixture([code]);
+ try{
+  let active=0,peak=0;f.session.subscribe(event=>{if(event.type==="tool_execution_start"&&event.toolName==="process_run"){active++;peak=Math.max(peak,active);}if(event.type==="tool_execution_end"&&event.toolName==="process_run")active--;});
+  await f.session.bindExtensions({mode:"print",onError:({error})=>{throw new Error(error);}});await f.session.prompt("Run independent checks.");
+  const result=f.session.messages.find(isExecutionResult);expect(result?.isError).toBe(false);expect(peak).toBe(2);expect(active).toBe(0);
+  expect(JSON.stringify(result)).toContain("subprocess.run");expect(executionMetrics(result).batch_peak_concurrency).toBe(2);
+ }finally{await f.close();}
+});
+it("统一 parallel 逐项经过 SDK 审批，拒绝后队列不启动也不写入",async()=>{
+ const commands=[0,1,2].map(i=>({args:job(`require('node:fs').writeFileSync('denied-${i}','bad')`).argv,check:true}));
+ const f=await fixture([`parallel([(subprocess.run,kw) for kw in json.loads(${JSON.stringify(JSON.stringify(commands))})])`],true);
+ try{
+  await f.session.bindExtensions({mode:"print",onError:({error})=>{throw new Error(error);}});await f.session.prompt("Approval must block every process.");
+  const result=f.session.messages.find(isExecutionResult);expect(result?.isError).toBe(true);expect(JSON.stringify(result?.content)).toMatch(/approval|审批/iu);
+  for(let i=0;i<3;i++)await expect(fs.access(path.join(f.cwd,`denied-${i}`))).rejects.toThrow();
+  expect(executionMetrics(result).internal_tool_calls).toBe(2);
+ }finally{await f.close();}
+});
 it("标准 subprocess 仍逐项经过真实审批，拒绝后不产生进程副作用",async()=>{
  const argv=job("require('node:fs').writeFileSync('denied','bad')").argv;
  const f=await fixture([`subprocess.run(${JSON.stringify(argv)},check=True)`],true);
