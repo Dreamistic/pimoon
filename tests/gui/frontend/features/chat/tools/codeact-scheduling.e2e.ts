@@ -7,7 +7,7 @@ import {assistant} from "../../../../helpers/transcript-fixtures.ts";
 import {schedulingFixture} from "../../../../helpers/scheduling-fixture.ts";
 
 // 定向浏览器验证补足 SSR 无法覆盖的布局、折叠记忆和实时状态更新。
-test("并发分组实时更新且不覆盖手动折叠，深浅色和大字号不横向溢出",async({page},info)=>{
+test("并发标记融入标题且不覆盖折叠，减少动效、深浅色和大字号可用",async({page},info)=>{
  const group=schedulingFixture.groups[0];if(!group)throw Error("fixture missing");
  const {overlapMs: _overlap, ...unfinished}=group;
  const running:ExecutionScheduling={...schedulingFixture,state:"running",groups:[{...unfinished,state:"running",operations:group.operations.map(({durationMs: _duration,...op})=>({...op,state:"running"}))}]};
@@ -24,18 +24,17 @@ test("并发分组实时更新且不覆盖手动折叠，深浅色和大字号�
  try{
   const card=page.locator('[data-tool-call-id="parallel-execution"]');
   await expect(card.locator(".scheduling-badge")).toContainText("峰值 3");
-  await expect(card.locator(".scheduling-operations")).toBeVisible();
-  await expect(card.locator('[data-operation-state="running"]')).toHaveCount(3);
-  const toggle=card.locator(".scheduling-group > .disclosure-trigger");
-  await toggle.click();await expect(toggle).toHaveAttribute("aria-expanded","false");
-  channel.accept({type:"snapshot",value:{...snapshot,liveTools:[{toolCallId:"parallel-execution",toolName:"execute",args,output:{kind:"inline",value:{content:[],details:{scheduling:schedulingFixture}}},completion:{isError:false,durationMs:120}}]}});
+  await expect(card.locator(".activity-summary .scheduling-badge")).toBeVisible();
+  await expect(card.locator(".scheduling-panel")).toHaveCount(0);
   const summary=card.locator('> [data-slot="collapsible"] > .activity-summary');
+  await summary.click();await expect(summary).toHaveAttribute("aria-expanded","false");
+  channel.accept({type:"snapshot",value:{...snapshot,liveTools:[{toolCallId:"parallel-execution",toolName:"execute",args,output:{kind:"inline",value:{content:[],details:{scheduling:schedulingFixture}}},completion:{isError:false,durationMs:120}}]}});
   await expect(summary).toContainText("执行完成");
-  await summary.click();
-  await expect(toggle).toHaveAttribute("aria-expanded","false");
-  await expect(toggle).toContainText("重叠 140 ms");await toggle.click();
-  await expect(card.locator(".scheduling-operations")).toBeVisible();
-  await expect(card).toContainText("settings.json");await expect(card).toContainText("不是相对串行的实测提速");
+  await expect(summary).toHaveAttribute("aria-expanded","false");
+  await expect(summary.locator(".scheduling-badge")).toContainText("并发 · 峰值 3");
+  await summary.click();await expect(summary).toHaveAttribute("aria-expanded","true");
+  await page.emulateMedia({reducedMotion:"reduce"});
+  const toggle=summary;
   for(const theme of ["light","dark"]as const){
    await page.emulateMedia({colorScheme:theme});
    await page.evaluate(()=>{document.documentElement.style.fontSize="100%";});
