@@ -17,7 +17,7 @@ export function executionScheduling(details: unknown): ExecutionScheduling | und
  for (const group of value.groups) {
   if (!record(group) || !number(group.id) || !Number.isInteger(group.id) || group.id < 1 || ids.has(group.id)
    || !number(group.total) || !Number.isInteger(group.total) || group.total > 256 || !groupState(group.state)
-   || (group.policy !== "raise" && group.policy !== "collect") || !number(group.elapsedMs) || !number(group.peak) || !Number.isInteger(group.peak) || group.peak > 6
+   || (group.policy !== "raise" && group.policy !== "collect") || !number(group.elapsedMs) || !number(group.peak) || !Number.isInteger(group.peak) || group.peak > group.total
    || !Array.isArray(group.operations) || group.operations.length > group.total || (group.overlapMs !== undefined && !number(group.overlapMs))) return;
   ids.add(group.id); count += group.operations.length; if (count > 256) return;
   const operations: ScheduledOperation[] = [];
@@ -32,4 +32,19 @@ export function executionScheduling(details: unknown): ExecutionScheduling | und
    ...(group.overlapMs === undefined ? {} : { overlapMs: group.overlapMs }) });
  }
  return { version: 1, state: value.state, truncated: value.truncated, groups };
+}
+
+/** 以本次单项耗时之和估算串行基线，不代表真实串行对照。 */
+export function estimatedSchedulingSavings(value: ExecutionScheduling): number | undefined {
+ if (value.state !== "completed" || value.truncated || !value.groups.length) return;
+ let durations = 0, elapsed = 0;
+ for (const group of value.groups) {
+  if (group.state !== "completed" || group.operations.length !== group.total) return;
+  elapsed += group.elapsedMs;
+  for (const operation of group.operations) {
+   if (operation.state !== "ok" || operation.durationMs === undefined) return;
+   durations += operation.durationMs;
+  }
+ }
+ return Number.isFinite(durations) && Number.isFinite(elapsed) ? Math.max(0, durations - elapsed) : undefined;
 }

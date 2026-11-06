@@ -24,6 +24,7 @@ test("并发标记融入标题且不覆盖折叠，减少动效、深浅色和�
  try{
   const card=page.locator('[data-tool-call-id="parallel-execution"]');
   await expect(card.locator(".scheduling-badge")).toContainText("峰值 3");
+  await expect(card.locator(".scheduling-badge")).not.toContainText("约省");
   await expect(card.locator(".activity-summary .scheduling-badge")).toBeVisible();
   await expect(card.locator(".scheduling-panel")).toHaveCount(0);
   const summary=card.locator('> [data-slot="collapsible"] > .activity-summary');
@@ -31,7 +32,7 @@ test("并发标记融入标题且不覆盖折叠，减少动效、深浅色和�
   channel.accept({type:"snapshot",value:{...snapshot,liveTools:[{toolCallId:"parallel-execution",toolName:"execute",args,output:{kind:"inline",value:{content:[],details:{scheduling:schedulingFixture}}},completion:{isError:false,durationMs:120}}]}});
   await expect(summary).toContainText("执行完成");
   await expect(summary).toHaveAttribute("aria-expanded","false");
-  await expect(summary.locator(".scheduling-badge")).toContainText("并发 · 峰值 3");
+  await expect(summary.locator(".scheduling-badge")).toContainText("并发 · 峰值 3 · 约省 140 ms");
   await summary.click();await expect(summary).toHaveAttribute("aria-expanded","true");
   await page.emulateMedia({reducedMotion:"reduce"});
   const toggle=summary;
@@ -43,6 +44,7 @@ test("并发标记融入标题且不覆盖折叠，减少动效、深浅色和�
    await page.evaluate(()=>{document.documentElement.style.fontSize="200%";});
    await toggle.scrollIntoViewIfNeeded();
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+   expect(await summary.locator(".scheduling-badge").evaluate(element=>element.scrollWidth<=element.clientWidth+1)).toBe(true);
    await expect(toggle).toBeInViewport();
    await page.screenshot({path:info.outputPath(`parallel-${theme}.png`)});
   }

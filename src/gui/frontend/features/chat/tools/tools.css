@@ -119,5 +119,7 @@
 }
 
 /* 并发标记融入工具标题，不叠加独立表面或注意力动画。 */
-.scheduling-badge { display: inline-flex; align-items: center; gap: var(--space-1); min-inline-size: 0; color: var(--muted-foreground); font-size: var(--text-caption); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.scheduling-badge { display: inline-flex; flex-wrap: wrap; align-items: center; column-gap: var(--space-1); min-inline-size: 0; max-inline-size: 100%; color: var(--muted-foreground); font-size: var(--text-caption); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.scheduling-summary { display: inline-flex; align-items: center; gap: var(--space-1); }
+.scheduling-saving { white-space: normal; }
 .scheduling-badge svg { inline-size: 1em; block-size: 1em; flex: none; }

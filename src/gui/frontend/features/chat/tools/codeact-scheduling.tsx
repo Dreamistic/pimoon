@@ -1,5 +1,5 @@
 import { GitFork } from "lucide-react";
-import { executionScheduling } from "../../../../shared/messages/scheduling.ts";
+import { executionScheduling, estimatedSchedulingSavings } from "../../../../shared/messages/scheduling.ts";
 import { outputPreview } from "../../../../shared/messages/output.ts";
 import type { GuiToolOutput } from "../../../../shared/messages/types.ts";
 import { record } from "@/ui/content/format.ts";
@@ -11,8 +11,10 @@ export function SchedulingBadge({ output }: { output: GuiToolOutput | undefined 
  if (value) {
   if (!value.groups.length) return null;
   const peak = Math.max(0, ...value.groups.map(group => group.peak));
-  return <span className="scheduling-badge" title="显式并发组；峰值是实际同时执行的操作数，不代表提速倍数">
-   <GitFork aria-hidden="true" />{peak > 1 ? `并发 · 峰值 ${peak}` : "并发组"}
+  const saved = estimatedSchedulingSavings(value);
+  const saving = saved === undefined || saved < 1 ? "" : saved < 1000 ? `约省 ${Math.round(saved)} ms` : `约省 ${Math.round(saved / 1000)} 秒`;
+  return <span className="scheduling-badge" title="峰值不代表提速倍数；约省 = 单项耗时之和减去整组用时，是估算而非串行实测">
+   <span className="scheduling-summary"><GitFork aria-hidden="true" />{peak > 1 ? `并发 · 峰值 ${peak}` : "并发组"}</span>{saving && <span className="scheduling-saving"> · {saving}</span>}
   </span>;
  }
  const metrics = record(details) && record(details.metrics) ? details.metrics : undefined;

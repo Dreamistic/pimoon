@@ -273,7 +273,7 @@ test('Python 意外退出后标记内存丢失，下一次调用重新初始化'
  const pid=runtime.workerInfo.pid;
  await assert.rejects(runtime.run('private_value=42\nimport os\nos._exit(1)',context),/worker exited|state lost/i);
  assert.equal(runtime.hasState,false);
- const recovered=await runtime.run('assert "private_value" not in globals()\nprint("recovered")',context);
+ const recovered=await runtime.run('assert "private_value" not in globals()\nassert os.path.basename("restored.txt")=="restored.txt"\nprint("recovered")',context);
  assert.equal(recovered.isError,false);assert.notEqual(recovered.details.metrics.python_pid,pid);
 },[],false));
 
@@ -361,4 +361,22 @@ test('已取消的执行不误报成功，观测器失败不改变业务结果',
  const failed=await runtime.run('raise ValueError("PRIVATE_ERROR")',context);
  assert.equal(failed.details.metrics.outcome,'python_error');assert.equal(failed.details.metrics.error_type,'ValueError');
  assert.doesNotMatch(JSON.stringify(failed.details.metrics),/PRIVATE_ERROR/);
+},[],false));
+
+for(const transport of ['direct','rust'])test(`${transport}: 常用库在预热就绪前绑定，无需 import，权限不扩大`,()=>runTest(async runtime=>{
+ const {pythonPreloads}=await import('../../src/pimoon/codeact/preloads.ts');
+ assert.deepEqual(runtime.workerInfo.preloaded,Array.from(pythonPreloads));
+ assert.equal(runtime.hasState,false);
+ const result=await runtime.run('assert json.loads("42")==42\nassert os.path.basename("a.txt")=="a.txt"\nassert Path("a.txt").name=="a.txt" and pathlib.Path is Path\nassert re.findall("[0-9]+","a42")==["42"]\nassert list(csv.reader(io.StringIO("a,b")))==[["a","b"]]\nassert math.isqrt(16)==4 and statistics.mean([1,3])==2\nassert datetime.date(2026,1,1).year==2026 and time.monotonic()>0\nassert collections.Counter("aba")["a"]==2\nassert list(itertools.chain([1],[2]))==[1,2]\nassert functools.reduce(lambda a,b:a+b,[1,2])==3\nassert sys.version_info.major==3',context);
+ assert.equal(result.isError,false,result.content[0].text);
+ const denied=await runtime.run('subprocess.run(["node","--version"])',context);
+ assert.equal(denied.isError,true);assert.match(denied.content[0].text,/not enabled/);
+ const original=await runtime.run('Path("kept.txt").write_text("kept")',context);assert.equal(original.isError,false);
+ const overwrite=await runtime.run('Path("kept.txt").write_text("bad")',context);assert.equal(overwrite.isError,true);assert.match(overwrite.content[0].text,/existing files require/);
+},[],false,{transport}));
+test('同名工具通过 functions 调用，不覆盖预载库；停用后库仍可用',()=>runTest(async runtime=>{
+ const moduleTool={name:'os',parameters:{type:'object',properties:{}}};
+ const result=await runtime.run('assert os.path.basename("a.txt")=="a.txt"\nassert functions.os()=="tool-result"',{tools:[moduleTool],executeTool:async()=>({isError:false,result:{content:[{type:'text',text:'tool-result'}]}})});
+ assert.equal(result.isError,false,result.content[0].text);
+ const disabled=await runtime.run('assert os.path.basename("a.txt")=="a.txt"\nassert not hasattr(functions,"os")',context);assert.equal(disabled.isError,false,disabled.content[0].text);
 },[],false));

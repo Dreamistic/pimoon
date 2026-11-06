@@ -43,3 +43,10 @@ it("模型保留标准进程签名，不恢复旧批次与进程别名",()=>{
  expect(catalog).toContain("subprocess.run(args:");expect(catalog).toContain("CompletedProcess");expect(catalog).not.toContain("process_run");
  expect(nativeInstructions).not.toContain("batch(");expect(nativeInstructions).not.toContain("process_run");
 });
+
+it("预载库显式列出，同名工具改用 functions 命名空间",()=>{
+ expect(nativeInstructions).toContain("Preloaded: os,sys,json,re,pathlib,Path,csv,io,math,statistics,datetime,time,collections,itertools,functools,subprocess.");
+ const catalog=functionCatalog([{name:"os",description:"Fixture",parameters:Type.Object({})}]);
+ expect(catalog).toContain('getattr(functions,"os")()');
+ expect(isCodeActFunction("os")).toBe(true);
+});

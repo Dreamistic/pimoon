@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { SchedulingTrace } from "../../src/pimoon/scheduling.ts";
-import { executionScheduling } from "../../src/gui/shared/messages/scheduling.ts";
+import { executionScheduling, estimatedSchedulingSavings } from "../../src/gui/shared/messages/scheduling.ts";
 afterEach(() => vi.useRealTimers());
 const jobs = [{name:"read",args:{path:"a.txt"}},{name:"read",args:{path:"b.txt"}}];
 it("重叠按区间并集计算，空闲间隔不算加速",()=>{
@@ -46,4 +46,26 @@ it("未知旧记录和损坏数值不伪造时间线",()=>{
  expect(executionScheduling({scheduling:{...value,version:9}})).toBeUndefined();
  expect(executionScheduling({scheduling:{...value,groups:value.groups.map(g=>({...g,elapsedMs:Infinity}))}})).toBeUndefined();
  expect(executionScheduling({scheduling:{...value,groups:[...value.groups,...value.groups]}})).toBeUndefined();
+});
+
+it("峰值超过六仍可展示，估算节省使用整个组墙钟而非区间重叠",()=>{
+ let time=0;const trace=new SchedulingTrace(undefined,()=>time);
+ const jobs=Array.from({length:10},()=>({name:"read",args:{path:"a"}}));
+ const id=trace.begin(jobs,"collect");jobs.forEach((_,i)=>trace.observe(id,"start",i));
+ time=1000;jobs.forEach((_,i)=>trace.observe(id,"end",i,true));
+ time=1500;trace.end(id,jobs.map(()=>({ok:true})));const value=trace.finish(false);
+ expect(executionScheduling({scheduling:value})?.groups[0]?.peak).toBe(10);
+ expect(value.groups[0]?.overlapMs).toBe(9000);
+ expect(estimatedSchedulingSavings(value)).toBe(8500);
+ expect(executionScheduling({scheduling:{...value,groups:value.groups.map(g=>({...g,peak:11}))}})).toBeUndefined();
+});
+it("失败、运行中、截断和缺少计时不展示估算，调度开销不产生负节省",()=>{
+ let time=0;const trace=new SchedulingTrace(undefined,()=>time),id=trace.begin(jobs,"collect");
+ trace.observe(id,"start",0);trace.observe(id,"start",1);time=10;trace.observe(id,"end",0,true);trace.observe(id,"end",1,true);
+ time=30;trace.end(id,[{ok:true},{ok:true}]);const value=trace.finish(false);
+ expect(estimatedSchedulingSavings(value)).toBe(0);
+ expect(estimatedSchedulingSavings({...value,state:"running"})).toBeUndefined();
+ expect(estimatedSchedulingSavings({...value,truncated:true})).toBeUndefined();
+ expect(estimatedSchedulingSavings({...value,groups:value.groups.map(g=>({...g,state:"failed"}))})).toBeUndefined();
+ expect(estimatedSchedulingSavings({...value,groups:value.groups.map(g=>({...g,operations:g.operations.map(({durationMs: _duration,...op})=>op)}))})).toBeUndefined();
 });

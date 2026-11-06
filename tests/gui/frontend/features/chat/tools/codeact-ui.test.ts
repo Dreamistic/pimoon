@@ -174,7 +174,7 @@ describe("原生 execute 卡片", () => {
 describe("真实并发轨迹",()=>{
  it("折叠卡片标题内显示并发峰值，展开只沿用调用列表",()=>{
   const value: Activity={...tool,name:"execute",state:"completed",output:{kind:"inline",value:{content:[],details:{scheduling:schedulingFixture}}}};
-  const collapsed=renderTool(value);expect(collapsed.querySelector(".scheduling-badge")?.textContent).toContain("并发 · 峰值 3");
+  const collapsed=renderTool(value);expect(collapsed.querySelector(".scheduling-badge")?.textContent).toContain("并发 · 峰值 3 · 约省 140 ms");
   const doc=renderTool(value,true);expect(doc.querySelector(".scheduling-panel")).toBeNull();
   expect(doc.querySelector(".activity-summary .scheduling-badge")?.getAttribute("title")).toContain("不代表提速倍数");
   expect(doc.querySelectorAll(".nested-tool-call")).toHaveLength(2);
@@ -192,5 +192,15 @@ describe("真实并发轨迹",()=>{
   const doc=renderTool({...tool,state:"stopped",output:{kind:"inline",value:{content:[],details:{scheduling}}}},true);
   expect(doc.querySelector("script")).toBeNull();expect(doc.querySelector(".scheduling-panel")).toBeNull();
   expect(doc.querySelector(".activity-summary .scheduling-badge")?.textContent).toContain("并发 · 峰值 3");
+  expect(doc.querySelector(".scheduling-badge")?.textContent).not.toContain("约省");
  });
+});
+
+it("多组估算节省按组汇总，以整数秒显示且不包含串行工作",()=>{
+ const base=schedulingFixture.groups[0];if(!base)throw Error("fixture");
+ const group={...base,elapsedMs:2000,operations:base.operations.map(op=>({...op,durationMs:2000}))};
+ const scheduling={...schedulingFixture,groups:[group,{...group,id:2}]};
+ const doc=renderTool({...tool,state:"completed",output:{kind:"inline",value:{content:[],details:{scheduling}}}});
+ expect(doc.querySelector(".scheduling-badge")?.textContent).toContain("约省 8 秒");
+ expect(doc.querySelector(".scheduling-badge")?.getAttribute("title")).toContain("是估算而非串行实测");
 });

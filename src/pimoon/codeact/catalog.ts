@@ -1,8 +1,9 @@
+import { isPreloadedName } from "./preloads.ts";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 
 type FunctionInfo = Pick<AgentTool, "name" | "description" | "parameters" | "outputSchema">;
 const keywords = new Set("False None True and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield".split(" "));
-const callableName = (name: string) => /^[A-Za-z_]\w*$/u.test(name) && !keywords.has(name) ? name : `getattr(functions,${JSON.stringify(name)})`;
+const callableName = (name: string) => /^[A-Za-z_]\w*$/u.test(name) && !keywords.has(name) && !isPreloadedName(name) ? name : `getattr(functions,${JSON.stringify(name)})`;
 
 /** 从 schema 提取 Python 签名和必要参数语义，不发送 JSON 工具声明。 */
 export function functionCatalog(functions: readonly FunctionInfo[]): string {

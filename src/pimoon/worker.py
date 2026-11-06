@@ -1,5 +1,15 @@
 """CA02 持久 Python；文件检查用于纵深防御，不是强安全沙箱。"""
 import builtins
+import collections
+import csv
+import datetime
+import functools
+import itertools
+import math
+import pathlib
+import re
+import statistics
+import time
 from collections import OrderedDict
 import contextlib
 import io
@@ -166,20 +176,25 @@ system_write_roots = tuple(Path(p).resolve() for p in (
     if os.name == 'nt' else ['/etc', '/usr', '/bin', '/sbin', '/System', '/Library', '/var']))
 observer = Observations()
 agent_print = config.get('observe', False)
-namespace = {'__builtins__': builtins, 'json': json,
+# 首次执行前加载轻量标准库；不安装依赖，不改变文件与进程审计。
+preloaded = {name: globals()[name] for name in (
+    "os", "sys", "json", "re", "pathlib", "Path", "csv", "io", "math", "statistics",
+    "datetime", "time", "collections", "itertools", "functools")}
+namespace = {'__builtins__': builtins, **preloaded,
              'observe': observer.observe, 'get_observation': observer.get}
 function_names = set()
 from process_api import install
 namespace['subprocess'] = install(bridge, lambda: 'process_run' in function_names,
     lambda error: failures.append({'tool': 'subprocess.run', 'error': error}))
+preloaded['subprocess'] = namespace['subprocess']
 
 
 def bind_functions(functions):
     global function_names
     proxies = {s['name']: tool(s['name'], list(s['parameters'].get('properties', {}))) for s in functions if s['name'] != 'process_run'}
-    for name in function_names - proxies.keys():
+    for name in (function_names - proxies.keys()) - preloaded.keys():
         namespace.pop(name, None)
-    namespace.update(proxies)
+    namespace.update({name: proxy for name, proxy in proxies.items() if name not in preloaded})
     namespace['functions'] = types.SimpleNamespace(**proxies)
     function_names = {s['name'] for s in functions}
     return proxies
@@ -191,7 +206,7 @@ if agent_print:
     builtins.print = observer.print
 cache = OrderedDict()
 sys.addaudithook(audit)
-send(READY, {'pid': os.getpid(), 'python_version': sys.version.split()[0], 'mode': 'observe' if agent_print else 'raw'})
+send(READY, {'pid': os.getpid(), 'python_version': sys.version.split()[0], 'mode': 'observe' if agent_print else 'raw', 'preloaded': list(preloaded)})
 while True:
     message = receive()
     if message is None or message[0] == CLOSE:
