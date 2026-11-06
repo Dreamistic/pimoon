@@ -36,8 +36,7 @@ except RuntimeError:
  pass
 assert Path("fixture.txt").read_text()==${JSON.stringify(source)}
 Path("saved.txt").write_text("saved")
-first=read(path="fixture.txt")
-second=read(path="fixture.txt")
+first,second=parallel([(read,{"path":"fixture.txt"}),(read,{"path":"fixture.txt"})])
 try:
  read(path="missing.txt")
 except RuntimeError:

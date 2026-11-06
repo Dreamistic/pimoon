@@ -31,13 +31,14 @@ it("返回值说明沿用 schema 的联合分支，明确 read 展示文本与�
 it("不再硬编码旧工具白名单；插件函数可进入目录，Shell 包装除外", () => {
 	expect(isCodeActFunction("custom_function")).toBe(true);
 	expect(isCodeActFunction("mcp__demo__read")).toBe(true);
+	expect(isCodeActFunction("parallel")).toBe(false); expect(isCodeActFunction("ParallelError")).toBe(false);
 	expect(isCodeActFunction("bash")).toBe(false); expect(isCodeActFunction("powershell")).toBe(false);
 	const catalog = functionCatalog([{ name: "custom_function", description: "Fixture", parameters: Type.Object({}) }]);
 	expect(catalog).toBe("custom_function() -> str: Fixture");
 	for (const name of ["custom-function", "class", "中文函数"]) expect(functionCatalog([{ name, description: "Fixture", parameters: Type.Object({}) }])).toContain(`getattr(functions,${JSON.stringify(name)})()`);
 });
 
-it("模型只见标准进程签名，不再学习专用进程和并发 API",()=>{
+it("模型保留标准进程签名，不恢复旧批次与进程别名",()=>{
  const catalog=functionCatalog([{name:"process_run",description:"internal process service",parameters:Type.Object({argv:Type.Array(Type.String())})}]);
  expect(catalog).toContain("subprocess.run(args:");expect(catalog).toContain("CompletedProcess");expect(catalog).not.toContain("process_run");
  expect(nativeInstructions).not.toContain("batch(");expect(nativeInstructions).not.toContain("process_run");

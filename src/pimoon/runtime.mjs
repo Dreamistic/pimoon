@@ -38,8 +38,8 @@ export class Decoder {
 }
 
 export class Runtime {
-  constructor({transport='rust',observe=false,cwd,tools,timeoutMs=45000,protectedPaths=[],autoParallel=true}){
-    this.autoParallel=autoParallel;this.transport=transport;this.observe=observe;this.cwd=cwd;this.tools=tools;this.timeoutMs=timeoutMs;
+  constructor({transport='rust',observe=false,cwd,tools,timeoutMs=45000,protectedPaths=[]}){
+    this.transport=transport;this.observe=observe;this.cwd=cwd;this.tools=tools;this.timeoutMs=timeoutMs;
     this.rootPromise=fs.realpath(cwd);this.protectedPaths=protectedPaths;
     this.queue=[];this.waiters=[];this.request=0;this.sessions=new Set();this.statefulSessions=new Set();this.dead=false;this.closed=false;
     const env=Object.fromEntries(Object.entries(process.env).filter(([k])=>/^(PATH|SYSTEMROOT|WINDIR|TEMP|TMP|PATHEXT|PIMOON_HOME|HOME|USERPROFILE|APPDATA|LOCALAPPDATA)$/i.test(k)));
@@ -80,7 +80,7 @@ export class Runtime {
   refs(enabled){for(const item of [this.child,this.child.stdin,this.child.stdout,this.child.stderr])enabled?item.ref?.():item.unref?.();}
   async createSession(session){
     const request=++this.request;
-    this.send(OP.INIT,session,request,JSON.stringify({observe:this.observe,auto_parallel:this.autoParallel,protected_paths:this.protectedPaths,tools:this.tools.map(t=>({name:t.name,parameters:t.parameters}))}));
+    this.send(OP.INIT,session,request,JSON.stringify({observe:this.observe,protected_paths:this.protectedPaths,tools:this.tools.map(t=>({name:t.name,parameters:t.parameters}))}));
     const frame=await this.next();
     if(this.dead||frame.op!==OP.READY)throw Error(frame.data.toString()||'Runtime unavailable');
     this.sessions.add(session);this.workerInfo=JSON.parse(frame.data);
@@ -118,7 +118,7 @@ export class Runtime {
     if(this.dead)throw Error('Runtime unavailable; state lost');
     this.busy=true;this.refs(true);
     const emit=(type,fields)=>{try{onEvent(type,fields);}catch{/* 遥测不能改变执行结果。 */}};
-    const start=performance.now();let request,stopReason;const structuredFailures=[],images=[],callCounts=new Map();
+    const start=performance.now();let request,stopReason;const images=[],callCounts=new Map();
     const toolController=new AbortController();
     let internalCalls=0,internalFailures=0,internalOutputChars=0,batches=0,batchJobs=0,batchCompleted=0,batchFailures=0,batchPeak=0,stateLossObserved=false;
     const stateLost=(reason)=>{
@@ -159,13 +159,17 @@ export class Runtime {
         // 审批反馈可能使 SDK 撤销结构化文本；进程数据取执行器 details，反馈独立回传。
         if(name==='process_run'&&!failed&&isProcessResult(outcome.result.details))
           return {...outcome.result.details,timeout:input.timeout??DEFAULT_PROCESS_TIMEOUT_SECONDS,feedback:content.slice(1).filter(c=>c.type==='text').map(c=>c.text).join('\n')};
+        if(failed){
+          const detail=outcome.result.details;
+          const code=detail?.status==='failed'&&typeof detail.error?.code==='string'?detail.error.code:'TOOL_ERROR';
+          throw Object.assign(Error(text||`Tool ${name} failed`),{code});
+        }
         if(tool.outputSchema&&outcome.result.structuredContent!==undefined){
-          if(failed)structuredFailures.push({tool:name,error:text.slice(0,600)||'structured tool failure'});
           return name==='process_run'&&isProcessResult(outcome.result.structuredContent)
             ? {...outcome.result.structuredContent,timeout:input.timeout??DEFAULT_PROCESS_TIMEOUT_SECONDS}
             : outcome.result.structuredContent;
         }
-        if(failed)throw Error(text||`Tool ${name} failed`);return text;
+        return text;
       }finally{
         if(failed)internalFailures++;
         const count=callCounts.get(name==='process_run'?'subprocess.run':name)??{calls:0,errors:0};count.calls++;if(failed)count.errors++;callCounts.set(name==='process_run'?'subprocess.run':name,count);
@@ -194,7 +198,7 @@ export class Runtime {
         }
         if(frame.op===OP.METRICS){Object.assign(this.lastMetrics,JSON.parse(frame.data));continue;}
         if(frame.op===OP.DONE){
-          const result=JSON.parse(frame.data);result.tool_failures.push(...structuredFailures);
+          const result=JSON.parse(frame.data);
           const summary=!result.output&&internalCalls?'\ncalls: '+[...callCounts].map(([name,count])=>`${name}=${count.calls}${count.errors?`(errors=${count.errors})`:''}`).join(' '):'';
           const text=`${result.ok?(result.tool_failures.length?'partial_failure':'ok'):'error'}${result.output?'\n'+result.output:summary}${result.error?'\n'+result.error:''}${result.tool_failures.length?'\ntool_failures: '+JSON.stringify(result.tool_failures):''}${!result.output_complete?'\nOutput retention incomplete.':''}`;
           Object.assign(this.lastMetrics,result.metrics,{ok:result.ok,outcome:result.ok?(result.tool_failures.length?'tool_partial_failure':'success'):'python_error',metrics_complete:true,
@@ -211,11 +215,10 @@ export class Runtime {
           let value;
           if(message.kind==='call')value=await invoke(message.name,message.args);
           else if(message.kind==='schedule'){
-            if(!this.autoParallel)throw Error('Automatic scheduling is disabled');
             const started=performance.now(),scheduleId=randomUUID(),media=[];
             let active=0,peak=0,completed=0;
             const beforeFailures=internalFailures; batches++; batchJobs+=message.jobs?.length??0;
-            emit('schedule_start',{schedule_id:scheduleId,jobs:message.jobs?.length,concurrency_limit:6});
+            emit('schedule_start',{schedule_id:scheduleId,jobs:message.jobs?.length,concurrency_limit:6,mode:'explicit',error_policy:message.errors});
             try{
               value=await scheduleReads(message.jobs,(name,args,index)=>{
                 const blocks=[];media[index]=blocks;
@@ -231,7 +234,7 @@ export class Runtime {
                 return invoke(name,args,{schedule_id:scheduleId,schedule_index:index},blocks);
               },()=>Boolean(stopReason||signal?.aborted),(stage)=>{
                 if(stage==='start'){active++;peak=Math.max(peak,active);}else{active--;completed++;}
-              });
+              },message.errors);
             }finally{
               // 图片与源码次序一致，不能随完成次序错配到其他读取。
               for(const blocks of media)if(blocks)images.push(...blocks);
@@ -241,7 +244,7 @@ export class Runtime {
           }
           else throw Error('Unknown bridge operation');
           if(!stopReason)this.send(OP.REPLY,session,request,JSON.stringify({ok:true,value}));
-        }catch(error){if(!stopReason)this.send(OP.REPLY,session,request,JSON.stringify({ok:false,error:error.message}));}
+        }catch(error){if(!stopReason)this.send(OP.REPLY,session,request,JSON.stringify({ok:false,error:error.message,error_code:typeof error.code==='string'?error.code:'TOOL_ERROR'}));}
       }
     }catch(error){
       if(this.dead)stateLost('supervisor_exit');

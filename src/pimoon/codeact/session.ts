@@ -8,7 +8,7 @@ import { fingerprint, labels, record, pimoonTelemetry } from "../telemetry.ts";
 import { agentHome, protectedCredentialPaths } from "../profile.ts";
 import { checkReadablePath, checkWritablePath, protectedControlPaths } from "../paths.ts";
 import { functionCatalog } from "./catalog.ts";
-import { nativeInstructions } from "./native-instructions.ts";
+import { nativeInstructions, orchestrationInstructions } from "./native-instructions.ts";
 import { isCodeActFunction } from "./functions.ts";
 import type { ConfirmCodeAct } from "./confirmation.ts";
 import type { CodeActMetadata } from "./metadata.ts";
@@ -65,7 +65,7 @@ export class CodeAct {
             executionMode: "sequential",
             prepareLoadout: loadout => ({
                 hiddenDeclarations: loadout.declared.filter(tool => tool.name !== "execute").map(tool => tool.name),
-                descriptions: { execute: `Execute Python in the persistent CodeAct environment.\n${nativeInstructions}\nFunctions:\n${functionCatalog(loadout.callable.filter(tool => internal(tool.name))) || "None."}` },
+                descriptions: { execute: `Execute Python in the persistent CodeAct environment.\n${nativeInstructions}\n${orchestrationInstructions}\nFunctions:\n${functionCatalog(loadout.callable.filter(tool => internal(tool.name))) || "None."}` },
             }),
             execute: async (id, args, signal, update, ctx) => {
                 if (!args.code.trim() || !args.desc.trim() || args.confirm !== undefined && !args.confirm.trim())

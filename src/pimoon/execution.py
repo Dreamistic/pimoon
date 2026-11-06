@@ -24,16 +24,13 @@ class _CaptureCalls(ast.NodeTransformer):
         return node
 
 
-def compile_cell(source, auto_parallel=False):
+def compile_cell(source):
     tree = ast.parse(source, filename="<agent>", mode="exec")
     has_result = bool(tree.body and isinstance(tree.body[-1], ast.Expr))
     if has_result:
         expression = tree.body[-1]
         tree.body[-1] = ast.copy_location(ast.Assign(
             targets=[ast.Name(id=RESULT_NAME, ctx=ast.Store())], value=expression.value), expression)
-    if auto_parallel:
-        from auto_parallel import transform
-        tree = transform(tree)
     tree = _CaptureCalls().visit(tree)
     ast.fix_missing_locations(tree)
     return compile(tree, "<agent>", "exec"), has_result

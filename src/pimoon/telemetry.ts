@@ -141,4 +141,4 @@ export function pimoonTelemetry(pi: ExtensionAPI): void {
 }
 record("backend_start", { author: "Dream", app_version: packageInfo.version, privacy: "local_metadata_only", jev: false, node: process.versions.node,
 	platform: process.platform, arch: process.arch, output_limit_chars: 40_000, retention_limit_chars: 1024 * 1024,
-	code_timeout_ms: 1_800_000, batch_max_jobs: 256, batch_max_concurrency: 16 });
+	code_timeout_ms: 1_800_000, batch_max_jobs: 256, batch_max_concurrency: 6, orchestration_version: 1, scheduling: "explicit" });

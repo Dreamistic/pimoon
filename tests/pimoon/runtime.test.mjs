@@ -5,7 +5,7 @@ import path from 'node:path';
 import {once} from 'node:events';
 const base=path.resolve('.tmp/tests/pimoon-runtime');await fs.mkdir(base,{recursive:true});
 const resources=await fs.mkdtemp(path.join(base,'resources-'));await fs.mkdir(path.join(resources,'pimoon'));
-for(const file of ['worker.py','process_api.py','auto_parallel.py','execution.py','feedback.py','observations.py','worker_hooks.py'])await fs.copyFile(path.join('src/pimoon',file),path.join(resources,'pimoon',file));
+for(const file of ['worker.py','process_api.py','parallel.py','execution.py','feedback.py','observations.py','worker_hooks.py'])await fs.copyFile(path.join('src/pimoon',file),path.join(resources,'pimoon',file));
 await fs.copyFile('assets/runtime/pimoon-runtime.exe',path.join(resources,'pimoon/pimoon-runtime.exe'));
 process.env.PIMOON_RESOURCE_DIR=resources;
 const {Runtime,Decoder}=await import('../../src/pimoon/runtime.mjs');
@@ -195,11 +195,11 @@ test('取消清空内存但不回滚文件，下一次启动新 worker',()=>runT
  const result=await runtime.run('assert "keep" not in globals()\nprint("fresh")',context);assert.equal(result.isError,false);assert.notEqual(result.details.metrics.python_pid,pid);
 }));
 
-test('结构化工具失败不丢错误，也不破坏返回值语义',async()=>{
+test('结构化宿主失败抛异常并阻止依赖步骤',async()=>{
  const tool={name:'read',parameters:{type:'object',properties:{path:{type:'string'}}},outputSchema:{type:'object'}};
  await runTest(async runtime=>{
-  const result=await runtime.run('value=read(path="missing.txt")\nassert value["ok"] is False\nprint(value)',{tools:[tool],executeTool:async()=>({isError:true,result:{content:[{type:'text',text:'synthetic read failure'}],structuredContent:{ok:false}}})});
-  assert.equal(result.isError,false);assert.equal(result.details.metrics.tool_failure_count,1);assert.match(result.content[0].text,/synthetic read failure/);
+  const result=await runtime.run('value=read(path="missing.txt")\nraise AssertionError("must not continue")',{tools:[tool],executeTool:async()=>({isError:true,result:{content:[{type:'text',text:'synthetic read failure'}],structuredContent:{ok:false}}})});
+  assert.equal(result.isError,true);assert.equal(result.details.metrics.tool_failure_count,1);assert.match(result.content[0].text,/synthetic read failure/);assert.doesNotMatch(result.content[0].text,/AssertionError: must not continue/);
  },[tool]);
 });
 
@@ -308,11 +308,11 @@ test('预热启动失败不会产生未处理拒绝，实际调用保留失败',
 
 test('协议拒绝超过8MiB的帧',()=>{const header=Buffer.alloc(17);header.write('CA02');header.writeUInt32LE(8*1024*1024+1,13);assert.throws(()=>new Decoder(()=>{}).push(header),/8 MiB/);});
 
-test('批次复盘关联 SDK 子调用，结构化失败计入批次但不改变返回语义',async()=>{
+test('显式 collect 关联 SDK 子调用，结构化失败进入逐项结果与部分失败',async()=>{
  const tool={name:'read',parameters:{type:'object',properties:{path:{type:'string'}}},outputSchema:{type:'object'}};
  await runTest(async runtime=>{
   const events=[];let id=0;
-  const result=await runtime.run('items=[read(path=p) for p in ["PRIVATE_PATH","missing"]]\nassert all("ok" in item for item in items)\nprint("PRIVATE_BODY")',{
+  const result=await runtime.run('items=parallel([(read,{"path":p}) for p in ["PRIVATE_PATH","missing"]],errors="collect")\nassert items[0]["ok"] and not items[1]["ok"]\nprint("PRIVATE_BODY")',{
    tools:[tool],executeTool:async()=>{const index=++id;return{toolCall:{id:`code/${index}`},isError:index===2,result:{content:[{type:'text',text:'PRIVATE_RESULT'}],structuredContent:{ok:index!==2}}};}
   },undefined,1,(type,fields)=>events.push({type,...fields}));
   const batch=events.find(event=>event.type==='schedule_end');

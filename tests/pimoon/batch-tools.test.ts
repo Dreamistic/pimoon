@@ -25,7 +25,7 @@ it("CodeAct 在 Python 内处理读取结果，自动返回摘要并保留部分
 	const { isExecutionResult } = await import("./native-result.ts");
 	const code = [
 		'paths=[f"{i}.txt" for i in range(8)]',
-        'items=[read(path=p) for p in paths]',
+        'items=parallel([(read,{"path":p}) for p in paths])',
         'assert all(f"value-{i}" in value for i,value in enumerate(items))',
         'try:',
         ' read(path="missing.txt")',

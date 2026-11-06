@@ -15,6 +15,7 @@ import types
 from observations import Observations
 from execution import CAPTURE_NAME, RESULT_NAME, compile_cell, display_result
 from feedback import CellFeedback
+from parallel import Parallel, ParallelError
 import worker_hooks as hooks
 
 HEADER = struct.Struct('<4sBIII')
@@ -99,6 +100,13 @@ failures = []
 bridge_ms = 0.0
 
 
+class ToolError(RuntimeError):
+    """宿主执行失败带稳定代码，未知错误不通过文案猜测分类。"""
+    def __init__(self, message, code="TOOL_ERROR"):
+        self.code = code
+        super().__init__(message)
+
+
 def bridge(kind, **payload):
     global bridge_ms
     if get_ident() != EXECUTION_THREAD:
@@ -112,7 +120,7 @@ def bridge(kind, **payload):
     reply = json.loads(response[3])
     if not reply['ok']:
         failures.append({'tool': 'subprocess.run' if payload.get('name') == 'process_run' else payload.get('name'), 'error': reply.get('error', 'failed')[:600]})
-        raise RuntimeError(reply.get('error', 'tool failed'))
+        raise ToolError(reply.get('error', 'tool failed'), reply.get('error_code', 'TOOL_ERROR'))
     if kind == 'schedule':
         for job, item in zip(payload['jobs'], reply['value']):
             if job['name'] == 'native_read' and not item.get('skipped'):
@@ -200,12 +208,11 @@ def bind_functions(functions):
     return proxies
 
 
+parallel = Parallel(bridge)
 bind_functions(config['tools'])
 if agent_print:
     builtins.print = observer.print
 cache = OrderedDict()
-if config.get('auto_parallel', False):
-    from auto_parallel import HELPER, Scheduler
 sys.addaudithook(audit)
 send(READY, {'pid': os.getpid(), 'python_version': sys.version.split()[0], 'mode': 'observe' if agent_print else 'raw'})
 while True:
@@ -234,14 +241,16 @@ while True:
         try:
             cell = json.loads(payload)
             proxies = bind_functions(cell['tools'])
-            if config.get('auto_parallel', False):
-                namespace[HELPER] = Scheduler(namespace, {**proxies, "native_read": native_read}, bridge)
+            parallel.bind({**proxies, "native_read": native_read})
+            namespace['parallel'] = parallel
+            namespace['ParallelError'] = ParallelError
+            namespace['ToolError'] = ToolError
             code = cell['code']
             compile_start = perf_counter()
             compiled = cache.get(code)
             cache_hit = compiled is not None
             if compiled is None:
-                compiled = compile_cell(code, auto_parallel=config.get('auto_parallel', False))
+                compiled = compile_cell(code)
                 # 只缓存字节码，不缓存结果或副作用。
                 if len(code) <= 65536:
                     cache[code] = compiled
@@ -271,7 +280,6 @@ while True:
         finally:
             namespace.pop(RESULT_NAME, None)
             namespace.pop(CAPTURE_NAME, None)
-            namespace.pop('__pimoon_scheduler__', None)
     output = stream.getvalue()
     retained_chars = len(output)
     complete = stream.total <= 1024 * 1024

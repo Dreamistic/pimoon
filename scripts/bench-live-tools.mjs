@@ -10,7 +10,7 @@ import { scenarios } from "./benchmark/tool-scenarios.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const args = process.argv.slice(2);
 const value = (key, fallback) => args.find(arg => arg.startsWith(`--${key}=`))?.slice(key.length + 3) ?? fallback;
-const help = "node scripts/bench-live-tools.mjs --live [--apps=o-pi,pimoon] [--upstream=PATH] [--model=gpt-6.1-terra] [--thinking=low] [--transport=sse|auto] [--prompt=runtime|sdk] [--runs=1] [--scenarios=locate-edit,aggregate,conditional-edit]";
+const help = "node scripts/bench-live-tools.mjs --live [--apps=o-pi,pimoon] [--upstream=PATH] [--model=gpt-6.1-terra] [--thinking=low] [--transport=sse|auto] [--prompt=runtime|sdk] [--runs=1] [--scenarios=locate-edit,aggregate,conditional-edit] [--source-home=PATH] [--scenario-module=./benchmark/explicit-scenarios.mjs]";
 if (args.includes("--help")) { console.log(help); process.exit(0); }
 if (!args.includes("--live")) throw new Error(`真实订阅测试需显式 --live；${help}`);
 const upstream = value("upstream");
@@ -26,9 +26,11 @@ if (!["runtime", "sdk"].includes(promptMode)) throw new Error("prompt 必须为 
 const model = value("model", "gpt-6.1-terra");
 const runs = Number(value("runs", "1"));
 if (!Number.isInteger(runs) || runs < 1 || runs > 5) throw new Error("runs 必须为 1..5");
-const selected = value("scenarios", Object.keys(scenarios).join(",")).split(",");
-if (selected.some(name => !Object.hasOwn(scenarios, name))) throw new Error("未知场景");
-const sourceHome = process.env.PIMOON_HOME ?? path.join(process.env.APPDATA, "pimoon");
+const scenarioModule = value("scenario-module");
+const selectedScenarios = scenarioModule ? (await import(new URL(scenarioModule, import.meta.url))).scenarios : scenarios;
+const selected = value("scenarios", Object.keys(selectedScenarios).join(",")).split(",");
+if (selected.some(name => !Object.hasOwn(selectedScenarios, name))) throw new Error("未知场景");
+const sourceHome = value("source-home", process.env.PIMOON_HOME ?? path.join(process.env.APPDATA, "pimoon"));
 const authPath = path.join(sourceHome, "agent/auth.json");
 const original = await fs.readFile(authPath);
 const fingerprint = data => createHash("sha256").update(data).digest("hex");
@@ -43,15 +45,16 @@ const base = await fs.mkdtemp(path.join(directory, "run-"));
 const resources = path.join(base, "resources");
 await fs.cp(path.join(root, "dist/desktop/app/resources"), resources, { recursive: true });
 // Python 源码与被测工作树一致；不覆盖已有桌面构建。
-for (const name of ["worker.py","process_api.py","auto_parallel.py", "execution.py", "feedback.py", "observations.py", "worker_hooks.py"]) await fs.copyFile(path.join(root, "src/pimoon", name), path.join(resources, "pimoon", name));
+for (const name of ["worker.py","process_api.py","parallel.py", "execution.py", "feedback.py", "observations.py", "worker_hooks.py"]) await fs.copyFile(path.join(root, "src/pimoon", name), path.join(resources, "pimoon", name));
 const bundles = {};
 const manifest = { createdAt: new Date().toISOString(), model, thinkingLevel, transport, promptMode, apps, runs, scenarios: selected, upstream: upstream ? path.resolve(upstream) : undefined,
 	measurement: { schema: 2, tokenizer: "o200k_base", toolTime: "union of root execution intervals", tokenScope: "visible request payload and generated output; hidden reasoning/images excluded; provider usage separate" },
-	sources: {}, sourceAuthUnchanged: null };
+	scenarioModule, sources: {}, sourceAuthUnchanged: null };
 for (const app of apps) {
 	const source = app !== "o-pi" ? root : path.resolve(upstream);
 	const bundle = path.join(base, `${app}.mjs`);
-	const built = await build({ metafile: true, stdin: { contents: `export { default as fileTools } from ${JSON.stringify(path.join(source, "src/harness/extensions/file-tools.ts"))};
+	const built = await build({ metafile: true, stdin: { contents: `${scenarioModule ? `export { scenarios } from ${JSON.stringify(fileURLToPath(new URL(scenarioModule, import.meta.url)))};` : ""}
+export { default as fileTools } from ${JSON.stringify(path.join(source, "src/harness/extensions/file-tools.ts"))};
 export { default as systemPrompt } from ${JSON.stringify(path.join(source, "src/harness/extensions/system-prompt.ts"))};
 export { estimateRequestTokens, estimateResponseTokens, summarizeTokenAccounting, textTokens } from ${JSON.stringify(path.join(root, "src/pimoon/token-accounting.ts"))};
 export { responseUsageStatus } from ${JSON.stringify(path.join(root, "src/pimoon/usage-status.ts"))};

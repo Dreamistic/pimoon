@@ -3,7 +3,7 @@ import type { Fields, TelemetryFacts } from "../harness/telemetry/types.ts";
 
 const outcomes = new Set(["success", "tool_partial_failure", "python_error", "timeout", "cancelled", "startup_error", "runtime_crash", "runtime_error", "confirmation_rejected", "confirmation_unavailable", "confirmation_invalidated"]);
 const errorTypes = new Set(["SyntaxError", "IndentationError", "NameError", "TypeError", "ValueError", "KeyError", "IndexError", "AttributeError",
-	"FileNotFoundError", "PermissionError", "OSError", "RuntimeError", "ImportError", "ModuleNotFoundError", "AssertionError", "ZeroDivisionError", "Error"]);
+	"ToolError", "ParallelError", "FileNotFoundError", "PermissionError", "OSError", "RuntimeError", "ImportError", "ModuleNotFoundError", "AssertionError", "ZeroDivisionError", "Error"]);
 
 /** 只投影白名单计数与分类；正文、路径、用户异常类名和原生访问轨迹不进入工具遥测。 */
 export function codeFacts(details: unknown): TelemetryFacts {

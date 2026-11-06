@@ -10,7 +10,7 @@ const base=path.resolve('.tmp/tests/process-orchestration');
 await fs.mkdir(base,{recursive:true});
 const resources=await fs.mkdtemp(path.join(base,'resources-'));
 await fs.mkdir(path.join(resources,'pimoon'));
-for(const file of ['worker.py','process_api.py','auto_parallel.py','execution.py','feedback.py','observations.py','worker_hooks.py']) await fs.copyFile(path.join('src/pimoon',file),path.join(resources,'pimoon',file));
+for(const file of ['worker.py','process_api.py','parallel.py','execution.py','feedback.py','observations.py','worker_hooks.py']) await fs.copyFile(path.join('src/pimoon',file),path.join(resources,'pimoon',file));
 await fs.copyFile('assets/runtime/pimoon-runtime.exe',path.join(resources,'pimoon/pimoon-runtime.exe'));
 process.env.PIMOON_RESOURCE_DIR=resources;
 const tool={name:'process_run',parameters:{type:'object',properties:{argv:{type:'array',items:{type:'string'}},timeout:{type:'number'},check:{type:'boolean'}}},outputSchema:{type:'object'}};

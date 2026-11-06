@@ -1,4 +1,4 @@
-const shellFunctions = new Set(["bash", "powershell", "execute"]);
+const shellFunctions = new Set(["bash", "powershell", "execute", "parallel", "ParallelError", "ToolError"]);
 
-/** Shell 包装与 execute 入口不进入 Python 内部函数集合。 */
+/** Shell 包装、execute 与 Python 编排保留名称不进入内部工具集合。 */
 export const isCodeActFunction = (name: string): boolean => !shellFunctions.has(name);

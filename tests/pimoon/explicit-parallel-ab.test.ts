@@ -8,12 +8,6 @@ import { createRuntimeResources } from "./runtime-resources.ts";
 import { executionMetrics, isExecutionResult } from "./native-result.ts";
 
 const experiment = vi.hoisted(() => ({ enabled: false, delayMs: 0, active: 0, peak: 0 }));
-vi.mock("../../src/pimoon/runtime.mjs", async load => {
- const original = await load<typeof import("../../src/pimoon/runtime.mjs")>();
- return { ...original, Runtime: class extends original.Runtime {
-  constructor(options: ConstructorParameters<typeof original.Runtime>[0]) { super({ ...options, autoParallel: experiment.enabled }); }
- } };
-});
 vi.mock("../../src/harness/file-tools/pi/adapters/read.ts", async load => {
  const original = await load<typeof import("../../src/harness/file-tools/pi/adapters/read.ts")>();
  return { ...original, executeRead: async (...args: Parameters<typeof original.executeRead>) => {
@@ -26,19 +20,19 @@ vi.mock("../../src/harness/file-tools/pi/adapters/read.ts", async load => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
-it.each(["assignment", "print"] as const)("A/B（%s）：同一源码经原生 execute、SDK 和真实文件工具执行，记录原始样本而不以噪声阈值断言加速", async shape => {
- const base = path.resolve(".tmp/tests/auto-parallel-ab"); await fs.mkdir(base, { recursive: true });
+it.each(["assignment", "print"] as const)("A/B（%s）：等价串行/显式并发程序经原生 execute、SDK 和真实文件工具执行，记录原始样本而不以噪声阈值断言加速", async shape => {
+ const base = path.resolve(".tmp/tests/explicit-parallel-ab"); await fs.mkdir(base, { recursive: true });
  const folder = await fs.mkdtemp(path.join(base, "case-"));
  const cwd = path.join(folder, "workspace"), agentDir = path.join(folder, "agent");
  await fs.mkdir(cwd); await fs.mkdir(agentDir);
  for (let index = 0; index < 6; index++) await fs.writeFile(path.join(cwd, `${index}.txt`), Array.from({ length: 120 }, (_, line) => `fixture-${index}-${line} 原文`).join("\n"));
  vi.stubEnv("PIMOON_RESOURCE_DIR", await createRuntimeResources(folder));
  const { CodeAct } = await import("../../src/pimoon/codeact/session.ts");
- const code = shape === "print"
-  ? Array.from({ length: 6 }, (_, i) => `print(read(path="${i}.txt"))`).join("\n")
-  : Array.from({ length: 6 }, (_, i) => `r${i}=read(path="${i}.txt")`).join("\n") + "\n[len(r0),len(r1),len(r2),len(r3),len(r4),len(r5)]";
+ const serial = 'items=[read(path=f"{i}.txt") for i in range(6)]';
+ const concurrent = 'items=parallel([(read,{"path":f"{i}.txt"}) for i in range(6)])';
+ const display = shape === "print" ? '\nfor item in items:\n print(item)' : '\n[len(item) for item in items]';
  let responseNumber = 0;
- const server = await startModelServer(() => responseNumber++ % 2 === 0 ? { tool: "execute", args: { code, desc: "读取六份文件" } } : { text: "done" });
+ const server = await startModelServer(() => responseNumber++ % 2 === 0 ? { tool: "execute", args: { code: (experiment.enabled ? concurrent : serial) + display, desc: "读取六份文件" } } : { text: "done" });
  await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "fixture", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
  await fs.writeFile(path.join(agentDir, "models.json"), JSON.stringify({ providers: { fixture: {
   baseUrl: server.url, api: "openai-completions", apiKey: "fixture", models: [{ id: "test", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
@@ -61,7 +55,7 @@ it.each(["assignment", "print"] as const)("A/B（%s）：同一源码经原生 e
   for (const delay of [0, 20]) {
    experiment.delayMs = delay;
    // 每次创建独立会话；交错 AB/BA，避免缓存和系统负载始终偏向某一组。
-   for (let round = 0; round < 9; round++) for (const enabled of round % 2 ? [true, false] : [false, true]) {
+   for (let round = 0; round < 4; round++) for (const enabled of round % 2 ? [true, false] : [false, true]) {
     const runtime = await start(enabled);
     try {
      await runtime.session.bindExtensions({ mode: "print", onError: ({ error }) => { throw new Error(error); } });
@@ -97,8 +91,8 @@ it.each(["assignment", "print"] as const)("A/B（%s）：同一源码经原生 e
    const a = median(rows("A")), b = median(rows("B"));
    return { delay_ms: delay, phase, samples_per_variant: rows("A").length, A_median_ms: a, B_median_ms: b, speedup: a / b, reduction_percent: (a - b) / a * 100 };
   }));
-  const report = { source: code, model: "deterministic fixture; not a live model or billing benchmark", samples, summaries };
+  const report = { source: { serial: serial + display, concurrent: concurrent + display }, model: "deterministic fixture; not a live model or billing benchmark", samples, summaries };
   await fs.writeFile(path.join(base, shape === "print" ? "print-results.json" : "results.json"), JSON.stringify(report, null, 2));
-  console.log("AUTO_PARALLEL_AB", shape, JSON.stringify(summaries));
+  console.log("EXPLICIT_PARALLEL_AB", shape, JSON.stringify(summaries));
  } finally { await server.close(); }
 }, 120_000);
