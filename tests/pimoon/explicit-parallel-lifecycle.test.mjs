@@ -20,7 +20,7 @@ for(const form of ['assign','print'])for(const reason of ['cancelled','timeout']
  const controller=new AbortController();let started=0,ended=0;
  let signalStarted;const ready=new Promise(resolve=>{signalStarted=resolve;});
  const context={tools,executeTool:async(_name,_args,{signal})=>{
-  started++;if(started===6)signalStarted();
+  started++;if(started===12)signalStarted();
   await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}));ended++;throw Error('cancelled');
  }};
  const events=[];
@@ -28,7 +28,7 @@ for(const form of ['assign','print'])for(const reason of ['cancelled','timeout']
  const pending=runtime.run(source,context,controller.signal,1,(type,fields)=>events.push({type,...fields}));
  await ready;if(reason==='cancelled')controller.abort();
  await assert.rejects(pending);
- assert.equal(started,6);assert.equal(ended,6);assert.equal(runtime.lastMetrics.outcome,reason);assert.equal(runtime.lastScheduling.state,'interrupted');assert.equal(runtime.lastScheduling.groups[0].state,'interrupted');
+ assert.equal(started,12);assert.equal(ended,12);assert.equal(runtime.lastMetrics.outcome,reason);assert.equal(runtime.lastScheduling.state,'interrupted');assert.equal(runtime.lastScheduling.groups[0].state,'interrupted');
  assert.equal(events.find(event=>event.type==='runtime_state_lost').reason,reason);
  const next=await runtime.run('assert "r0" not in globals()\n"recovered"',{tools,executeTool:async()=>{throw Error('must not replay');}});
  assert.equal(next.isError,false,next.content[0].text);
@@ -37,13 +37,13 @@ test('权限撤销后不复用旧代理，不发起任何读取',()=>fixture(asy
  const denied=await runtime.run('a=read(path="a")\nb=read(path="b")',{tools:[],executeTool:async()=>{throw Error('must not invoke');}});
  assert.equal(denied.isError,true);assert.match(denied.content[0].text,/NameError/);assert.equal(denied.details.metrics.internal_tool_calls,0);
 }));
-test('拒绝后仅已派发的六次读取排空，不把未启动项伪装为工具失败',()=>fixture(async runtime=>{
+test('拒绝后排空全部已派发读取，失败只登记一次',()=>fixture(async runtime=>{
  let started=0;
  const result=await runtime.run(code,{tools,executeTool:async(_name,args)=>{
   started++;await new Promise(resolve=>setTimeout(resolve,args.path==='0'?1:30));
   return{isError:args.path==='0',result:{content:[{type:'text',text:args.path==='0'?'denied':'done'}]}};
  }});
- assert.equal(result.isError,true);assert.equal(started,6);assert.equal(result.details.metrics.internal_tool_failures,1);
+ assert.equal(result.isError,true);assert.equal(started,12);assert.equal(result.details.metrics.internal_tool_failures,1);
  assert.equal(result.details.metrics.tool_failure_count,1);assert.match(result.content[0].text,/"tool":"read"/);
 }));
 

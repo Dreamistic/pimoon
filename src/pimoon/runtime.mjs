@@ -222,7 +222,7 @@ export class Runtime {
               ? scheduling.begin(message.jobs,message.errors==='collect'?'collect':'raise'):undefined;
             let active=0,peak=0,completed=0;
             const beforeFailures=internalFailures; batches++; batchJobs+=message.jobs?.length??0;
-            emit('schedule_start',{schedule_id:scheduleId,jobs:message.jobs?.length,concurrency_limit:6,mode:'explicit',error_policy:message.errors});
+            emit('schedule_start',{schedule_id:scheduleId,jobs:message.jobs?.length,concurrency_limit:null,mode:'explicit',error_policy:message.errors});
             try{
               value=await scheduleReads(message.jobs,(name,args,index)=>{
                 const blocks=[];media[index]=blocks;

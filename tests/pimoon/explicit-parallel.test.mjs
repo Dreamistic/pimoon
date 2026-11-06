@@ -36,9 +36,9 @@ for(const transport of ['direct','rust']){
    const result=await run(code);assert.equal(result.isError,false,result.content[0].text);assert.equal(peak(),1);assert.ok(!events.some(x=>x.type==='schedule_start'));
   },{transport}));
 }
-test('动态过滤到显式映射，空组和单项不需特例，超过六项自动限流',()=>fixture(async({run,peak,calls})=>{
+test('动态过滤到显式映射，空组和单项不需特例，超过六项不再限流',()=>fixture(async({run,peak,calls})=>{
  const result=await run('paths=[str(i) for i in range(20) if i%2==0]\nvalues=parallel([(read,{"path":p}) for p in paths])\nassert len(values)==10\nassert parallel([])==[]\nassert len(parallel([(read,{"path":"single"})]))==1\nvalues');
- assert.equal(result.isError,false,result.content[0].text);assert.equal(peak(),6);assert.equal(calls.length,11);
+ assert.equal(result.isError,false,result.content[0].text);assert.equal(peak(),10);assert.equal(calls.length,11);
 }));
 for(const code of [
  'parallel([(read,{"path":"first"}),(write,{"path":"bad"})])',
@@ -54,7 +54,7 @@ for(const code of [
 }));
 test('默认失败停止派发、保留逐项状态且阻止依赖写入',()=>fixture(async({run,calls})=>{
  const result=await run('paths=["fail"]+[str(i) for i in range(19)]\nvalues=parallel([(read,{"path":p}) for p in paths])\nwrite(path="never")');
- assert.equal(result.isError,true);assert.match(result.content[0].text,/ParallelError/);assert.equal(calls.length,6);assert.ok(!calls.some(x=>x[0]==='write'));
+ assert.equal(result.isError,true);assert.match(result.content[0].text,/ParallelError/);assert.equal(calls.length,20);assert.ok(!calls.some(x=>x[0]==='write'));
  const caught=await run('try:\n parallel([(read,{"path":"fail"}),(read,{"path":"ok"})])\nexcept ParallelError as error:\n saved=error.results\nassert saved[0]["ok"] is False and saved[1]["ok"] is True');
  assert.equal(caught.isError,false,caught.content[0].text);assert.equal(caught.details.metrics.outcome,'tool_partial_failure');
 },{fail:'fail'}));
@@ -72,15 +72,21 @@ for(const observe of [false,true])test(`print 保持原语义，输出与串行�
  await fixture(async({run})=>{expected=(await run('a=read(path="a")\nb=read(path="b")\nprint("A",a)\nprint("B",b)')).content;},{observe});
  await fixture(async({run})=>{const result=await run('a,b=parallel([(read,{"path":"a"}),(read,{"path":"b"})])\nprint("A",a)\nprint("B",b)');assert.deepEqual(result.content,expected);},{observe});
 });
-for(const errors of ['raise','collect'])test(`宿主上限与取消 ${errors}`,async()=>{
+for(const errors of ['raise','collect'])test(`宿主无限流与取消 ${errors}`,async()=>{
  let active=0,peak=0,started=0;
  const rows=await scheduleReads(Array.from({length:20},(_,i)=>({name:'read',args:{i}})),async(_,{i})=>{
   started++;active++;peak=Math.max(peak,active);try{await sleep(i===0?1:10);if(i===0)throw Error('denied');return i;}finally{active--;}
  },()=>false,()=>{},errors);
- assert.equal(peak,6);assert.equal(active,0);assert.equal(started,errors==='raise'?6:20);assert.equal(rows.filter(x=>x.skipped).length,errors==='raise'?14:0);
+ assert.equal(peak,20);assert.equal(active,0);assert.equal(started,20);assert.equal(rows.filter(x=>x.skipped).length,0);
  let cancelled=false,count=0;await scheduleReads([{name:'read',args:{}},{name:'read',args:{}}],async()=>{count++;cancelled=true;return 'done';},()=>cancelled);assert.equal(count,1);
 });
 test('宿主独立拒绝进程写入与非法错误策略',async()=>{
  for(const name of ['write','edit','process_run','http'])await assert.rejects(scheduleReads([{name,args:{}}],async()=>{throw Error('must not call');}),/Invalid read schedule/);
  await assert.rejects(scheduleReads([{name:'read',args:{}}],async()=>{},()=>false,()=>{},'retry'),/Invalid read schedule/);
 });
+
+test('独立五文件中间失败仍读完，必需输入检查阻止写入',()=>fixture(async({run,calls})=>{
+ const result=await run('paths=["a","b","fail","d","e"]\nrows=parallel([(read,{"path":p}) for p in paths],errors="collect")\nassert sum(r["ok"] for r in rows)==4 and rows[4]["ok"]\nassert all(r["ok"] for r in rows), "Required input unavailable"\nwrite(path="never")');
+ assert.equal(result.isError,true);assert.equal(calls.length,5);assert.ok(calls.some(([,args])=>args.path==='e'));assert.ok(!calls.some(([name])=>name==='write'));
+ const recovery=await run('assert rows[4]["ok"]');assert.equal(recovery.isError,false);assert.equal(calls.length,5);
+},{fail:'fail'}));

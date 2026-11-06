@@ -6,7 +6,7 @@ export async function scheduleReads(jobs, invoke, cancelled = () => false, obser
     job.name === 'native_read' && (typeof job.args.path !== 'string' || Object.keys(job.args).length !== 1)))
     throw Error('Invalid read schedule');
   const rows = Array(jobs.length); let cursor = 0, failed = false;
-  await Promise.all(Array.from({length: Math.min(6, jobs.length)}, async () => {
+  await Promise.all(Array.from({length: jobs.length}, async () => {
     while (cursor < jobs.length && (!failed || errors === 'collect') && !cancelled()) {
       const index = cursor++, job = jobs[index];
       const started = performance.now(); observe('start', index);
