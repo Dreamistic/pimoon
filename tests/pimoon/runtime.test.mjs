@@ -139,6 +139,22 @@ test('自动展示保留原始文本、截断信息和完整对象，循环对�
  const object=await runtime.run('class Item:\n def __repr__(self): raise RuntimeError("must not call repr")\nItem()',context);assert.equal(object.isError,false);assert.doesNotMatch(object.content[0].text,/must not call repr/);
 },[],false));
 
+test('结构化结果使用紧凑 JSON，分块输出保留 Unicode、计数与完整对象',()=>runTest(async runtime=>{
+ const rows=Array.from({length:2000},(_,i)=>({name:`原文 ${i}\n保留空格`,value:i}));
+ const expected=JSON.stringify(rows)+'\n';
+ const result=await runtime.run('rows=[{"name":f"原文 {i}\\n保留空格","value":i} for i in range(2000)]\nrows',context);
+ assert.equal(result.isError,false);assert.equal(result.details.metrics.output_chars,expected.length);
+ assert.equal(result.details.metrics.stdout_chars,expected.length);assert.equal(result.details.metrics.stderr_chars,0);
+ assert.equal(result.details.metrics.output_complete,true);
+ const retained=await runtime.run('assert _ is rows\nassert _last_output==json.dumps(rows,ensure_ascii=False,separators=(",",":"))+"\\n"\nrows[:1]',context);
+ assert.equal(retained.content[0].text,'ok\n'+JSON.stringify(rows.slice(0,1))+'\n');
+ const large=await runtime.run('["原文"*600000]',context);
+ assert.equal(large.details.metrics.output_complete,false);assert.equal(large.details.metrics.retained_output_chars,1024*1024);
+ assert.equal(large.details.metrics.output_chars,1200005);
+ const kept=await runtime.run('assert len(_[0])==1200000\nlen(_last_output)',context);
+ assert.equal(kept.content[0].text,'ok\n1048576\n');
+},[],false));
+
 test('自动显示图片结果不重复输出 Base64，完整对象与原始图片块仍可用',async()=>{
  const tool={name:'read',parameters:{type:'object',properties:{}},outputSchema:{type:'object'}};
  const image={type:'image',data:'SYNTHETIC_BASE64',mimeType:'image/png'};

@@ -72,9 +72,18 @@ def display_result(value):
         return
     try:
         visible = display_data(value, set())
-        for chunk in json.JSONEncoder(ensure_ascii=False, indent=2).iterencode(visible):
-            sys.stdout.write(chunk)
-        sys.stdout.write("\n")
+        # 紧凑 JSON 减少模型 token；合并小片段，避免每个标点都经过捕获与计数。
+        chunks = []
+        size = 0
+        for chunk in json.JSONEncoder(ensure_ascii=False, separators=(",", ":")).iterencode(visible):
+            chunks.append(chunk)
+            size += len(chunk)
+            if size >= 8192:
+                sys.stdout.write("".join(chunks))
+                chunks.clear()
+                size = 0
+        chunks.append("\n")
+        sys.stdout.write("".join(chunks))
     except (ValueError, TypeError, RecursionError):
         # 计算已完成；展示失败不能诱导重放副作用，完整对象仍保留在 _。
         PLAIN_PRINT("\n[result display incomplete; inspect _]")

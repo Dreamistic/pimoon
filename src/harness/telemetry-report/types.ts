@@ -30,6 +30,7 @@ export interface ToolStatistics {
 	error_rate: RateSummary;
 	duration_ms: NumericSummary;
 	output_chars: NumericSummary;
+	work: Record<string, NumericSummary>;
 	truncation_rate: RateSummary;
 	error_codes: Record<string, number>;
 	input_path_count: NumericSummary;

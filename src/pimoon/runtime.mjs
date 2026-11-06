@@ -113,7 +113,8 @@ export class Runtime {
   }
   async run(code,context,signal,session=1,onEvent=()=>{}){
     if(this.busy)throw Error('Host is busy; concurrent calls require separate host controllers');
-    this.lastMetrics={outcome:this.dead?'runtime_crash':'runtime_error',metrics_complete:false};
+    this.lastMetrics={execution_metrics_version:1,outcome:this.dead?'runtime_crash':'runtime_error',metrics_complete:false,
+      state_reused:this.hasState,state_lost:false,runtime_reinitialized:false};
     if(this.dead)throw Error('Runtime unavailable; state lost');
     this.busy=true;this.refs(true);
     const emit=(type,fields)=>{try{onEvent(type,fields);}catch{/* 遥测不能改变执行结果。 */}};
@@ -122,7 +123,7 @@ export class Runtime {
     let internalCalls=0,internalFailures=0,internalOutputChars=0,batches=0,batchJobs=0,batchCompleted=0,batchFailures=0,batchPeak=0,stateLossObserved=false;
     const stateLost=(reason)=>{
       if(stateLossObserved)return;
-      stateLossObserved=true;
+      stateLossObserved=true;this.lastMetrics.state_lost=true;
       emit('runtime_state_lost',{reason,python_pid:this.workerInfo?.pid,completed_writes_rolled_back:false});
     };
     const abort=(reason)=>{
@@ -173,10 +174,13 @@ export class Runtime {
       }
     };
     try{
-      await this.ready;if(stopReason||signal?.aborted)throw Error('Cancelled');
+      const waiting=performance.now();
+      try{await this.ready;}finally{this.lastMetrics.startup_wait_ms=performance.now()-waiting;}
+      if(stopReason||signal?.aborted)throw Error('Cancelled');
       if(!this.sessions.has(session)){
         const started=performance.now(),previous=this.workerInfo?.pid;
         await this.createSession(session);
+        this.lastMetrics.runtime_reinitialized=true;this.lastMetrics.state_reused=false;
         emit('runtime_reinitialized',{previous_python_pid:previous,python_pid:this.workerInfo?.pid,python_version:this.workerInfo?.python_version,startup_ms:performance.now()-started,state_restored:false});
       }
       request=++this.request;this.send(OP.EXEC,session,request,JSON.stringify({code,tools:context.tools.map(t=>({name:t.name,parameters:t.parameters}))}));this.statefulSessions.add(session);
@@ -245,7 +249,8 @@ export class Runtime {
       this.lastMetrics.error_type=error.name;
       throw error;
     }finally{
-      Object.assign(this.lastMetrics,{host_ms:performance.now()-start,internal_tool_calls:internalCalls,internal_tool_failures:internalFailures,internal_output_text_chars:internalOutputChars,batch_calls:batches,batch_jobs:batchJobs,batch_completed:batchCompleted,batch_failures:batchFailures,batch_peak_concurrency:batchPeak});
+      Object.assign(this.lastMetrics,{host_ms:performance.now()-start,internal_tool_calls:internalCalls,internal_tool_failures:internalFailures,internal_output_text_chars:internalOutputChars,
+        batch_calls:batches,batch_jobs:batchJobs,batch_completed:batchCompleted,batch_failures:batchFailures,batch_peak_concurrency:batchPeak});
       clearTimeout(timeout);signal?.removeEventListener('abort',cancel);this.busy=false;this.refs(false);
     }
   }

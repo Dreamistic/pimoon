@@ -60,6 +60,9 @@ function summarizeTool(tool: string, calls: readonly CallRecord[]): ToolStatisti
 		error_rate: rateSummary(calls.filter((call) => call.status === "error").length, calls.length),
 		duration_ms: numericSummary(calls.flatMap((call) => call.duration_ms ?? [])),
 		output_chars: numericSummary(calls.flatMap((call) => call.output_chars ?? [])),
+		work: Object.fromEntries(["size_bytes", "total_candidate_count", "returned_file_count", "searched_file_count", "searched_byte_count", "parsed_file_count",
+			"text_hit_count", "returned_match_count", "input_edit_count", "replacement_count", "total_size_bytes", "returned_size_bytes"]
+			.map(key => [key, numericFieldSummary(calls, key)] as const).filter(([, summary]) => summary.samples > 0)),
 		truncation_rate: rateSummary(calls.filter((call) => call.truncated === true).length, calls.length),
 		error_codes: frequency(calls.filter((call) => call.status === "error").flatMap((call) => call.error?.code ?? [])),
 		input_path_count: numericFieldSummary(calls, "input_path_count"),
