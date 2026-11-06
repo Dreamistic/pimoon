@@ -16,3 +16,11 @@
 历史自然模型程序仅在回放入口迁移读取 API，不修改保存的原始源码；回放不等于新模型自然生成试用。A/B 使用等价固定程序核对串行与显式并发输出，不把局部时延当完整对话提速。未进行新的在线模型采样。
 
 源码验收：Rust 1 项测试、Node 76 项、Vitest 19 文件 150 项全部通过，TypeScript 类型检查通过。此前测试发现的加载器不匹配已改为真实文件工具 Vitest 测试，错误的成功状态断言已按 applied 修正；没有掩盖失败或跳过用例。
+
+## 正式桌面交付
+
+- 成品源提交：`db7ae7aee688390a3462222cfa282b462473c269`；独立目录：`dist/pimoon-unified-read-db7ae7a`。从独立 worktree 构建，显式复制本次离线重编译的运行时资源，依赖仅借用。
+- 无窗口成品烟测通过：原文与展示读取、统一缺失错误码、单项 ToolError、并发元数据、标准进程及副作用仅一次；2 次合成模型请求均只声明 execute。成品中旧 native_read 定义和操作码不存在，新连续执行提示保留。
+- `release.json` 保存全部 1101 个文件的 SHA-256；快捷方式切换后逐项复验通过。后端 SHA-256：`7f72ecd5341fb26f6ba861bb9e029f1bb3607e89e1014ddea4c66c9edd296e7e`；运行时 SHA-256：`9379be68e10777465d3d6bc6b0c9dca4436d31b6c4d51deadc27805edc8d5166`。
+- 桌面 `pimoon.lnk` 已重新读取并切至 `D:\Code\pimoon\dist\pimoon-unified-read-db7ae7a\pimoon.exe`；旧快捷方式备份：`D:\Code\pimoon\dist\shortcut-backups\pimoon-before-unified-read-db7ae7a.lnk`。旧正式目录及运行进程不动，用户正常退出全部窗口后从桌面重开才使用新版。
+- 未启动可见 GUI，未运行 E2E，未推送远端。
