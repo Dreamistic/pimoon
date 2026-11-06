@@ -64,6 +64,8 @@ HTTP 代理接受 `http://` 或 `https://`，SOCKS5 接受 `socks5://`。端点�
 - 当前源码的真实网页运行时在 `.tmp/tests/github-network` 隔离环境中访问本次目标提交页面、该提交的 GitHub API 和 raw 源码，三者预检查均为 `trusted`，`http` 均返回 HTTP 200；同一提交页面的 `webfetch` readable 调用成功。未读取用户 Cookie、未修改系统代理、未关闭证书验证或扩大私网授权。
 - 定向回归：`node node_modules/vitest/vitest.mjs run tests/harness/web-tools/trusted-sites.test.ts tests/harness/web-tools/network-errors.test.ts tests/harness/approval/trusted-sites.test.ts tests/harness/web-tools/config.test.ts`，87 项通过。
 - 打包应携带当前源码后端、默认配置和 schema，并在更新后用成品真实工具再次验收；当前运行进程不会因源码修改自动切换策略。此次无需增加站点或网段授权。
+- 随后从干净提交 `f5daf1d` 构建 `dist/pimoon-stable-f5daf1d`，`release.json` 记录源 commit 与关键文件 SHA-256。无窗口成品通过原生 execute、只读并行和进程桥接验收；同一成品的真实 execute 内访问上述 GitHub 页面、API、raw 地址均 HTTP 200，webfetch readable 成功。测试只用隔离配置与合成模型凭据，不读取用户 Cookie。
+- 桌面 `pimoon.lnk` 已重新读取并确认指向该新版的 `pimoon.exe`，旧快捷方式保存在 `.tmp/tests/pimoon-shortcut-before-stable.lnk`；旧运行目录未覆盖。当前旧进程须由用户正常退出，再通过桌面快捷方式打开新版。没有运行可见 GUI 验收。
 
 ## 其他私网请求
 
