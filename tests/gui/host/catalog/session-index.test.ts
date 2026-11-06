@@ -32,6 +32,20 @@ describe("会话列表增量读取", () => {
 		expect(await new GuiSessionIndex().list()).toEqual(expected);
 	});
 
+	it("长记录跨读取块，跳过损坏行并读取没有换行符的完整尾行", async () => {
+		const text = '多行\n问题 "引号" \\ 路径 𠮷😀 '.repeat(20_000);
+		const file = await storeSession({ cwd, agentDir, provider: "test", text, timestamp: 1000 });
+		await appendFile(file, '\r\nnull\r\n[]\r\n{"type":"session_info","name":"损坏标题"}bad\r\n');
+		const index = new GuiSessionIndex();
+		expect(await index.list()).toEqual([{
+			path: file, cwd, title: text.replace(/\s+/g, " ").slice(0, 160), modified: new Date(1000).toISOString(),
+		}]);
+		await appendFile(file, JSON.stringify({ type: "session_info", name: "完整尾行标题" }));
+		expect(await index.list()).toEqual([{
+			path: file, cwd, title: "完整尾行标题", modified: new Date(1000).toISOString(),
+		}]);
+	});
+
 	it("重复刷新不读取历史正文，改名只重读变化的文件", async () => {
 		const first = await store("第一个", 1000);
 		const second = await store("第二个", 2000);
