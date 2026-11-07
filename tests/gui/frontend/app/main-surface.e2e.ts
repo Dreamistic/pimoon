@@ -72,6 +72,26 @@ test("深色左右侧栏明暗一致，输入器与模型菜单逐级提亮", as
 	} finally { channel.close(); }
 });
 
+test("欢迎页在窄容器、短窗口和双倍根字号下没有横向溢出，快捷入口可达", async ({ page }) => {
+	const channel = await replayTranscript(page, snapshot());
+	try {
+		await expect(page.getByRole("button", { name: "开始构建", exact: true })).toBeVisible();
+		await page.getByRole("button", { name: "收起会话信息", exact: true }).click();
+		for (const viewport of [{ width: 1200, height: 360 }, { width: 390, height: 844 }]) {
+			await page.setViewportSize(viewport);
+			for (const scale of ["100%", "200%"]) {
+				await page.evaluate((size) => { document.documentElement.style.fontSize = size; }, scale);
+				await expect.poll(() => page.locator(".welcome-surface").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+				for (const name of ["了解项目", "审查代码", "开始构建"]) {
+					const action = page.getByRole("button", { name, exact: true });
+					await action.scrollIntoViewIfNeeded();
+					await action.click({ trial: true });
+				}
+			}
+		}
+	} finally { channel.close(); }
+});
+
 test("欢迎页只突出开始构建，模型控制成组且快捷入口仍填入草稿", async ({ page }) => {
 	const channel = await replayTranscript(page, snapshot());
 	try {
@@ -86,8 +106,8 @@ test("欢迎页只突出开始构建，模型控制成组且快捷入口仍填�
 		for (const name of ["了解项目", "审查代码"])
 			await expect(welcome.getByRole("button", { name, exact: true })).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 		const headingSize = await welcome.locator("h1").evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
-		expect(headingSize).toBeGreaterThanOrEqual(24);
-		expect(headingSize).toBeLessThanOrEqual(28);
+		expect(headingSize).toBeGreaterThanOrEqual(26);
+		expect(headingSize).toBeLessThanOrEqual(44);
 		const controls = page.getByRole("group", { name: "模型与推理设置", exact: true });
 		await expect(controls.getByRole("combobox", { name: "模型", exact: true })).toBeVisible();
 		await expect(controls.getByRole("combobox", { name: "思考级别", exact: true })).toBeVisible();

@@ -46,6 +46,8 @@ export function generatePalette(mode: "light" | "dark", themeColor: string) {
 	const surfaces = [background, panel, composer, elevated, composite(sidebar, background), hover, secondary, selected, ...(dark ? [active] : [])];
 	const primary = readable(seed, [background], dark);
 	const primaryForeground = onColor(primary);
+	const welcomeAction = dark ? mix(panel, primary, 0.42) : primary;
+	const welcomeActionForeground = onColor(welcomeAction);
 	// 选中态上的主题色文字/图标需对 selected 底单独校正, 直接用 primary 对比度不足.
 	const selectedForeground = readable(seed, [selected], dark);
 	const userBackground = dark ? elevated : mix(panel, primary, 0.16);
@@ -67,6 +69,9 @@ export function generatePalette(mode: "light" | "dark", themeColor: string) {
 		primary, "primary-foreground": primaryForeground,
 		"primary-hover": interaction(primary, primaryForeground, white, 0.07),
 		"primary-active": interaction(primary, primaryForeground, black, 0.1),
+		"welcome-action": welcomeAction, "welcome-action-foreground": welcomeActionForeground,
+		"welcome-action-hover": interaction(welcomeAction, welcomeActionForeground, white, 0.07),
+		"welcome-action-active": interaction(welcomeAction, welcomeActionForeground, black, 0.1),
 		secondary, "secondary-active": active,
 		accent: hover, selected, "selected-foreground": selectedForeground,
 		surface: panel, "panel-base": panel, "elevated-base": elevated,

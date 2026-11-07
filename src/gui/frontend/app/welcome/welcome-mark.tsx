@@ -4,7 +4,7 @@ import { motion, useTransform, type MotionValue } from "motion/react";
 export function WelcomeMark({ time }: { time: MotionValue<number> }) {
 	const opacity = useTransform(time, [0, 0.5], [0, 1]);
 	return <motion.div className="pimoon-mark" style={{ opacity }} aria-hidden="true">
-		<div className="pimoon-orbit" />
-		<img src="./welcome-moon.svg" width="96" height="96" alt="" />
+		<img src="./welcome-moon.svg" width="160" height="160" alt="" />
+		<div className="pimoon-horizon" />
 	</motion.div>;
 }

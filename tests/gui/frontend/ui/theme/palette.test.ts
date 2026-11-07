@@ -43,6 +43,8 @@ for (const mode of ["light", "dark"] as const) {
 		expect(contrast(palette.primary, palette.background)).toBeGreaterThanOrEqual(4.5);
 		for (const key of ["primary", "primary-hover", "primary-active"] as const)
 			expect(contrast(palette[key], palette["primary-foreground"]), key).toBeGreaterThanOrEqual(4.5);
+		for (const key of ["welcome-action", "welcome-action-hover", "welcome-action-active"] as const)
+			expect(contrast(palette[key], palette["welcome-action-foreground"]), key).toBeGreaterThanOrEqual(4.5);
 		for (const key of ["warning", "warning-hover", "warning-active"] as const)
 			expect(contrast(palette[key], palette["warning-foreground"]), key).toBeGreaterThanOrEqual(4.5);
 		for (const surface of ["background", "panel-base", "canvas-base", "glass-base", "control-base", "soft-base", "elevated-base", "accent"] as const) {

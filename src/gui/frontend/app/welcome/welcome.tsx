@@ -5,7 +5,6 @@ import type { GuiSnapshot } from "../../../shared/protocol/state.ts";
 import type { GuiControls, EditorControls } from "../controls.ts";
 import { Button } from "@/ui/button.tsx";
 import { modelSetup } from "@/features/models/model-setup.ts";
-import { Spotlight } from "@/ui/motion/spotlight.tsx";
 
 const starters = [
 	{ Icon: motion.create(FolderSearch), animation: { x: [0, -2, 1, 0] }, primary: false, title: "了解项目", text: "梳理这个项目的结构，介绍主要模块和运行方式。" },
@@ -26,7 +25,7 @@ export function Welcome({ snapshot, gui }: { snapshot: GuiSnapshot; gui: Pick<Gu
 				<motion.button initial="idle" animate="idle" whileHover="active" whileFocus="active"
 					onClick={() => { gui.setDraft(text); gui.editor.current?.focus(); }}>
 					<Icon variants={{ idle: { x: 0, scale: 1, opacity: 1 }, active: animation }} transition={welcomeStarterTransition} />
-					<span>{title}</span><Spotlight /><ArrowUpRight />
+					<span>{title}</span><ArrowUpRight />
 				</motion.button>
 			</Button>)}
 		</div>}
