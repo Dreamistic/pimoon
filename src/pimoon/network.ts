@@ -6,6 +6,12 @@ export function allowedModelURL(value: string): boolean {
 	const url = new URL(value);
 	return url.protocol === "https:" && url.hostname === "chatgpt.com" && (!url.port || url.port === "443") && url.pathname === "/backend-api/codex/responses";
 }
+/** Codex 登录与令牌刷新不是模型调用，只放行 SDK 使用的认证 POST 接口。 */
+function allowedAuthRequest(value: string, method: string): boolean {
+	const url = new URL(value);
+	if (method !== "POST" || url.origin !== "https://auth.openai.com" || url.username || url.password || url.search || url.hash) return false;
+	return url.pathname === "/oauth/token" || url.pathname === "/api/accounts/deviceauth/usercode" || url.pathname === "/api/accounts/deviceauth/token";
+}
 /** 用量查询与重置卡不是模型调用，只放行精确路径及方法。 */
 function allowedUsageRequest(value: string, method: string): boolean {
 	const url = new URL(value);
@@ -19,7 +25,7 @@ export function installModelBoundary(): void {
 	globalThis.fetch = async (input, options) => {
 		const url = typeof input === "string" || input instanceof URL ? String(input) : input.url;
 		const method = options?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
-		if (allowedUsageRequest(url, method.toUpperCase())) return original(input, { ...options, redirect: "error" });
+		if (allowedAuthRequest(url, method.toUpperCase()) || allowedUsageRequest(url, method.toUpperCase())) return original(input, { ...options, redirect: "error" });
 		if (!allowedModelURL(url)) { record("network_denied", { target: fingerprint(url) }); throw new Error("pimoon 此构建仅连接 Codex 订阅端点。"); }
 		let bytes: Uint8Array | undefined;
 		if (typeof options?.body === "string") bytes = new TextEncoder().encode(options.body);
