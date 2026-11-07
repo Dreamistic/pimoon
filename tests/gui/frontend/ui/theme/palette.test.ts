@@ -6,13 +6,33 @@ import { readGuiDefaults } from "../../../../../src/gui/host/config/preferences.
 it("默认深色表面使用紫灰色阶，启动主题色与配置一致", () => {
 	const palette = generatePalette("dark", DEFAULT_THEME_COLOR);
 	const expected = {
-		background: "#191720", "canvas-base": "#191720", "glass-base": "#1D1A26",
-		"toolbar-base": "#191720", "panel-base": "#24212E", "soft-base": "#292532",
-		border: "#35303F", foreground: "#ECE8F2", "muted-foreground": "#A39BAF", primary: "#A78BFA", "brand-soft": "#8065C5",
+		background: "#17151D", "canvas-base": "#17151D", "glass-base": "#1D1A25",
+		"toolbar-base": "#17151D", "panel-base": "#24212D", "soft-base": "#24212D", "elevated-base": "#2B2735",
+		border: "#35303F", foreground: "#EAE5F0", "muted-foreground": "#A59BAB", "muted-decoration": "#716A7C", primary: "#A78BFA",
 	};
 	for (const [token, color] of Object.entries(expected))
 		expect(toHex(palette[token as keyof typeof expected]), token).toBe(color);
 	expect(readGuiDefaults().themeColor).toBe(DEFAULT_THEME_COLOR);
+});
+
+it("深色区域按明暗分层，普通表面与正文粗体不受强调色染色", () => {
+	const defaults = generatePalette("dark", DEFAULT_THEME_COLOR);
+	const custom = generatePalette("dark", "#00CC88");
+	for (const key of ["background", "glass-base", "panel-base", "elevated-base", "selected", "user-background", "emphasis"] as const)
+		expect(defaults[key], key).toEqual(custom[key]);
+	expect(defaults.emphasis).toEqual(defaults.foreground);
+	expect(defaults["user-background"]).toEqual(defaults["elevated-base"]);
+});
+
+it("左右侧栏使用相同的暗色不透明度，明亮桌面不会把侧栏洗成亮灰", () => {
+	const { materials } = readGuiDefaults();
+	const palette = generatePalette("dark", DEFAULT_THEME_COLOR);
+	expect(materials.sidebar.darkOpacity).toBe(materials.inspector.darkOpacity);
+	for (const backdrop of ["#1D2431", "#B7C2D6", "#FFFFFF"]) {
+		const canvas = composite(alpha(palette["canvas-base"], materials.canvas.darkOpacity / 100), hex(backdrop));
+		const sidebar = composite(alpha(palette["glass-base"], materials.sidebar.darkOpacity / 100), hex(backdrop));
+		expect(contrast(canvas, sidebar)).toBeLessThan(1.3);
+	}
 });
 
 for (const mode of ["light", "dark"] as const) {
@@ -25,7 +45,7 @@ for (const mode of ["light", "dark"] as const) {
 			expect(contrast(palette[key], palette["primary-foreground"]), key).toBeGreaterThanOrEqual(4.5);
 		for (const key of ["warning", "warning-hover", "warning-active"] as const)
 			expect(contrast(palette[key], palette["warning-foreground"]), key).toBeGreaterThanOrEqual(4.5);
-		for (const surface of ["background", "panel-base", "canvas-base", "glass-base", "control-base", "soft-base", "accent"] as const) {
+		for (const surface of ["background", "panel-base", "canvas-base", "glass-base", "control-base", "soft-base", "elevated-base", "accent"] as const) {
 			for (const text of ["foreground", "muted-foreground", "destructive", "success", "warning"] as const)
 				expect(contrast(palette[text], palette[surface]), `${text} on ${surface}`).toBeGreaterThanOrEqual(4.5);
 		}

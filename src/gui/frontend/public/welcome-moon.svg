@@ -1,14 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
   <defs>
     <linearGradient id="moon" gradientUnits="userSpaceOnUse" x1="25" y1="12" x2="70" y2="80">
-      <stop stop-color="#CFC0FC"/>
-      <stop offset=".42" stop-color="#A78BFA"/>
-      <stop offset="1" stop-color="#8065C5"/>
+      <stop stop-color="#EAE5F0"/>
+      <stop offset=".42" stop-color="#D2CBDD"/>
+      <stop offset="1" stop-color="#A59BAB"/>
     </linearGradient>
     <linearGradient id="rim" gradientUnits="userSpaceOnUse" x1="20" y1="16" x2="64" y2="78">
       <stop stop-color="#FFFFFF" stop-opacity=".32"/>
-      <stop offset=".6" stop-color="#CFC0FC" stop-opacity=".08"/>
-      <stop offset="1" stop-color="#8065C5" stop-opacity="0"/>
+      <stop offset=".6" stop-color="#EAE5F0" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#A59BAB" stop-opacity="0"/>
     </linearGradient>
     <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="96" height="96">
       <rect width="96" height="96" fill="white"/>

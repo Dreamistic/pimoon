@@ -38,6 +38,40 @@ test("左侧栏拖动后记住宽度，折叠与恢复不丢失，双击可重�
 	} finally { channel.close(); }
 });
 
+test("深色左右侧栏明暗一致，输入器与模型菜单逐级提亮", async ({ page }) => {
+	test.skip((page.viewportSize()?.width ?? 0) < 768, "窄屏使用抽屉导航");
+	await page.emulateMedia({ colorScheme: "dark" });
+	const channel = await replayTranscript(page, snapshot());
+	try {
+		await expect(page.locator("html")).toHaveAttribute("data-theme", "system");
+		await page.getByRole("combobox", { name: "模型", exact: true }).click();
+		await expect(page.getByRole("listbox")).toBeVisible();
+		const colors = await page.evaluate(() => {
+			const canvas = document.createElement("canvas");
+			canvas.width = canvas.height = 1;
+			const context = canvas.getContext("2d");
+			if (!context) throw new Error("无法采样表面颜色");
+			const sample = (selector: string) => {
+				const element = document.querySelector(selector);
+				if (!element) throw new Error(`缺少表面：${selector}`);
+				context.fillStyle = getComputedStyle(document.body).backgroundColor;
+				context.fillRect(0, 0, 1, 1);
+				context.fillStyle = getComputedStyle(element).backgroundColor;
+				context.fillRect(0, 0, 1, 1);
+				return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3);
+			};
+			return { left: sample(".sidebar"), right: sample(".session-sidebar"),
+				canvas: sample(".conversation-canvas"), composer: sample(".composer-card"), menu: sample('[data-slot="select-content"]') };
+		});
+		expect(colors.left).toEqual(colors.right);
+		const brightness = (rgb: number[]) => rgb.reduce((sum, channel) => sum + channel, 0);
+		expect(brightness(colors.left)).toBeGreaterThan(brightness(colors.canvas));
+		expect(brightness(colors.composer)).toBeGreaterThan(brightness(colors.left));
+		expect(brightness(colors.menu)).toBeGreaterThan(brightness(colors.composer));
+		await page.keyboard.press("Escape");
+	} finally { channel.close(); }
+});
+
 test("欢迎页只突出开始构建，模型控制成组且快捷入口仍填入草稿", async ({ page }) => {
 	const channel = await replayTranscript(page, snapshot());
 	try {

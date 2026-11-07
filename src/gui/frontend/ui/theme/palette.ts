@@ -1,7 +1,7 @@
 import { alpha, composite, contrast, hex, mix, type Color } from "./color.ts";
-import { GUI_BACKGROUNDS, GUI_BRAND_COLORS } from "../../../shared/theme.ts";
+import { GUI_BACKGROUNDS } from "../../../shared/theme.ts";
 
-export const DEFAULT_THEME_COLOR = GUI_BRAND_COLORS.primary;
+export const DEFAULT_THEME_COLOR = "#A78BFA";
 const black = hex("#000000"), white = hex("#FFFFFF");
 
 function readable(seed: Color, backgrounds: readonly Color[], dark: boolean, minimum = 4.5): Color {
@@ -32,25 +32,25 @@ export function generatePalette(mode: "light" | "dark", themeColor: string) {
 	const dark = mode === "dark", seed = hex(themeColor);
 	const tint = dark ? 0 : 0.012;
 	const background = mix(hex(GUI_BACKGROUNDS[mode]), seed, tint * 0.5);
-	const panel = mix(hex(dark ? "#24212E" : "#FFFFFF"), seed, tint);
-	const sidebar = mix(hex(dark ? "#1D1A26" : "#EBEBF0DC"), seed, tint);
+	const panel = mix(hex(dark ? "#24212D" : "#FFFFFF"), seed, tint);
+	const sidebar = mix(hex(dark ? "#1D1A25" : "#EBEBF0DC"), seed, tint);
 	const toolbar = dark ? background : mix(hex("#F7F7F8DC"), seed, tint * 0.7);
-	const composer = hex(dark ? "#292532" : "#F2F2F4");
-	const control = dark ? hex("#35303F") : panel;
-	const foreground = hex(dark ? "#ECE8F2" : "#1D1D1F");
-	const secondary = composite(hex(dark ? "#FFFFFF10" : "#3C3C4324"), background);
-	const hover = composite(hex(dark ? "#FFFFFF0D" : "#3C3C4330"), dark ? panel : background);
-	const active = composite(hex(dark ? "#FFFFFF14" : "#3C3C4340"), dark ? panel : background);
-	// 选中态: 中性为主的底色混入少量主题色染色, 与中性灰的 hover 靠色相区分, 不靠亮度硬拼.
-	const selected = mix(dark ? panel : composite(sidebar, background), seed, dark ? 0.16 : 0.18);
-	const surfaces = [background, panel, composer, control, composite(sidebar, background), hover, secondary, selected, ...(dark ? [active] : [])];
+	const composer = dark ? panel : hex("#F2F2F4");
+	const elevated = dark ? hex("#2B2735") : panel;
+	const foreground = hex(dark ? "#EAE5F0" : "#1D1D1F");
+	const secondary = dark ? panel : composite(hex("#3C3C4324"), background);
+	const hover = dark ? mix(panel, elevated, 0.6) : composite(hex("#3C3C4330"), background);
+	const active = dark ? mix(elevated, foreground, 0.05) : composite(hex("#3C3C4340"), background);
+	// 深色选中态只提高表面亮度，强调色保留给选中图标和文字。
+	const selected = dark ? elevated : mix(composite(sidebar, background), seed, 0.18);
+	const surfaces = [background, panel, composer, elevated, composite(sidebar, background), hover, secondary, selected, ...(dark ? [active] : [])];
 	const primary = readable(seed, [background], dark);
 	const primaryForeground = onColor(primary);
 	// 选中态上的主题色文字/图标需对 selected 底单独校正, 直接用 primary 对比度不足.
 	const selectedForeground = readable(seed, [selected], dark);
-	const userBackground = mix(panel, primary, dark ? 0.22 : 0.16);
+	const userBackground = dark ? elevated : mix(panel, primary, 0.16);
 	const userLink = readable(seed, [userBackground], dark);
-	const muted = readable(hex(dark ? "#A39BAF" : "#48484A"), surfaces, dark);
+	const muted = readable(hex(dark ? "#A59BAB" : "#48484A"), surfaces, dark);
 	const danger = readable(hex(dark ? "#FF453A" : "#D70015"), surfaces, dark);
 	const success = readable(hex(dark ? "#30D158" : "#248A3D"), surfaces, dark);
 	const warning = readable(hex(dark ? "#FFCC00" : "#936B22"), surfaces, dark);
@@ -69,15 +69,15 @@ export function generatePalette(mode: "light" | "dark", themeColor: string) {
 		"primary-active": interaction(primary, primaryForeground, black, 0.1),
 		secondary, "secondary-active": active,
 		accent: hover, selected, "selected-foreground": selectedForeground,
-		surface: panel, "panel-base": panel,
+		surface: panel, "panel-base": panel, "elevated-base": elevated,
 		"canvas-base": dark ? background : mix(background, alpha(sidebar, 1), 0.4),
 		"glass-base": alpha(sidebar, 1), "toolbar-base": alpha(toolbar, 1),
-		"control-base": control,
+		"control-base": panel,
 		"soft-base": composer,
-		"brand-soft": hex(GUI_BRAND_COLORS.soft),
+		"muted-decoration": hex(dark ? "#716A7C" : "#8E8799"),
 		"muted-foreground": muted,
 		border: hex(dark ? "#35303F" : "#3C3C4330"), ring: primary,
-		link: primary, emphasis: mix(foreground, primary, dark ? 0.3 : 0.22),
+		link: primary, emphasis: dark ? foreground : mix(foreground, primary, 0.22),
 		selection: alpha(primary, dark ? 0.32 : 0.22),
 		destructive: danger, "destructive-foreground": dangerForeground,
 		"destructive-hover": interaction(danger, dangerForeground, white, 0.07),
@@ -90,14 +90,14 @@ export function generatePalette(mode: "light" | "dark", themeColor: string) {
 		"floating-shadow": hex(dark ? "#0000005C" : "#1D1D1F24"),
 		"surface-shine": surfaceShine,
 		"soft-shine": dark ? surfaceShine : hex("#FFFFFF20"),
-		"surface-edge": hex(dark ? "#35303F" : "#1D1D1F1C"),
+		"surface-edge": dark ? alpha(foreground, 0.05) : hex("#1D1D1F1C"),
 		"control-thumb": white,
 		"meter-track": alpha(dark ? white : black, 0.1),
 		"scrollbar-thumb": scrollbar(3), "scrollbar-thumb-hover": scrollbar(4.5), "scrollbar-thumb-active": scrollbar(6),
 		"user-background": userBackground, "user-foreground": foreground,
-		"user-muted-foreground": readable(mix(muted, primary, dark ? 0.08 : 0.06), [userBackground], dark),
-		"user-link": userLink, "user-emphasis": mix(foreground, userLink, dark ? 0.35 : 0.24),
-		"user-border": alpha(primary, dark ? 0.18 : 0.14),
+		"user-muted-foreground": readable(dark ? muted : mix(muted, primary, 0.06), [userBackground], dark),
+		"user-link": userLink, "user-emphasis": dark ? foreground : mix(foreground, userLink, 0.24),
+		"user-border": alpha(dark ? foreground : primary, dark ? 0.05 : 0.14),
 		"user-surface": composite(alpha(white, dark ? 0.08 : 0.44), userBackground),
 		"user-selection": alpha(primary, dark ? 0.22 : 0.18),
 		"syntax-comment": syntax("#94A3B8", "#6B7280"),
