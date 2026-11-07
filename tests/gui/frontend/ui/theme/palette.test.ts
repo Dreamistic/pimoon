@@ -2,6 +2,8 @@ import { expect, it } from "vitest";
 import { DEFAULT_THEME_COLOR, generatePalette } from "../../../../../src/gui/frontend/ui/theme/palette.ts";
 import { alpha, composite, contrast, hex, toHex } from "../../../../../src/gui/frontend/ui/theme/color.ts";
 import { readGuiDefaults } from "../../../../../src/gui/host/config/preferences.ts";
+import { materialRegions } from "../../../../../src/gui/shared/config/preferences.ts";
+import { parseGuiPreferences } from "../../../../../src/gui/shared/config/gui-validation.ts";
 
 it("默认深色表面使用紫灰色阶，启动主题色与配置一致", () => {
 	const palette = generatePalette("dark", DEFAULT_THEME_COLOR);
@@ -24,15 +26,24 @@ it("深色区域按明暗分层，普通表面与正文粗体不受强调色染�
 	expect(defaults["user-background"]).toEqual(defaults["elevated-base"]);
 });
 
-it("左右侧栏使用相同的暗色不透明度，明亮桌面不会把侧栏洗成亮灰", () => {
+it("默认材质恢复原有深浅色不透明度关系", () => {
 	const { materials } = readGuiDefaults();
-	const palette = generatePalette("dark", DEFAULT_THEME_COLOR);
-	expect(materials.sidebar.darkOpacity).toBe(materials.inspector.darkOpacity);
-	for (const backdrop of ["#1D2431", "#B7C2D6", "#FFFFFF"]) {
-		const canvas = composite(alpha(palette["canvas-base"], materials.canvas.darkOpacity / 100), hex(backdrop));
-		const sidebar = composite(alpha(palette["glass-base"], materials.sidebar.darkOpacity / 100), hex(backdrop));
-		expect(contrast(canvas, sidebar)).toBeLessThan(1.3);
-	}
+	const expected = {
+		canvas: [88, 92], sidebar: [72, 86], toolbar: [80, 90], inspector: [86, 90],
+		composer: [88, 92], floating: [86, 86], dialog: [94, 96], overlay: [32, 32],
+	};
+	expect(materials.enabled).toBe(true);
+	expect(materials.desktop).toBe(true);
+	for (const region of materialRegions)
+		expect([materials[region].opacity, materials[region].darkOpacity], region).toEqual(expected[region]);
+});
+
+it("恢复默认材质时仍优先使用用户设置的不透明度", () => {
+	const defaults = readGuiDefaults();
+	const { materials } = parseGuiPreferences('{"materials":{"canvas":{"darkOpacity":74},"composer":{"darkOpacity":65}}}', defaults);
+	expect(materials.canvas).toEqual({ ...defaults.materials.canvas, darkOpacity: 74 });
+	expect(materials.composer).toEqual({ ...defaults.materials.composer, darkOpacity: 65 });
+	expect(materials.sidebar).toEqual(defaults.materials.sidebar);
 });
 
 for (const mode of ["light", "dark"] as const) {

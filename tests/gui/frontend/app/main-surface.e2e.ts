@@ -38,7 +38,7 @@ test("左侧栏拖动后记住宽度，折叠与恢复不丢失，双击可重�
 	} finally { channel.close(); }
 });
 
-test("深色左右侧栏明暗一致，输入器与模型菜单逐级提亮", async ({ page }) => {
+test("深色侧栏、输入器与模型菜单保持明暗层级", async ({ page }) => {
 	test.skip((page.viewportSize()?.width ?? 0) < 768, "窄屏使用抽屉导航");
 	await page.emulateMedia({ colorScheme: "dark" });
 	const channel = await replayTranscript(page, snapshot());
@@ -63,10 +63,11 @@ test("深色左右侧栏明暗一致，输入器与模型菜单逐级提亮", as
 			return { left: sample(".sidebar"), right: sample(".session-sidebar"),
 				canvas: sample(".conversation-canvas"), composer: sample(".composer-card"), menu: sample('[data-slot="select-content"]') };
 		});
-		expect(colors.left).toEqual(colors.right);
 		const brightness = (rgb: number[]) => rgb.reduce((sum, channel) => sum + channel, 0);
-		expect(brightness(colors.left)).toBeGreaterThan(brightness(colors.canvas));
-		expect(brightness(colors.composer)).toBeGreaterThan(brightness(colors.left));
+		for (const sidebar of [colors.left, colors.right]) {
+			expect(brightness(sidebar)).toBeGreaterThan(brightness(colors.canvas));
+			expect(brightness(colors.composer)).toBeGreaterThan(brightness(sidebar));
+		}
 		expect(brightness(colors.menu)).toBeGreaterThan(brightness(colors.composer));
 		await page.keyboard.press("Escape");
 	} finally { channel.close(); }
