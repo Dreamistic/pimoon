@@ -1,5 +1,13 @@
 # pimoon 0.1.0 本机验证
 
+## Codex 认证请求被模型边界误拦（2026-11-06）
+
+- 本地拒绝记录的 URL 指纹与 Codex 令牌交换和设备码登录端点一致。桌面全局 `fetch` 边界此前仅允许模型与用量请求，认证请求在发出前就报“仅连接 Codex 订阅端点”。
+- 精确放行 `auth.openai.com` 下 `/oauth/token`、`/api/accounts/deviceauth/usercode`、`/api/accounts/deviceauth/token` 的 HTTPS POST 请求。拒绝其他端口、用户信息、查询参数、片段与重定向。认证正文和请求头不进入模型解析、绑定或遥测。
+- 仍仅支持 `openai-codex`。其他提供方的“Sign in with ChatGPT”使用 `/api/accounts/oauth/token` 和不同模型端点，不在本次放行范围。
+- 新增回归测试在修复前 4 项失败、14 项通过，失败均为原错误。修复后认证、模型与用量边界共 53 项测试通过，全项目 TypeScript 类型检查通过。覆盖真实 SDK 的设备码登录与刷新、浏览器授权表单透传、Request 方法覆盖、认证信息不入遥测，以及非白名单请求和无绑定模型请求继续拒绝。
+- 命令：`node scripts/test-isolated.mjs node_modules/vitest/vitest.mjs run tests/pimoon/auth-boundary.test.ts tests/pimoon/boundary.test.ts tests/pimoon/usage-boundary.test.ts`、`node scripts/test-isolated.mjs node_modules/typescript/bin/tsc --noEmit`。全部用户目录隔离到 `.tmp/tests`，使用合成凭据与模拟响应，未连接真实认证服务或启动窗口。
+
 ## 公开源码准备（2026-11-06）
 
 - 重写 README、安装与构建指南，明确 Windows x64 支持范围、工具链、目录部署、Python 运行时要求、自有账号认证与未验收的登录续期。
