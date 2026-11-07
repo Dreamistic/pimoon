@@ -1,7 +1,7 @@
 {
 	"$schema": "../schemas/gui.schema.json",
 	"theme": "system",
-	"themeColor": "#8870D8",
+	"themeColor": "#A78BFA",
 	"materials": {
 		"enabled": true,
 		"desktop": true,
