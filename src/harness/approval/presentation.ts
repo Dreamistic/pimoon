@@ -46,8 +46,10 @@ export function buildApprovalContent(request: ApprovalRequest, decision: AskDeci
 			...common,
 			line(`URL: ${request.detail.url}`),
 			...(request.detail.path ? [line(`Download: ${request.detail.path}`)] : []),
-			line("Resolved addresses:", "dim"),
-			...request.detail.addresses.map((item) => line(item.address, "warning")),
+			...(request.detail.addresses === undefined ? [] : [
+				line("Resolved addresses:", "dim"),
+				...request.detail.addresses.map((item) => line(item.address, "warning")),
+			]),
 		];
 	}
 	return [

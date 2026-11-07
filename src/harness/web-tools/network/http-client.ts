@@ -101,7 +101,7 @@ async function fetchWithinDeadline(
 	try {
 		while (true) {
 			if (redirectCount > 0) {
-				const checked = validateRequestUrl(currentUrl.toString(), options.context.privateNetworkGrant?.origin);
+				const checked = validateRequestUrl(currentUrl.toString(), options.context.privateNetworkGrant?.origin, options.config.network.restrict_private_addresses);
 				if ("status" in checked) return failure(checked, lastStatus);
 				currentUrl = checked.url;
 			}

@@ -48,7 +48,7 @@ Tree-sitter 将 Shell 输入拆为简单命令、嵌套替换、静态 `-c` 子�
 
 - `exact_command`、`command_prefix` 必须包含 cwd。
 - `exact_path`、`path_glob` 只按路径匹配。
-- 私网规则按完整 origin 匹配。
+- 开启 `network.restrict_private_addresses` 后，私网规则按完整 origin 匹配；默认不生成网络审批单元。
 
 安装命令可以生成保守前缀，如 `npm install`。推送等操作保存完整命令。路径只在明确范围内生成 glob，其余保存精确值。
 

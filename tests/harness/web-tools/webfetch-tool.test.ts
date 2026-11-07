@@ -21,6 +21,7 @@ const PNG_BYTES = Buffer.from(
 );
 
 const runtime = useWebFetchRuntime((runtime) => {
+	runtime.config.network.restrict_private_addresses = true;
 	runtime.config.webfetch.limits.default_output_chars = 1000;
 	runtime.config.webfetch.media.mode = "on";
 	runtime.context.acceptsImages = false;

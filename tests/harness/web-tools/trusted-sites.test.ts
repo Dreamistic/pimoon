@@ -75,6 +75,7 @@ describe("精确 HTTPS 站点授权", () => {
 		const address = proxy.address();
 		if (!address || typeof address === "string") throw new Error("Missing proxy address");
 		const config = defaultWebToolsConfig().network;
+		config.restrict_private_addresses = true;
 		config.trusted_https_origins = origins;
 		config.proxy = { enabled: true, http_proxy: "", https_proxy: `http://127.0.0.1:${address.port}`, socks5_proxy: "" };
 		vi.spyOn(resolver, "lookup").mockResolvedValue([{ address: "172.19.0.9", family: 4 }]);

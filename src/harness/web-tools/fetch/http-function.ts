@@ -28,15 +28,15 @@ export interface HttpResult {
 	path?: string;
 }
 
-/** 复用安全 DNS、逐跳重定向、代理和大小限制；不读取浏览器或用户 Cookie。 */
+/** 复用网络策略、逐跳重定向、代理和大小限制；不读取浏览器或用户 Cookie。 */
 export async function executeHttp(input: HttpInput, context: WebFetchExecutionContext, workspace: string, options: WebCapabilityOptions): Promise<HttpResult> {
 	const started = performance.now();
 	const mode = input.mode ?? "text";
 	if ((mode === "download") !== (input.path !== undefined)) throw new Error("download 模式必须且仅能提供 path。");
 	if (input.path !== undefined) await checkWritablePath(workspace, input.path, protectedCredentialPaths);
-	const requested = validateRequestUrl(input.url, context.privateNetworkGrant?.origin);
-	if ("status" in requested) throw new Error(requested.error.message);
 	const loaded = await options.loadConfig();
+	const requested = validateRequestUrl(input.url, context.privateNetworkGrant?.origin, loaded.network.restrict_private_addresses);
+	if ("status" in requested) throw new Error(requested.error.message);
 	const config = { ...loaded, webfetch: { ...loaded.webfetch,
 		timeout_seconds: input.timeout ?? loaded.webfetch.timeout_seconds, cookies: { ...loaded.webfetch.cookies, enabled: false } } };
 	const dispatcher = await options.getDispatcher(config.network);

@@ -22,11 +22,13 @@ import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
 let dir: string;
 const temp = useTempDir("o-pi-approval-gate-");
-preserveEnv("PI_APPROVAL_GATE_CONFIG", "NODE_ENV");
+preserveEnv("PI_APPROVAL_GATE_CONFIG", "PI_WEB_TOOLS_CONFIG", "NODE_ENV");
 
 beforeEach(async () => {
 	process.env.NODE_ENV = "production";
 	dir = temp.path;
+	process.env.PI_WEB_TOOLS_CONFIG = path.join(dir, "web-tools.jsonc");
+	await writeFile(process.env.PI_WEB_TOOLS_CONFIG, JSON.stringify({ network: { restrict_private_addresses: true } }));
 	process.env.PI_APPROVAL_GATE_CONFIG = path.join(dir, "approval.jsonc");
 	await setStorePath(path.join(dir, "rules.jsonc"));
 });

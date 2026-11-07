@@ -1,7 +1,9 @@
 import os from "node:os";
 import path from "node:path";
 import type { ToolCallEvent } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as webConfig from "../../../src/harness/web-tools/config.ts";
+import { defaultWebToolsConfig } from "../web-tools/config-fixture.ts";
 
 import { buildApprovalRequest } from "../../../src/harness/approval/pi/request.ts";
 
@@ -10,7 +12,14 @@ const systemPath = path.join(path.parse(cwd).root, "etc", "hosts");
 const runtimeTempRoot = os.tmpdir();
 const runtimeTempChild = path.join(runtimeTempRoot, "pi-approval", "work");
 
-describe("approval request builder", () => {
+beforeEach(() => {
+	const config = defaultWebToolsConfig();
+	config.network.restrict_private_addresses = true;
+	vi.spyOn(webConfig, "loadWebToolsConfig").mockResolvedValue(config);
+});
+afterEach(() => vi.restoreAllMocks());
+
+describe("approval request builder（开启地址保护）", () => {
 	it("结构化进程审批按 argv、环境覆盖和工作目录精确匹配，不拆成 Shell 单元", async () => {
 		const input = { argv: ["node", "build.js", "a & b"], cwd: "webapp", env: { JAVA_HOME: "fixture-jdk", BUILD_MODE: "debug" } };
 		const request = await buildApprovalRequest({ type: "tool_call", toolName: "process_run", toolCallId: "process", input }, cwd);

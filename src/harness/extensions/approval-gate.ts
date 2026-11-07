@@ -174,7 +174,9 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 				release();
 			}
 		}
-		if (request.tool === "webfetch" || request.tool === "http") attachPrivateNetworkGrant(event.input, createPrivateNetworkGrantFor(request.detail.origin, request.detail.addresses));
+		if ((request.tool === "webfetch" || request.tool === "http") && request.detail.addresses !== undefined) {
+			attachPrivateNetworkGrant(event.input, createPrivateNetworkGrantFor(request.detail.origin, request.detail.addresses));
+		}
 	});
 	// 反馈随原调用结果进入主模型，不额外触发一轮提案，也不自动变成授权。
 	pi.on("tool_result", event => {

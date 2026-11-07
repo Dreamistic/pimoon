@@ -34,7 +34,7 @@ beforeEach(async () => {
 	process.env.PI_WEB_TOOLS_CONFIG = path.join(temp.path, "web-tools.jsonc");
 	process.env.PI_WEB_TOOLS_COOKIES = path.join(temp.path, "cookies.txt");
 	await writeFile(process.env.PI_WEB_TOOLS_CONFIG, JSON.stringify({
-		network: { proxy: { enabled: true, http_proxy: origin } },
+		network: { restrict_private_addresses: true, proxy: { enabled: true, http_proxy: origin } },
 		websearch: {
 			brave_api: { endpoint: "http://1.1.1.1/search", api_key: "fixture" },
 			exa_api: { enabled: false }, tavily: { enabled: false },

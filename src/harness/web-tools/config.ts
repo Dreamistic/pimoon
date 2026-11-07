@@ -7,7 +7,7 @@ import {
 } from "../config-loader.ts";
 import { ConfigCache, type ConfigSnapshot } from "../config-cache.ts";
 import type { WebToolsConfig } from "./config-types.ts";
-import { guardPublicHttpUrlLiteral } from "./network/url-guard.ts";
+import { guardHttpUrlLiteral } from "./network/url-guard.ts";
 import { validateTrustedHttpsOrigins } from "./network/trusted-sites.ts";
 import { normalizeDomains } from "./search-providers/query.ts";
 
@@ -46,12 +46,9 @@ function materializeConfig(raw: WebToolsConfig): WebToolsConfig {
 	if (providers.length !== providerCount || new Set(providers).size !== providers.length) {
 		throw new ConfigError("websearch provider groups must contain every provider exactly once.");
 	}
-	validateProviderUrl("brave_api", config.websearch.brave_api.endpoint);
-	validateProviderUrl("exa_api", config.websearch.exa_api.endpoint);
-	validateProviderUrl("exa_mcp", config.websearch.exa_mcp.endpoint);
-	validateProviderUrl("tavily", config.websearch.tavily.endpoint);
-	validateProviderUrl("tinyfish", config.websearch.tinyfish.endpoint);
-	validateProviderUrl("anysearch", config.websearch.anysearch.endpoint);
+	for (const provider of providers) {
+		validateProviderUrl(provider, config.websearch[provider].endpoint, network.restrict_private_addresses);
+	}
 	return config;
 }
 
@@ -93,11 +90,11 @@ function isValidProxyPort(port: string): boolean {
 	return Number.isInteger(value) && value >= 1 && value <= 65_535;
 }
 
-function validateProviderUrl(provider: string, value: string): void {
+function validateProviderUrl(provider: string, value: string, restrictPrivateAddresses: boolean): void {
 	try {
-		guardPublicHttpUrlLiteral(value);
+		guardHttpUrlLiteral(value, restrictPrivateAddresses);
 	} catch (error) {
-		throw new ConfigError(`${provider}.endpoint is not an allowed public HTTP URL.`, {
+		throw new ConfigError(`${provider}.endpoint is not an allowed HTTP URL.`, {
 			error: error instanceof Error ? error.message : String(error),
 		});
 	}

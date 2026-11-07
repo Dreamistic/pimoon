@@ -34,7 +34,7 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 	if (mode === "image" && (params.find !== undefined || params.offset !== undefined)) {
 		return failureResult({ status: "failed", error: { code: "INVALID_ARGUMENT", message: "image mode does not accept find or offset." } });
 	}
-	const requested = validateRequestUrl(params.url, runtime.context.privateNetworkGrant?.origin);
+	const requested = validateRequestUrl(params.url, runtime.context.privateNetworkGrant?.origin, runtime.config.network.restrict_private_addresses);
 	if ("status" in requested) {
 		return failureResult({ ...requested, requested_url: safeRedact(params.url), duration_ms: runtime.now() - options.startedAt });
 	}

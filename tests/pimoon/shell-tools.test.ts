@@ -16,7 +16,7 @@ import { createRuntimeResources } from "./runtime-resources.ts";
 const network = vi.hoisted(() => ({ fetch: vi.fn<WebHttpFetch>() }));
 vi.mock("undici/index.js", async importOriginal => ({ ...await importOriginal<typeof import("undici")>(), fetch: network.fetch }));
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
-it("进程、搜索、网页与 HTTP 都是 CodeAct 函数，审批拦截未批准执行与内网请求", async () => {
+it("进程、搜索、网页与 HTTP 都是 CodeAct 函数，审批拦截未批准执行但不拦截内网请求", async () => {
 	const base = path.resolve(".tmp/tests/pimoon-function-approvals"); await fs.mkdir(base, { recursive: true });
 	const folder = await fs.mkdtemp(path.join(base, "case-")), cwd = path.join(folder, "workspace"), agentDir = path.join(folder, "agent");
 	await fs.mkdir(cwd); await fs.mkdir(agentDir);
@@ -31,7 +31,7 @@ it("进程、搜索、网页与 HTTP 都是 CodeAct 函数，审批拦截未批�
 	vi.spyOn(webConfig, "loadWebToolsConfig").mockResolvedValue(config);
 	network.fetch.mockImplementation(async url => {
 		if (url.hostname === "api.search.brave.com") return httpResponse(200, JSON.stringify({ grounding: { generic: [{ title: "Fixture docs", url: "https://93.184.216.34/docs", snippets: ["fixture search result"] }] } }), { "content-type": "application/json" });
-		if (url.hostname === "93.184.216.34") return httpResponse(200, "fixture web content");
+		if (url.hostname === "93.184.216.34" || url.hostname === "127.0.0.1") return httpResponse(200, "fixture web content");
 		throw new Error("意外网络请求");
 	});
 	const code = [
@@ -61,14 +61,14 @@ it("进程、搜索、网页与 HTTP 都是 CodeAct 函数，审批拦截未批�
 			expect(server.requests).toHaveLength(code.length + 1);
 			for (const request of server.requests) expect(request.tools?.map(tool => tool.function.name)).toEqual(["execute"]);
 			const results = runtime.session.messages.filter(isExecutionResult);
-			expect(results.map(result => ({ isError: result.isError })), JSON.stringify(results.map(result => result.content))).toEqual([expect.objectContaining({ isError: true }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: true }), expect.objectContaining({ isError: true })]);
+			expect(results.map(result => ({ isError: result.isError })), JSON.stringify(results.map(result => result.content))).toEqual([expect.objectContaining({ isError: true }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: true })]);
 			expect(JSON.stringify(results[0]?.content)).toMatch(/approval|审批/iu);
 			expect(JSON.stringify(results[1]?.content)).toContain("fixture search result");
 			expect(JSON.stringify(results[2]?.content)).toContain("fixture web content");
 			expect(JSON.stringify(results[3]?.content)).toContain("total_ms");
-			expect(JSON.stringify(results[4]?.content)).toMatch(/approval|审批/iu);
+			expect(JSON.stringify(results[4]?.content)).toContain("total_ms");
 			expect(JSON.stringify(results[5]?.content)).toContain("凭据");
-			expect(network.fetch.mock.calls.every(([url]) => url.hostname !== "127.0.0.1")).toBe(true);
+			expect(network.fetch.mock.calls.some(([url]) => url.hostname === "127.0.0.1")).toBe(true);
 			expect(await fs.readFile(path.join(cwd, "sentinel.txt"), "utf8")).toBe("keep");
 			replies.push({ tool: "webfetch", args: { url: "https://93.184.216.34/docs" } });
 			await runtime.session.prompt("Native tool calls must not execute.");

@@ -41,9 +41,10 @@ export interface WebFetchTargetInspection {
 export function validateRequestUrl(
 	rawUrl: string,
 	approvedPrivateOrigin?: string,
+	restrictPrivateAddresses = true,
 ): ValidatedUrl | WebFetchFailureDetails {
 	const parsed = parseRequestUrl(rawUrl);
-	if ("status" in parsed) return parsed;
+	if ("status" in parsed || !restrictPrivateAddresses) return parsed;
 	const hostname = normalizeHostname(parsed.url.hostname);
 	const approved = approvedPrivateOrigin === parsed.url.origin;
 	if (isLocalhostName(hostname) && !approved) return failure("BLOCKED_ADDRESS", "localhost is not allowed.");

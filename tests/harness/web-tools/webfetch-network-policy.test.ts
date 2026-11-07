@@ -253,6 +253,7 @@ describe("webfetch network policy", () => {
 
 function proxyNetwork(proxy: Partial<WebToolsConfig["network"]["proxy"]>): WebToolsConfig["network"] {
 	return {
+		restrict_private_addresses: true,
 		proxy: {
 			enabled: true,
 			http_proxy: "",

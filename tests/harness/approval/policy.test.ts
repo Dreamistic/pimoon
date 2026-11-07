@@ -18,10 +18,12 @@ let defaultConfig: ApprovalGateConfig;
 const temp = useTempDir("o-pi-approval-policy-");
 const commandCwd = path.join(path.parse(process.cwd()).root, "workspace", "project");
 const shellTempRoot = os.tmpdir().replaceAll("\\", "/");
-preserveEnv("PI_APPROVAL_GATE_CONFIG");
+preserveEnv("PI_APPROVAL_GATE_CONFIG", "PI_WEB_TOOLS_CONFIG");
 
 beforeEach(async () => {
 	dir = temp.path;
+	process.env.PI_WEB_TOOLS_CONFIG = path.join(dir, "web-tools.jsonc");
+	await writeFile(process.env.PI_WEB_TOOLS_CONFIG, JSON.stringify({ network: { restrict_private_addresses: true } }));
 	approvalStore = await openStore(path.join(dir, "rules.jsonc"));
 	process.env.PI_APPROVAL_GATE_CONFIG = path.join(dir, "approval.jsonc");
 	defaultConfig = await loadApprovalGateConfig();
@@ -122,7 +124,7 @@ describe("approval policy", () => {
 		expect(evaluation.decision).toMatchObject({ kind: "deny", rule_name: "environment-exfiltration" });
 	});
 
-	it("默认要求审批 webfetch 私网 origin", async () => {
+	it("开启地址保护后要求审批 webfetch 私网 origin", async () => {
 		const request = await buildApprovalRequest({
 			type: "tool_call",
 			toolName: "webfetch",

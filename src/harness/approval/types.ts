@@ -51,7 +51,7 @@ export type ApprovalRequest = {
 interface WebApprovalDetail {
 	url: string;
 	origin: string;
-	addresses: import("../web-tools/network/network-policy.ts").ResolvedAddresses;
+	addresses?: import("../web-tools/network/network-policy.ts").ResolvedAddresses;
 	path?: string;
 }
 

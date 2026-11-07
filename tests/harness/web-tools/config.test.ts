@@ -15,6 +15,18 @@ async function save(config: unknown) {
 }
 
 describe("网页工具配置", () => {
+	it("默认不限制网络地址、不排除搜索域名，所有搜索端点允许私网", async () => {
+		const defaults = await loadWebToolsConfig();
+		expect(defaults.network.restrict_private_addresses).toBe(false);
+		expect(defaults.websearch.exclude_domains).toEqual([]);
+		for (const provider of [...defaults.websearch.primary_providers, ...defaults.websearch.auxiliary_providers]) {
+			await save({ websearch: { [provider]: { endpoint: "http://127.0.0.1:3000/search" } } });
+			expect((await loadWebToolsConfig()).websearch[provider].endpoint).toBe("http://127.0.0.1:3000/search");
+		}
+		await save({ websearch: { exa_api: { endpoint: "https://user:secret@example.com/" } } });
+		await expect(loadWebToolsConfig()).rejects.toThrow();
+	});
+
 	it("可信站点来自默认名单，稀疏覆盖可精确替换或清空撤销", async () => {
 		expect((await loadWebToolsConfig()).network.trusted_https_origins).toContain("https://github.com");
 		await save({ network: { trusted_https_origins: ["https://docs.example.com"] } });
@@ -99,19 +111,19 @@ describe("网页工具配置", () => {
 		{ websearch: { auxiliary_providers: ["tinyfish", "brave_api"] } },
 		{ websearch: { anysearch: { max_results: 0 } } },
 		{ websearch: { anysearch: { max_results: 11 } } },
-		{ websearch: { anysearch: { endpoint: "http://localhost/" } } },
+		{ network: { restrict_private_addresses: true }, websearch: { anysearch: { endpoint: "http://localhost/" } } },
 		{ websearch: { auxiliary_providers: ["tinyfish"] } },
 		{ websearch: { tinyfish: { max_results: 0 } } },
 		{ websearch: { tinyfish: { max_results: 21 } } },
 		{ websearch: { tinyfish: { max_results: 1.5 } } },
-		{ websearch: { tinyfish: { endpoint: "http://127.0.0.1/" } } },
+		{ network: { restrict_private_addresses: true }, websearch: { tinyfish: { endpoint: "http://127.0.0.1/" } } },
 		{ websearch: { provider_order: ["brave_api", "exa_api", "tavily"] } },
 		{ websearch: { brave_api: { extra_snippets: true } } },
 		{ websearch: { exa_api: { highlight_chars: 600 } } },
 		{ websearch: { exa_mcp: { highlight_chars: 600 } } },
 		{ websearch: { exa_mcp: { api_key: "not-supported" } } },
 		{ websearch: { exa_mcp: { max_results: 21 } } },
-		{ websearch: { exa_mcp: { endpoint: "http://localhost/mcp" } } },
+		{ network: { restrict_private_addresses: true }, websearch: { exa_mcp: { endpoint: "http://localhost/mcp" } } },
 	])("拒绝非法覆盖 %j", async (config) => {
 		await save(config);
 		await expect(loadWebToolsConfig()).rejects.toThrow();
@@ -140,8 +152,8 @@ describe("网页工具配置", () => {
 	});
 
 	it.each(["http://127.0.0.1:3000/mcp", "http://localhost:3000/mcp", "http://192.168.1.1/mcp", "https://user:pass@example.com/mcp"])(
-		"搜索端点拒绝私网和凭据 URL %s", async (endpoint) => {
-			await save({ websearch: { exa_api: { endpoint } } });
+		"开启地址保护后搜索端点拒绝私网和凭据 URL %s", async (endpoint) => {
+			await save({ network: { restrict_private_addresses: true }, websearch: { exa_api: { endpoint } } });
 			await expect(loadWebToolsConfig()).rejects.toThrow();
 		},
 	);

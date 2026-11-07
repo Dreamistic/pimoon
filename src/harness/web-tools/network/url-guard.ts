@@ -1,6 +1,6 @@
 import ipaddr from "ipaddr.js";
 
-export function guardPublicHttpUrlLiteral(value: string): URL {
+export function guardHttpUrlLiteral(value: string, restrictPrivateAddresses: boolean): URL {
 	let url: URL;
 	try {
 		url = new URL(value);
@@ -14,6 +14,7 @@ export function guardPublicHttpUrlLiteral(value: string): URL {
 		throw new Error("URL must not include username or password.");
 	}
 
+	if (!restrictPrivateAddresses) return url;
 	const host = normalizedHostname(url);
 	if (host === "localhost" || host.endsWith(".localhost")) {
 		throw new Error("URL must not use localhost.");

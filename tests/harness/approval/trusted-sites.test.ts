@@ -11,6 +11,7 @@ afterEach(() => vi.restoreAllMocks());
 
 it("可信站点免重复网络审批，下载仍审批文件；撤销或特殊地址恢复网络审批", async () => {
 	const config = defaultWebToolsConfig();
+	config.network.restrict_private_addresses = true;
 	config.network.trusted_https_origins = ["https://github.com"];
 	vi.spyOn(configModule, "loadWebToolsConfig").mockImplementation(async () => structuredClone(config));
 	const lookup = vi.spyOn(resolver, "lookup").mockResolvedValue([{ address: "172.19.0.9", family: 4 }]);

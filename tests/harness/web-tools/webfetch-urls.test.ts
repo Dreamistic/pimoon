@@ -5,6 +5,7 @@ import { httpResponse } from "../../helpers/http.ts";
 
 
 const runtime = useWebFetchRuntime((runtime) => {
+	runtime.config.network.restrict_private_addresses = true;
 	runtime.config.webfetch.media.mode = "on";
 });
 

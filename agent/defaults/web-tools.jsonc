@@ -1,6 +1,8 @@
 {
 	"$schema": "../schemas/web-tools.schema.json",
 	"network": {
+		// 默认允许所有网络地址且不审批网络访问；设为 true 恢复下方地址保护。
+		"restrict_private_addresses": false,
 		// 启用后所有 Web 请求都会按目标协议选择代理。
 		"proxy": {
 			"enabled": false,
@@ -41,10 +43,7 @@
 		"total_deadline_seconds": 20,
 		// 每次搜索都至少应用；query 中的 site: / -site: 会继续合并。
 		"include_domains": [],
-		"exclude_domains": [
-			"gitcode.com",
-			"csdn.com"
-		],
+		"exclude_domains": [],
 		"brave_api": {
 			"enabled": true,
 			"max_results": 8,

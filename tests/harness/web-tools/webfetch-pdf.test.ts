@@ -178,6 +178,7 @@ describe("webfetch PDF", () => {
 		const { rt } = runtime(Buffer.concat([await fixture(), Buffer.alloc(65536, 32)]));
 		rt.config.webfetch.limits.response_bytes = 65536;
 		expect((await executeWebFetch({ url: DOCUMENT_URL }, rt)).details).toMatchObject({ error: { code: "RESPONSE_TOO_LARGE" } });
+		rt.config.network.restrict_private_addresses = true;
 		rt.fetchImpl = async () => redirectResponse("http://127.0.0.1/document.pdf");
 		expect((await executeWebFetch({ url: DOCUMENT_URL }, rt)).details).toMatchObject({ error: { code: "BLOCKED_ADDRESS" } });
 	});

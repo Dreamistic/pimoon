@@ -8,6 +8,12 @@
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
+				"restrict_private_addresses": {
+					"title": "限制私网地址",
+					"description": "开启后检查 DNS、私网与特殊地址，并要求网络审批。默认关闭：允许本机、内网和元数据地址；TLS 校验及文件写入审批不受影响。",
+					"type": "boolean",
+					"default": false
+				},
 				"proxy": {
 					"type": "object",
 					"additionalProperties": false,

@@ -4,7 +4,7 @@ import { resolveBashWorkdir } from "../../bash-tool/workdir.ts";
 import type { BashParams } from "../../bash-tool/types.ts";
 import { resolveNativeInputPath } from "../../filesystem/kernel/access-policy.ts";
 import { loadWebToolsConfig } from "../../web-tools/config.ts";
-import { inspectWebFetchTarget } from "../../web-tools/network/network-policy.ts";
+import { inspectWebFetchTarget, validateRequestUrl } from "../../web-tools/network/network-policy.ts";
 import { buildBashApprovalRequest } from "../request/bash/parse.ts";
 import { isSystemTemporaryDescendant } from "../request/path.ts";
 import type { ApprovalEditReplacement, ApprovalRequest, ApprovalUnit } from "../types.ts";
@@ -57,10 +57,20 @@ export async function buildApprovalRequest(event: ToolCallEvent, cwd: string): P
 	}
 	if (isToolCallEventType<"webfetch", WebFetchApprovalInput>("webfetch", event) || isToolCallEventType<"http", WebFetchApprovalInput>("http", event)) {
 		const webConfig = await loadWebToolsConfig();
+		const outputPath = event.toolName === "http" && typeof event.input.path === "string" ? fileToolTarget(event.input.path, cwd) : undefined;
+		if (!webConfig.network.restrict_private_addresses) {
+			if (outputPath === undefined) return undefined;
+			const parsed = validateRequestUrl(event.input.url, undefined, false);
+			if ("status" in parsed) return undefined;
+			return {
+				tool: event.toolName, cwd,
+				detail: { url: parsed.displayUrl, origin: parsed.url.origin, path: outputPath },
+				units: [pathUnit("write_file", outputPath)],
+			};
+		}
 		const inspection = await inspectWebFetchTarget(event.input.url, { allowedFakeIpRanges: webConfig.network.fake_ip_ranges, trustedHttpsOrigins: webConfig.network.trusted_https_origins });
 		// 无效请求交给工具报告错误，公网请求仍由网络边界检查 DNS 和重定向。
 		if ("error" in inspection) return undefined;
-		const outputPath = event.toolName === "http" && typeof event.input.path === "string" ? fileToolTarget(event.input.path, cwd) : undefined;
 		if (inspection.status !== "private" && outputPath === undefined) return undefined;
 		const origin = inspection.validated.url.origin;
 		return {

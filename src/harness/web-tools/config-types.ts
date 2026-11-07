@@ -14,6 +14,7 @@ export interface SearchApiProviderConfig extends SearchProviderConfig {
 
 export interface WebToolsConfig {
 	network: {
+		restrict_private_addresses: boolean;
 		proxy: { enabled: boolean; http_proxy: string; https_proxy: string; socks5_proxy: string };
 		fake_ip_ranges: string[];
 		trusted_https_origins: string[];

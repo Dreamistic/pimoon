@@ -34,7 +34,7 @@
 
 - 普通文件读写通常直接执行，读取前置与版本保护不能靠批准豁免。
 - `process_run` 默认进入审批；仅显式启用 `advisor.autonomous` 后，才委托顾问对当前调用作一次放行或拒绝。
-- 私网 HTTP/webfetch origin 需要审批；下载还检查目标路径。
+- HTTP/webfetch 默认不审批网络访问；下载仍检查目标路径。显式开启 `network.restrict_private_addresses` 后，私网 origin 需要审批。
 - Bash 按静态事实处理删除、重置、安装、发布、提权等风险，不进入桌面 CodeAct 函数集合。
 - 临时目录豁免及明确拒绝规则见默认配置；拒绝规则优先。
 

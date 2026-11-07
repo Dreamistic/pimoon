@@ -74,7 +74,7 @@ export async function resolvePrimaryMedia(
 		return { omission: { kind: "primary_media", reason: "model_no_image_input" } };
 	}
 	if ("data" in primary) return { media: primary };
-	const requested = validateRequestUrl(primary.url, options.context.privateNetworkGrant?.origin);
+	const requested = validateRequestUrl(primary.url, options.context.privateNetworkGrant?.origin, options.config.network.restrict_private_addresses);
 	if ("status" in requested) return { omission: { kind: "primary_media", reason: "media_fetch_failed" } };
 	const fetched = await fetchHttpUrl(requested, options, { accept: IMAGE_ACCEPT, maxBytes: options.config.webfetch.media.response_bytes });
 	if (fetched.status === "failed") {

@@ -23,6 +23,11 @@ export function createNetworkDispatcher(
 	return new undici.Agent({
 		factory(origin) {
 			const target = new URL(origin);
+			if (!network.restrict_private_addresses) {
+				return network.proxy.enabled
+					? new undici.ProxyAgent({ uri: selectProxyUrl(target.protocol, network.proxy) })
+					: new undici.Pool(origin);
+			}
 			const lookupOptions: SecureLookupOptions = {
 				...options,
 				...(isTrustedHttpsOrigin(target, network.trusted_https_origins) ? { trustedPrivateHostname: target.hostname } : {}),
@@ -45,6 +50,7 @@ export function createNetworkDispatcher(
 export function networkConfigSignature(network: NetworkConfig): string {
 	const proxy = network.proxy;
 	const material = JSON.stringify([
+		network.restrict_private_addresses,
 		[...network.fake_ip_ranges].sort(),
 		[...network.trusted_https_origins].sort(),
 		proxy.enabled,

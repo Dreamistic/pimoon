@@ -72,7 +72,7 @@ describe("Exa MCP 免 key 搜索", () => {
 		const request = calls("tools/call")[0];
 		expect(request?.[0].toString()).toBe("https://mcp.exa.ai/mcp?tools=web_search_advanced_exa");
 		expect(JSON.parse(request?.[1].body ?? "null").params).toEqual({ name: "web_search_advanced_exa", arguments: {
-			query: "Pi", numResults: 2, type: "auto", includeDomains: ["example.com"], excludeDomains: ["csdn.com", "gitcode.com"],
+			query: "Pi", numResults: 2, type: "auto", includeDomains: ["example.com"],
 			enableHighlights: true,
 		} });
 		for (const [, init] of fetchImpl.mock.calls) {
