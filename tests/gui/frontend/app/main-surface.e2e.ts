@@ -44,6 +44,9 @@ test("欢迎页只突出开始构建，模型控制成组且快捷入口仍填�
 		const welcome = page.locator(".welcome-content");
 		const build = welcome.getByRole("button", { name: "开始构建", exact: true });
 		await expect(build).toBeVisible();
+		const moon = page.locator(".pimoon-mark img");
+		await expect(moon).toBeVisible();
+		await expect.poll(() => moon.evaluate((element) => element instanceof HTMLImageElement && element.complete && element.naturalWidth > 0)).toBe(true);
 		await expect(welcome.locator('[data-variant="default"]')).toHaveCount(1);
 		await expect(build).toHaveAttribute("data-variant", "default");
 		for (const name of ["了解项目", "审查代码"])

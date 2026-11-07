@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <defs>
+    <linearGradient id="moon" gradientUnits="userSpaceOnUse" x1="25" y1="12" x2="70" y2="80">
+      <stop stop-color="#CFC0FC"/>
+      <stop offset=".42" stop-color="#A78BFA"/>
+      <stop offset="1" stop-color="#8065C5"/>
+    </linearGradient>
+    <linearGradient id="rim" gradientUnits="userSpaceOnUse" x1="20" y1="16" x2="64" y2="78">
+      <stop stop-color="#FFFFFF" stop-opacity=".32"/>
+      <stop offset=".6" stop-color="#CFC0FC" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#8065C5" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="96" height="96">
+      <rect width="96" height="96" fill="white"/>
+      <circle cx="68" cy="28" r="29" fill="black"/>
+    </mask>
+  </defs>
+  <circle cx="50" cy="46" r="34" fill="url(#moon)" stroke="url(#rim)" stroke-width=".65" mask="url(#cut)"/>
+</svg>
