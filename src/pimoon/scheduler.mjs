@@ -6,6 +6,7 @@ export const PROCESS_CONCURRENCY = 2;
 export function processFailure(value, check) {
   if (!isProcessResult(value)) return {error: 'Invalid process result; do not replay completed operations', error_code: 'PROCESS_RESULT_INVALID'};
   if (value.status !== 'exited') return {error: 'Process ' + value.status + ': ' + value.stderr.slice(0, 600), error_code: 'PROCESS_' + value.status.toUpperCase()};
+  if (value.decode_error) return {error: value.decode_error, error_code: 'PROCESS_DECODE_ERROR'};
   if (check && value.exit_code !== 0) return {error: 'Process exited ' + value.exit_code + ': ' + value.stderr.slice(0, 600), error_code: 'PROCESS_EXIT'};
 }
 

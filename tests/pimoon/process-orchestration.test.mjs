@@ -160,3 +160,54 @@ test('进程输出截断有明确标记，不把已完成进程误报为未执�
  const result=await runtime.run(`r=subprocess.run(${JSON.stringify(job('process.stdout.write("x".repeat(70000))').argv)},capture_output=True,text=True,check=True)\nassert r.returncode==0 and "output truncated" in r.stderr\nlen(r.stdout)`,context);
  assert.equal(result.isError,false,result.content[0].text);assert.match(result.content[0].text,/65536/);
 }));
+
+for(const transport of ['direct','rust'])test(`encoding 覆盖和本地代码页检测经过真实桥接 ${transport}`,()=>fixture(async({runtime,context,calls})=>{
+ const legacy=JSON.stringify(job('process.stdout.write(Buffer.from([0xd6,0xd0,0xce,0xc4]));process.stderr.write(Buffer.from([0xb4,0xed,0xce,0xf3]))').argv);
+ const result=await runtime.run(`r=subprocess.run(${legacy},capture_output=True,encoding="cp936")\nassert r.stdout=="中文"\nassert r.stderr=="错误"`,context);
+ assert.equal(result.isError,false,result.content[0].text);
+ assert.equal(calls[0].encoding,'cp936');
+ // 自动路径由运行时探测，不受 Python -X utf8 的首选编码影响。
+ if(process.platform==='win32'){
+  const native=await runtime.run('r=subprocess.run(["taskkill.exe","/?"],capture_output=True,text=True)\nassert r.returncode==0 and r.stdout and "�" not in r.stdout',context);
+  assert.equal(native.isError,false,native.content[0].text);
+  assert.ok(calls[1].fallback_encoding);
+ }
+},7000,transport));
+
+test('串行解码失败可捕获原始字节，不重复进程副作用且保留 Python 状态',()=>fixture(async({runtime,cwd,context,calls})=>{
+ const args=JSON.stringify(job('require("node:fs").appendFileSync("once","x");process.stdout.write(Buffer.from([0x81]));console.error("ok");process.exitCode=3').argv);
+ const result=await runtime.run(`saved=42\ntry:\n subprocess.run(${args},capture_output=True,text=True,encoding="utf-8")\nexcept UnicodeError as error:\n assert error.stdout==bytes([0x81]) and error.stderr==b"ok\\n"\n assert error.returncode==3 and error.status=="exited"\nelse:\n raise AssertionError("decode should fail")\nassert saved==42`,context);
+ assert.equal(result.isError,false,result.content[0].text);
+ assert.equal(result.details.metrics.tool_failure_count,1);
+ assert.equal(calls.length,1);assert.equal(await fs.readFile(path.join(cwd,'once'),'utf8'),'x');
+}));
+
+for(const policy of ['raise','collect'])test(`并发解码失败在宿主停止派发并保留字节 ${policy}`,()=>fixture(async({runtime,cwd,context,calls})=>{
+ const jobs=[job('require("node:fs").appendFileSync("once","x");process.stdout.write(Buffer.from([0x81]))'),job('setTimeout(()=>console.log("ok"),300)'),job('require("node:fs").writeFileSync("queued","x")')].map(j=>({args:j.argv,capture_output:true,text:true,encoding:'utf-8'}));
+ const run=`parallel([(subprocess.run,kw) for kw in json.loads(${JSON.stringify(JSON.stringify(jobs))})],errors=${JSON.stringify(policy)})`;
+ const code=policy==='raise'?`try:\n ${run}\nexcept ParallelError as error:\n rows=error.results\nelse:\n raise AssertionError("decode should fail")`:`rows=${run}`;
+ const result=await runtime.run(code+'\nassert rows[0]["error_code"]=="PROCESS_DECODE_ERROR"\nassert rows[0]["value"]["stdout_base64"]=="gQ=="\nassert rows[1]["ok"]',context);
+ assert.equal(result.isError,false,result.content[0].text);
+ assert.equal(result.details.metrics.tool_failure_count,1);
+ assert.equal(result.details.metrics.internal_tool_failures,1);
+ assert.equal(calls.length,policy==='raise'?2:3);
+ assert.equal(await fs.readFile(path.join(cwd,'once'),'utf8'),'x');
+ if(policy==='raise')await assert.rejects(fs.access(path.join(cwd,'queued')));
+}));
+
+test('DEVNULL 流不解码；未知编码启动前拒绝',()=>fixture(async({runtime,cwd,context})=>{
+ const binary=JSON.stringify(job('process.stdout.write(Buffer.from([0x81]));console.error("ok")').argv);
+ const marker=JSON.stringify(job('require("node:fs").writeFileSync("unexpected","x")').argv);
+ const good=await runtime.run(`r=subprocess.run(${binary},stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)\nassert r.stdout is None and r.stderr=="ok\\n"`,context);
+ assert.equal(good.isError,false,good.content[0].text);
+ const invalid=await runtime.run(`subprocess.run(${marker},encoding="not-a-codec")`,context);
+ assert.equal(invalid.isError,true);assert.match(invalid.content[0].text,/Unsupported process encoding/);
+ await assert.rejects(fs.access(path.join(cwd,'unexpected')));
+}));
+
+test('超时优先保留原始字节，串行与并发均不丢失非法输出',()=>fixture(async({runtime,context})=>{
+ const args=JSON.stringify(job('process.stdout.write(Buffer.from([0x81]));setInterval(()=>{},1000)').argv);
+ const result=await runtime.run(`try:\n subprocess.run(${args},capture_output=True,text=True,encoding="utf-8",timeout=0.3)\nexcept subprocess.TimeoutExpired as error:\n assert error.output==bytes([0x81])\nelse:\n raise AssertionError("timeout expected")\nrows=parallel([(subprocess.run,{"args":${args},"capture_output":True,"text":True,"encoding":"utf-8","timeout":0.3})],errors="collect")\nassert rows[0]["error_code"]=="PROCESS_TIMEOUT"\nassert rows[0]["value"]["stdout_base64"]=="gQ=="`,context);
+ assert.equal(result.isError,false,result.content[0].text);
+ assert.equal(result.details.metrics.tool_failure_count,2);
+}));

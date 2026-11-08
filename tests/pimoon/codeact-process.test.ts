@@ -66,3 +66,38 @@ it.skipIf(process.platform !== "win32" || !javac)("gradlew.bat 转换为 JVM Wra
 	expect(result).toMatchObject({ exit_code: 0, status: "exited" });
 	expect(result.stdout).toContain(":app:assembleDebug|--console=plain|--no-daemon"); expect(result.stdout).toContain("isolated-sdk");
 });
+
+it("同一次进程捕获分别解码 UTF-8 与 GBK，不改写退出码", async () => {
+	const cwd = await folder();
+	const result = await runProcess({ argv: [process.execPath, "-e", 'process.stdout.write("中文😀");process.stderr.write(Buffer.from([0xd6,0xd0,0xce,0xc4]));process.exitCode=7'], fallback_encoding: "cp936" }, cwd);
+	expect(result).toMatchObject({ stdout: "中文😀", stderr: "中文", exit_code: 7, status: "exited" });
+	expect(result.decode_error).toBeUndefined();
+});
+it("解码失败保留原始字节和退出事实，副作用只执行一次", async () => {
+	const cwd = await folder();
+	const code = 'require("node:fs").appendFileSync("count","x");process.stdout.write(Buffer.from([0x81]));process.stderr.write("diagnostic");process.exitCode=3';
+	const result = await runProcess({ argv: [process.execPath, "-e", code], encoding: "utf-8" }, cwd);
+	expect(result).toMatchObject({ stdout: "", stderr: "diagnostic", exit_code: 3, status: "exited", stdout_base64: "gQ==", stderr_base64: Buffer.from("diagnostic").toString("base64") });
+	expect(result.decode_error).toContain("stdout:");
+	expect(await fs.readFile(path.join(cwd, "count"), "utf8")).toBe("x");
+});
+it("未知显式编码在进程启动前拒绝", async () => {
+	const cwd = await folder();
+	await expect(runProcess({ argv: [process.execPath, "-e", 'require("node:fs").writeFileSync("unexpected","x")'], encoding: "not-a-codec" }, cwd)).rejects.toThrow("Unsupported process encoding");
+	await expect(fs.access(path.join(cwd, "unexpected"))).rejects.toThrow();
+});
+it("截断不制造乱码，另一完整流的非法尾字节仍报解码失败", async () => {
+	const cwd = await folder();
+	const result = await runProcess({ argv: [process.execPath, "-e", 'process.stdout.write("中".repeat(30000));process.stderr.write(Buffer.from([0x81]))'], encoding: "utf-8" }, cwd);
+	expect(result.truncated).toBe(true);
+	expect(result.stdout).toBe("中".repeat(21845));
+	expect(result.decode_error).toContain("stderr:");
+	expect(result.decode_error).not.toContain("stdout:");
+});
+it("丢弃的流不参与解码，不误报二进制输出", async () => {
+	const cwd = await folder();
+	const result = await runProcess({ argv: [process.execPath, "-e", 'process.stdout.write(Buffer.from([0x81]));console.error("ok")'], discard_stdout: true }, cwd);
+	expect(result.stdout).toBe("");
+	expect(result.stderr.trim()).toBe("ok");
+	expect(result.decode_error).toBeUndefined();
+});

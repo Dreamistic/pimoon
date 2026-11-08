@@ -40,7 +40,7 @@ it("不再硬编码旧工具白名单；插件函数可进入目录，Shell 包�
 
 it("模型保留标准进程签名，不恢复旧批次与进程别名",()=>{
  const catalog=functionCatalog([{name:"process_run",description:"internal process service",parameters:Type.Object({argv:Type.Array(Type.String())})}]);
- expect(catalog).toContain("subprocess.run(args:");expect(catalog).toContain("CompletedProcess");expect(catalog).not.toContain("process_run");
+ expect(catalog).toContain("subprocess.run(args:");expect(catalog).toContain("CompletedProcess");expect(catalog).toContain("encoding?");expect(catalog).toContain("Windows local code page");expect(catalog).not.toContain("UTF-8 stdout/stderr");expect(catalog).not.toContain("process_run");
  expect(nativeInstructions).not.toContain("batch(");expect(nativeInstructions).not.toContain("process_run");
 });
 

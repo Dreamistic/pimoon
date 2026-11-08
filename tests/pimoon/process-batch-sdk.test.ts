@@ -77,3 +77,23 @@ it("标准 subprocess 仍逐项经过真实审批，拒绝后不产生进程副�
  const result=f.session.messages.find(isExecutionResult);expect(result?.isError).toBe(true);expect(JSON.stringify(result?.content)).toMatch(/approval|审批/iu);await expect(fs.access(path.join(f.cwd,"denied"))).rejects.toThrow();
  }finally{await f.close();}
 });
+
+it("编码覆盖与解码错误经过真实 SDK，副作用不重放且仍保留单一 execute",async()=>{
+ const argv=(code:string)=>JSON.stringify(job(code).argv);
+ const f=await fixture([
+  `r=subprocess.run(${argv('process.stdout.write(Buffer.from([0xd6,0xd0,0xce,0xc4]))')},capture_output=True,text=True,encoding="gbk")\nassert r.stdout=="中文"`,
+  `try:\n subprocess.run(${argv('require("node:fs").appendFileSync("once","x");process.stdout.write(Buffer.from([0x81]))')},capture_output=True,text=True,encoding="utf-8")\nexcept UnicodeError as error:\n assert error.stdout==bytes([0x81]) and error.returncode==0\nelse:\n raise AssertionError("decode should fail")`,
+ ]);
+ try{
+  await f.session.bindExtensions({mode:"print",onError:({error})=>{throw new Error(error);}});
+  await f.session.prompt("Verify process output decoding.");
+  const results=f.session.messages.filter(isExecutionResult);
+  expect(results.map(result=>result.isError)).toEqual([false,false]);
+  expect(executionMetrics(results[1]).tool_failure_count).toBe(1);
+  expect(await fs.readFile(path.join(f.cwd,"once"),"utf8")).toBe("x");
+  for(const request of f.server.requests){
+   expect(request.tools?.map(tool=>tool.function.name)).toEqual(["execute"]);
+   expect(JSON.stringify(request.tools)).toContain("encoding?");
+  }
+ }finally{await f.close();}
+});

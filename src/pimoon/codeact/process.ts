@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import which from "which";
+import { decodeOutput, outputDecoder } from "./process-output.ts";
 import { DEFAULT_PROCESS_TIMEOUT_SECONDS } from "./process-budget.ts";
 
 export interface ProcessInput {
@@ -11,6 +12,10 @@ export interface ProcessInput {
 	inherit_env?: boolean;
 	timeout?: number;
 	check?: boolean;
+	encoding?: string;
+	fallback_encoding?: string;
+	discard_stdout?: boolean;
+	discard_stderr?: boolean;
 }
 export interface ProcessResult {
 	exit_code: number | null;
@@ -19,6 +24,9 @@ export interface ProcessResult {
 	stderr: string;
 	truncated: boolean;
 	duration_ms: number;
+	decode_error?: string;
+	stdout_base64?: string;
+	stderr_base64?: string;
 }
 export function isProcessResult(value: unknown): value is ProcessResult {
  return typeof value === "object" && value !== null
@@ -26,12 +34,17 @@ export function isProcessResult(value: unknown): value is ProcessResult {
   && "exit_code" in value && (value.exit_code === null || typeof value.exit_code === "number" && Number.isInteger(value.exit_code))
   && "stdout" in value && typeof value.stdout === "string" && "stderr" in value && typeof value.stderr === "string"
   && "truncated" in value && typeof value.truncated === "boolean"
-  && "duration_ms" in value && typeof value.duration_ms === "number" && Number.isFinite(value.duration_ms);
+  && "duration_ms" in value && typeof value.duration_ms === "number" && Number.isFinite(value.duration_ms)
+  && (!("decode_error" in value) || typeof value.decode_error === "string"
+    && "stdout_base64" in value && typeof value.stdout_base64 === "string"
+    && "stderr_base64" in value && typeof value.stderr_base64 === "string");
 }
 const OUTPUT_BYTES = 65_536;
 
 /** 参数数组直接启动程序，不经过 Shell；Windows 包装入口只转换已知 npm/Gradle。 */
 export async function runProcess(input: ProcessInput, workspace: string, signal?: AbortSignal): Promise<ProcessResult> {
+	// 显式字符集不受支持时必须在任何进程副作用之前拒绝。
+	if (input.encoding !== undefined) outputDecoder(input.encoding);
 	const started = performance.now();
 	const cwd = path.resolve(workspace, input.cwd ?? ".");
 	const env: NodeJS.ProcessEnv = input.inherit_env === false ? {} : { ...process.env };
@@ -54,8 +67,8 @@ export async function runProcess(input: ProcessInput, workspace: string, signal?
 			if (remaining) chunks.push(data.subarray(0, remaining));
 			return used + data.length;
 		};
-		child.stdout.on("data", (data: Buffer) => { outputBytes = capture(output, data, outputBytes); });
-		child.stderr.on("data", (data: Buffer) => { errorBytes = capture(errors, data, errorBytes); });
+		child.stdout.on("data", (data: Buffer) => { if (!input.discard_stdout) outputBytes = capture(output, data, outputBytes); });
+		child.stderr.on("data", (data: Buffer) => { if (!input.discard_stderr) errorBytes = capture(errors, data, errorBytes); });
 		const stop = (reason: "cancelled" | "timeout") => {
 			if (stopping) return;
 			status = reason;
@@ -67,9 +80,15 @@ export async function runProcess(input: ProcessInput, workspace: string, signal?
 		child.on("error", error => { status = "spawn_error"; spawnError = error.message; });
 		child.on("close", code => {
 			clearTimeout(timer); signal?.removeEventListener("abort", abort);
-			void Promise.resolve(stopping).then(() => resolve({ exit_code: code, status,
-				stdout: Buffer.concat(output).toString("utf8"), stderr: spawnError ?? Buffer.concat(errors).toString("utf8"),
-				truncated, duration_ms: Math.round((performance.now() - started) * 100) / 100 }));
+			void Promise.resolve(stopping).then(() => {
+				const outBytes = Buffer.concat(output), errBytes = Buffer.concat(errors);
+				const out = decodeOutput(outBytes, input.encoding, input.fallback_encoding, outputBytes > OUTPUT_BYTES);
+				const err = decodeOutput(errBytes, input.encoding, input.fallback_encoding, errorBytes > OUTPUT_BYTES);
+				const decodeError = [out.error && `stdout: ${out.error}`, err.error && `stderr: ${err.error}`].filter(Boolean).join("\n");
+				resolve({ exit_code: code, status, stdout: out.text, stderr: spawnError ?? err.text,
+					...(decodeError ? { decode_error: decodeError, stdout_base64: outBytes.toString("base64"), stderr_base64: errBytes.toString("base64") } : {}),
+					truncated, duration_ms: Math.round((performance.now() - started) * 100) / 100 });
+			});
 		});
 		if (signal?.aborted) abort();
 	});

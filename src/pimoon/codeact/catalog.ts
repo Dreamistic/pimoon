@@ -8,7 +8,7 @@ const callableName = (name: string) => /^[A-Za-z_]\w*$/u.test(name) && !keywords
 /** 从 schema 提取 Python 签名和必要参数语义，不发送 JSON 工具声明。 */
 export function functionCatalog(functions: readonly FunctionInfo[]): string {
 	return functions.map(fn => {
-		if (fn.name === "process_run") return "subprocess.run(args: list[str], *, cwd?, env?, timeout?, check=False, capture_output=False, text=False) -> CompletedProcess: Programs without a shell. Use capture_output=True,text=True for UTF-8 stdout/stderr; check=True raises on nonzero exit. env replaces the environment; timeout defaults 300s, max 1800s. Approval and cancellation apply.";
+		if (fn.name === "process_run") return "subprocess.run(args: list[str], *, cwd?, env?, timeout?, check=False, capture_output=False, text=False, encoding?) -> CompletedProcess: Programs without a shell. Use capture_output=True,text=True for stdout/stderr (strict UTF-8, then Windows local code page). encoding overrides detection (UTF/Windows charset names); unsupported labels fail before launch. Decode failures retain raw bytes; never replay completed side effects; check=True raises on nonzero exit. env replaces the environment; timeout defaults 300s, max 1800s. Approval and cancellation apply.";
 		const schema: unknown = fn.parameters;
 		const output = fn.outputSchema === undefined ? "str" : pythonType(fn.outputSchema);
 		const returns = returnNotes(fn.outputSchema);

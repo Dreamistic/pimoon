@@ -63,10 +63,12 @@ class Parallel:
             value = row.pop("value")
             try:
                 row["value"] = self.finish_process(value, options, report=False)
-            except (subprocess.SubprocessError, OSError, RuntimeError):
-                # 宿主已登记失败；保留其错误码与诊断，不重复计数。
+            except (subprocess.SubprocessError, OSError, RuntimeError, UnicodeError):
+                # 宿主已登记失败；不重复计数，解码失败的原始字节不随异常转换丢失。
                 if row["ok"]:
                     raise
+                if value.get("decode_error"):
+                    row["value"] = value
         if errors == "collect":
             return results
         if any(not row["ok"] for row in results):
