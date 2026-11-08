@@ -5,6 +5,7 @@ export type ResponseBodyReadResult =
 	| {
 			status: "success";
 			bytes: Uint8Array;
+			receivedBytes: number;
 	  }
 	| {
 			status: "failed";
@@ -19,10 +20,11 @@ export async function readLimitedResponseBody(
 		maxBytes: number;
 		onProgress?: (receivedBytes: number) => void;
 		signal?: AbortSignal;
+		onChunk?: (chunk: Uint8Array) => Promise<void>;
 	},
 ): Promise<ResponseBodyReadResult> {
 	const expected = responseContentLength(response.headers);
-	if (options.signal?.aborted) return abortedResult(options.signal.reason);
+	if (options.signal?.aborted) { cancelBody(response.body); return abortedResult(options.signal.reason); }
 	if (expected !== undefined && expected > options.maxBytes) {
 		cancelBody(response.body);
 		return {
@@ -31,41 +33,44 @@ export async function readLimitedResponseBody(
 			message: `response exceeded ${options.maxBytes} bytes.`,
 		};
 	}
-	if (response.body === null) return { status: "success", bytes: new Uint8Array() };
+	if (response.body === null) return { status: "success", bytes: new Uint8Array(), receivedBytes: 0 };
 
 	const reader = response.body.getReader();
 	const chunks: Uint8Array[] = [];
 	let total = 0;
+	let completed = false;
 	try {
 		while (true) {
-			const { done, value } = await readWithSignal(reader, options.signal);
-			if (done) break;
+			let next: { done: boolean; value?: Uint8Array };
+			try { next = await readWithSignal(reader, options.signal); }
+			catch (error) {
+				if (options.signal?.aborted) return abortedResult(error);
+				return { status: "failed", code: "CONNECTION_FAILED", message: errorMessage(error) };
+			}
+			if (next.done) { completed = true; break; }
+			const value = next.value;
 			if (value === undefined) continue;
 			total += value.byteLength;
-			if (total > options.maxBytes) {
-				cancelBody(reader);
-				return {
-					status: "failed",
-					code: "RESPONSE_TOO_LARGE",
-					message: `response exceeded ${options.maxBytes} bytes.`,
-				};
-			}
-			chunks.push(value);
+			if (total > options.maxBytes) return {
+				status: "failed", code: "RESPONSE_TOO_LARGE", message: `response exceeded ${options.maxBytes} bytes.`,
+			};
+			// 消费者逐块等待，写盘自然形成背压；文件错误不伪装成网络错误。
+			if (options.onChunk) await options.onChunk(value);
+			else chunks.push(value);
 			options.onProgress?.(total);
 		}
-	} catch (error) {
-		if (options.signal?.aborted) return abortedResult(error);
-		return { status: "failed", code: "CONNECTION_FAILED", message: errorMessage(error) };
+	} finally {
+		if (!completed) cancelBody(reader);
 	}
 
 	if (options.signal?.aborted) return abortedResult(options.signal.reason);
-	const bytes = new Uint8Array(total);
+	const bytes = new Uint8Array(options.onChunk ? 0 : total);
 	let offset = 0;
 	for (const chunk of chunks) {
 		bytes.set(chunk, offset);
 		offset += chunk.byteLength;
 	}
-	return { status: "success", bytes };
+	return { status: "success", bytes, receivedBytes: total };
 }
 
 export function cancelBody(resource: { cancel(): Promise<void> } | null): void {
@@ -73,7 +78,7 @@ export function cancelBody(resource: { cancel(): Promise<void> } | null): void {
 	try {
 		void resource.cancel().catch(() => undefined);
 	} catch {
-		// Cleanup must not replace the read result.
+		// 清理失败不能覆盖原读取结果。
 	}
 }
 

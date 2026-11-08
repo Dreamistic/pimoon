@@ -99,6 +99,9 @@ describe("网页工具配置", () => {
 	});
 
 	it.each([
+		{ webfetch: { download: { response_bytes: 0 } } },
+		{ webfetch: { download: { response_bytes: 1073741825 } } },
+		{ webfetch: { download: { response_bytes: 1048576.5 } } },
 		{ webfetch: { limits: { find_max_passages: 0 } } },
 		{ webfetch: { media: { mode: "invalid" } } },
 		{ network: { fake_ip_ranges: ["10.0.0.0/8"] } },
@@ -157,4 +160,14 @@ describe("网页工具配置", () => {
 			await expect(loadWebToolsConfig()).rejects.toThrow();
 		},
 	);
+});
+
+it("下载限额独立默认 128 MiB，支持稀疏覆盖且不扩大网页和图片额度", async () => {
+ const defaults = await loadWebToolsConfig();
+ expect(defaults.webfetch.download.response_bytes).toBe(128 * 1024 * 1024);
+ await save({ webfetch: { download: { response_bytes: 32 * 1024 * 1024 } } });
+ const config = await loadWebToolsConfig();
+ expect(config.webfetch.download.response_bytes).toBe(32 * 1024 * 1024);
+ expect(config.webfetch.media).toEqual(defaults.webfetch.media);
+ expect(config.webfetch.limits).toEqual(defaults.webfetch.limits);
 });

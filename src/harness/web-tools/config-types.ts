@@ -39,6 +39,7 @@ export interface WebToolsConfig {
 		user_agent: string;
 		readability: { char_threshold: number };
 		media: { mode: "auto" | "on" | "off"; response_bytes: number };
+		download: { response_bytes: number };
 		limits: { response_bytes: number; default_output_chars: number; find_max_passages: number };
 		cookies: {
 			enabled: boolean;

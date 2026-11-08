@@ -196,6 +196,13 @@
 						"response_bytes": { "type": "integer", "minimum": 65536, "maximum": 20971520, "default": 5242880 }
 					}
 				},
+				"download": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"response_bytes": { "title": "下载与测速上限（字节）", "description": "http download/probe 的解压后大小上限；逐块写入或丢弃，不缓冲整个文件。", "type": "integer", "minimum": 65536, "maximum": 1073741824, "default": 134217728 }
+					}
+				},
 				"limits": {
 					"type": "object",
 					"additionalProperties": false,

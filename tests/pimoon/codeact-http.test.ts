@@ -3,7 +3,9 @@ import { once } from "node:events";
 import fs from "node:fs/promises";
 import path from "node:path";
 import * as undici from "undici/index.js";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+import { gzipSync } from "node:zlib";
+import { createHash } from "node:crypto";
 import { executeHttp } from "../../src/harness/web-tools/fetch/http-function.ts";
 import { loadWebToolsConfig } from "../../src/harness/web-tools/config.ts";
 import { createNetworkDispatcher } from "../../src/harness/web-tools/network/dispatcher.ts";
@@ -17,7 +19,7 @@ async function fixture(handler: (req: IncomingMessage, res: ServerResponse) => v
 	const address = server.address(); if (!address || typeof address === "string") throw new Error("fixture address");
 	const url = `http://127.0.0.1:${address.port}`;
 	const grant = createPrivateNetworkGrantFor(url, [{ address: "127.0.0.1", family: 4 }]);
-	const config = structuredClone(await loadWebToolsConfig()); config.network.proxy.enabled = false;
+	const config = structuredClone(await loadWebToolsConfig()); config.network.proxy.enabled = false; config.network.restrict_private_addresses = true;
 	const dispatchers: undici.Dispatcher[] = [];
 	const options: WebCapabilityOptions = {
 		loadConfig: async () => config, now: () => Date.now(), fetchImpl: (url, init) => undici.fetch(url, init),
@@ -79,5 +81,96 @@ it("HTTP 复用配置代理，不需要模型传 --proxy", async () => {
 		f.config.network.proxy = { enabled: true, http_proxy: f.url, https_proxy: "", socks5_proxy: "" };
 		const result = await executeHttp({ url: "http://93.184.216.34/probe" }, { toolCallId: "proxy-fixture" }, f.cwd, f.options);
 		expect(result.body).toBe("proxy fixture"); expect(requests).toBe(1);
+		await executeHttp({ url: "http://93.184.216.34/installer", mode: "download", path: "proxied.bin" }, { toolCallId: "proxy-download" }, f.cwd, f.options);
+		expect(await fs.readFile(path.join(f.cwd, "proxied.bin"), "utf8")).toBe("proxy fixture");expect(requests).toBe(2);
 	} finally { await f.close(); }
+});
+
+
+async function waitForPartial(cwd: string) {
+ await vi.waitFor(async () => {
+  const files = (await fs.readdir(cwd)).filter(file => file.endsWith(".tmp"));
+  expect(files).toHaveLength(1);
+  expect((await fs.stat(path.join(cwd, files[0] ?? "missing"))).size).toBeGreaterThan(0);
+ });
+}
+
+it("24 MiB 文件在响应结束前已写盘，下载与测速不借用图片或文本额度", async () => {
+ const size = 24 * 1024 * 1024, first = Buffer.alloc(128 * 1024, 7);
+ let release = () => {};
+ const gate = new Promise<void>(resolve => { release = resolve; });
+ const f = await fixture((_req, res) => {
+  res.setHeader("Content-Type", "application/octet-stream");res.setHeader("Content-Length", size);
+  res.write(first);void gate.then(() => res.end(Buffer.alloc(size - first.length, 7)));
+ });
+ try {
+  f.config.webfetch.media.response_bytes = 1;f.config.webfetch.limits.response_bytes = 1;
+  const pending = executeHttp({ url: f.url, mode: "download", path: "installer.bin" }, f.context, f.cwd, f.options);
+  await waitForPartial(f.cwd);
+  await expect(fs.access(path.join(f.cwd, "installer.bin"))).rejects.toThrow();
+  release();const result = await pending;
+  expect(result).toMatchObject({ bytes: size, status: 200 });expect(result.body).toBeUndefined();
+  const actual = await fs.readFile(path.join(f.cwd, "installer.bin"));
+  expect(createHash("sha256").update(actual).digest("hex")).toBe(createHash("sha256").update(Buffer.alloc(size, 7)).digest("hex"));
+  expect(await fs.readdir(f.cwd)).toEqual(["installer.bin"]);
+  const probe = await executeHttp({ url: f.url, mode: "probe" }, f.context, f.cwd, f.options);
+  expect(probe).toMatchObject({ bytes: size });expect(probe.body).toBeUndefined();
+ } finally { release();await f.close(); }
+});
+
+it.each(["length", "chunked", "gzip"])("下载超限反馈正确配置键并清理半成品：%s", async encoding => {
+ const plain = Buffer.alloc(2048, 65);
+ const f = await fixture((_req, res) => {
+  res.setHeader("Content-Type", "application/octet-stream");
+  if (encoding === "length") { res.setHeader("Content-Length", plain.length);res.end(plain); }
+  else if (encoding === "gzip") { const data = gzipSync(plain);res.setHeader("Content-Encoding", "gzip");res.setHeader("Content-Length", data.length);res.end(data); }
+  else { res.write(plain.subarray(0, 512));res.end(plain.subarray(512)); }
+ });
+ try {
+  f.config.webfetch.download.response_bytes = 1024;
+  await expect(executeHttp({ url: f.url, mode: "download", path: "oversized.bin" }, f.context, f.cwd, f.options)).rejects.toThrow("limit_config=webfetch.download.response_bytes; max_bytes=1024");
+  expect(await fs.readdir(f.cwd)).toEqual([]);
+  await expect(executeHttp({ url: f.url, mode: "probe" }, f.context, f.cwd, f.options)).rejects.toThrow("RESPONSE_TOO_LARGE");
+ } finally { await f.close(); }
+});
+
+it.each(["cancel", "timeout", "disconnect"])("已开始写盘的下载失败后不留下目标或临时文件：%s", async outcome => {
+ let response: ServerResponse | undefined;
+ const f = await fixture((_req, res) => { response = res;res.setHeader("Content-Type", "application/octet-stream");res.write(Buffer.alloc(16384)); });
+ const controller = new AbortController();
+ try {
+  const pending = executeHttp({ url: f.url, mode: "download", path: "partial.bin", timeout: outcome === "timeout" ? 0.4 : 10 }, { ...f.context, signal: controller.signal }, f.cwd, f.options);
+  const failure = expect(pending).rejects.toThrow(outcome === "cancel" ? "ABORTED" : outcome === "timeout" ? "TIMEOUT" : "CONNECTION_FAILED");
+  await waitForPartial(f.cwd);
+  if (outcome === "cancel") controller.abort();
+  if (outcome === "disconnect") response?.destroy();
+  await failure;expect(await fs.readdir(f.cwd)).toEqual([]);
+ } finally { controller.abort();await f.close(); }
+});
+
+it("HTTP 错误不落盘、不自动重试，已有目标在发请求前拒绝", async () => {
+ let requests = 0;
+ const f = await fixture((_req, res) => { requests++;res.writeHead(503, { "Content-Type": "text/plain" });res.end("unavailable"); });
+ try {
+  await expect(executeHttp({ url: f.url, mode: "download", path: "failed.bin" }, f.context, f.cwd, f.options)).rejects.toThrow("HTTP_ERROR: 503");
+  expect(requests).toBe(1);expect(await fs.readdir(f.cwd)).toEqual([]);
+  await fs.writeFile(path.join(f.cwd, "keep.bin"), "original");
+  await expect(executeHttp({ url: f.url, mode: "download", path: "keep.bin" }, f.context, f.cwd, f.options)).rejects.toThrow("destination exists");
+  expect(requests).toBe(1);expect(await fs.readFile(path.join(f.cwd, "keep.bin"), "utf8")).toBe("original");
+ } finally { await f.close(); }
+});
+
+it("同目标并发只提交一次，重定向仍可下载", async () => {
+ let requests = 0;
+ const f = await fixture((req, res) => {
+  requests++;
+  if (req.url === "/redirect") { res.writeHead(302, { location: "/binary" });res.end(); }
+  else { res.setHeader("Content-Type", "application/octet-stream");res.end("payload"); }
+ });
+ try {
+  const results = await Promise.allSettled([0, 1].map(() => executeHttp({ url: f.url + "/redirect", mode: "download", path: "once.bin" }, f.context, f.cwd, f.options)));
+  expect(results.map(row => row.status).sort()).toEqual(["fulfilled", "rejected"]);
+  expect(requests).toBe(2);expect(await fs.readdir(f.cwd)).toEqual(["once.bin"]);
+  expect(await fs.readFile(path.join(f.cwd, "once.bin"), "utf8")).toBe("payload");
+ } finally { await f.close(); }
 });

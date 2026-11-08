@@ -75,3 +75,20 @@ Cookie 仅供 `webfetch` 使用，默认文件为 `PIMOON_HOME/agent/cookies.txt
 当前默认启用 Cookie，允许 `*.reddit.com`、`*.youtube.com` 和 `*.bilibili.com`，确认模式为 `never`。无界面且需要确认时返回 `AUTH_CONFIRMATION_REQUIRED`。
 
 响应的 `Set-Cookie` 只更新内存 CookieJar。Cookie 名称和值不会进入模型结果和错误展示。
+
+
+## 原始 HTTP 下载与测速
+
+`http(mode="download", path=...)` 逐块写入临时文件，完整成功后原子创建目标；只允许新文件，不覆盖已有文件。`mode="probe"` 逐块丢弃正文，只返回实际字节数和耗时，两种模式都不把整个文件缓冲进内存或模型上下文。
+
+- `webfetch.download.response_bytes`：下载与测速的解压后大小上限，默认 **128 MiB**，可配置 64 KiB–1 GiB。
+- `webfetch.limits.response_bytes`：网页和 `http(mode="text")` 的正文上限，默认 10 MiB。
+- `webfetch.media.response_bytes`：网页图片的上限，默认 5 MiB；不再限制安装包下载。
+
+已知 Content-Length 超限时提前拒绝；分块响应与压缩内容仍按实际解压后字节检查。超限错误包含对应配置键和当前额度，不自动提额、重试、换镜像或启动外部下载器。配置示例：
+
+```json
+{ "webfetch": { "download": { "response_bytes": 33554432 } } }
+```
+
+下载复用现有 DNS/代理/TLS、重定向与逐次文件授权。目标写入队列覆盖整个下载，重复目标在请求前拒绝；失败、超时、取消会清理本次临时文件，不留下伪装成品的目标。同一配置下的全新目标可以重新请求，但不把失败当成自动重放授权。HTTP 503/504 等上游错误不因本地额度调整而消失。

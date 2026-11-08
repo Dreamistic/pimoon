@@ -172,7 +172,7 @@ export default function webTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySink
 
 	pi.registerTool({
 		name: "http", label: "HTTP", defaultActive: true,
-		description: "GET raw HTTP(S) without curl. mode text (UTF-8), probe (discard body), download (save to path). Returns status/url/content_type/bytes/headers_ms/total_ms/speed_bytes_per_second. timeout seconds; proxy follows app settings. No DNS/TLS phase metrics. Download path stays in workspace.",
+		description: "GET raw HTTP(S) without curl. mode text (UTF-8), probe (stream and discard body), download (stream to a new file; default 128 MiB, webfetch.download.response_bytes). Returns status/url/content_type/bytes/headers_ms/total_ms/speed_bytes_per_second. timeout seconds; proxy follows app settings. No DNS/TLS phase metrics. Existing files are never overwritten.",
 		parameters: Type.Object({
 			url: Type.String({ minLength: 1, maxLength: 8192 }),
 			mode: Type.Optional(StringEnum(["text", "probe", "download"] as const)),

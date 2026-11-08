@@ -112,6 +112,10 @@
 			// 主图解压后响应上限。
 			"response_bytes": 5242880
 		},
+		"download": {
+			// http 下载与测速逐块处理，不占用图片或网页正文额度。
+			"response_bytes": 134217728
+		},
 		"limits": {
 			// 每次 find 返回的上下文片段上限，邻近命中合并后计数。
 			"find_max_passages": 8,

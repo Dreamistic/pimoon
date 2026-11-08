@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { zstdDecompressSync } from "node:zlib";
 const base = process.argv[2], app = process.argv[3];
 if(!base||!app)throw Error("Usage: node scripts/smoke-codeact-artifact.mjs TEST_DIR APP_DIR");
-const code="assert {\"os\",\"sys\",\"json\",\"re\",\"pathlib\",\"Path\",\"csv\",\"io\",\"math\",\"statistics\",\"datetime\",\"time\",\"collections\",\"itertools\",\"functools\",\"subprocess\"}.issubset(globals())\nassert Path is pathlib.Path and math.isqrt(16)==4\nassert \"native_read\" not in globals() and \"batch\" not in globals() and \"process_run\" not in globals()\nassert not hasattr(functions,\"process_run\")\na,b=parallel([(read,{\"path\":\"a.txt\"}),(read,{\"path\":\"b.txt\"})])\nassert \"alpha\" in a and \"beta\" in b\nassert read(path=\"a.txt\",mode=\"raw\")==\"alpha\"\nserial_a=read(path=\"a.txt\")\nserial_b=read(path=\"b.txt\")\nassert serial_a==a and serial_b==b\nrows=parallel([(read,{\"path\":\"missing-raw.txt\",\"mode\":\"raw\"}),(read,{\"path\":\"missing-tool.txt\"})],errors=\"collect\")\nassert [r[\"error_code\"] for r in rows]==[\"FILE_NOT_FOUND\",\"FILE_NOT_FOUND\"]\ntry:\n read(path=\"missing-single.txt\")\nexcept ToolError as error:\n assert error.code==\"FILE_NOT_FOUND\"\nresult=subprocess.run([\"node\", \"-e\", \"require(\\\"node:fs\\\").appendFileSync(\\\"packaged.txt\\\",\\\"once\\\");console.log(42)\"],capture_output=True,text=True,check=True)\nassert result.returncode==0 and result.stdout.strip()==\"42\"\nnonzero=subprocess.run([\"node\", \"-e\", \"process.exit(7)\"],capture_output=True,text=True)\nassert nonzero.returncode==7\nPath(\"proof.json\").write_text(json.dumps({\"returncode\":result.returncode,\"failed_returncode\":nonzero.returncode,\"reads\":5,\"missing_codes\":[r[\"error_code\"] for r in rows]}),encoding=\"utf-8\")\n{\"complete\":True}\n";
+let code="assert {\"os\",\"sys\",\"json\",\"re\",\"pathlib\",\"Path\",\"csv\",\"io\",\"math\",\"statistics\",\"datetime\",\"time\",\"collections\",\"itertools\",\"functools\",\"subprocess\"}.issubset(globals())\nassert Path is pathlib.Path and math.isqrt(16)==4\nassert \"native_read\" not in globals() and \"batch\" not in globals() and \"process_run\" not in globals()\nassert not hasattr(functions,\"process_run\")\na,b=parallel([(read,{\"path\":\"a.txt\"}),(read,{\"path\":\"b.txt\"})])\nassert \"alpha\" in a and \"beta\" in b\nassert read(path=\"a.txt\",mode=\"raw\")==\"alpha\"\nserial_a=read(path=\"a.txt\")\nserial_b=read(path=\"b.txt\")\nassert serial_a==a and serial_b==b\nrows=parallel([(read,{\"path\":\"missing-raw.txt\",\"mode\":\"raw\"}),(read,{\"path\":\"missing-tool.txt\"})],errors=\"collect\")\nassert [r[\"error_code\"] for r in rows]==[\"FILE_NOT_FOUND\",\"FILE_NOT_FOUND\"]\ntry:\n read(path=\"missing-single.txt\")\nexcept ToolError as error:\n assert error.code==\"FILE_NOT_FOUND\"\nresult=subprocess.run([\"node\", \"-e\", \"require(\\\"node:fs\\\").appendFileSync(\\\"packaged.txt\\\",\\\"once\\\");console.log(42)\"],capture_output=True,text=True,check=True)\nassert result.returncode==0 and result.stdout.strip()==\"42\"\nnonzero=subprocess.run([\"node\", \"-e\", \"process.exit(7)\"],capture_output=True,text=True)\nassert nonzero.returncode==7\nPath(\"proof.json\").write_text(json.dumps({\"returncode\":result.returncode,\"failed_returncode\":nonzero.returncode,\"reads\":5,\"missing_codes\":[r[\"error_code\"] for r in rows]}),encoding=\"utf-8\")\n{\"complete\":True}\n";
 const env = { ...process.env, ELECTRON_RUN_AS_NODE: "1", PI_SUBAGENT_CHILD: "1", PI_OFFLINE: "1", PIMOON_NO_NOTIFICATIONS: "1" };
 for (const key of ["PIMOON_HOME","HOME","USERPROFILE","APPDATA","LOCALAPPDATA","TEMP","TMP"]) {
     env[key] = path.join(base, "smoke", key.toLowerCase()); await fs.mkdir(env[key], {recursive:true});
@@ -20,6 +20,7 @@ env.PI_APPROVAL_GATE_CONFIG=path.join(base,"smoke-approval.jsonc");
 await fs.writeFile(env.PI_APPROVAL_GATE_CONFIG,'{"enabled":false}');
 let requests=0, declarations=[];
 const server=createServer(async(req,res)=>{
+    if(req.method==="GET" && req.url==="/download.bin"){res.writeHead(200,{"content-type":"application/octet-stream","content-length":24*1024*1024});res.end(Buffer.alloc(24*1024*1024,7));return;}
     const chunks=[]; for await(const c of req) chunks.push(c);
     const raw=Buffer.concat(chunks); const body=JSON.parse((req.headers["content-encoding"]==="zstd"?zstdDecompressSync(raw):raw).toString());
     if(!Array.isArray(body.input)){res.writeHead(400).end();return;}
@@ -47,7 +48,8 @@ const server=createServer(async(req,res)=>{
 });
 await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
 const address=server.address(); const url=`http://127.0.0.1:${address.port}/v1`;
-await fs.writeFile(path.join(agent,"settings.json"),JSON.stringify({defaultProvider:"openai-codex",defaultModel:"test",defaultTools:["read","write","process_run"],retry:{enabled:false},compaction:{enabled:false}}));
+code += `\nlarge=http(url=${JSON.stringify(url.replace(/\/v1$/u,"/download.bin"))},mode="download",path="large-download.bin")\nassert large["bytes"]==24*1024*1024 and "body" not in large\nassert Path("large-download.bin").stat().st_size==large["bytes"]\n{"download_complete":True}\n`;
+await fs.writeFile(path.join(agent,"settings.json"),JSON.stringify({defaultProvider:"openai-codex",defaultModel:"test",defaultTools:["read","write","process_run","http"],retry:{enabled:false},compaction:{enabled:false}}));
 await fs.writeFile(path.join(agent,"models.json"),JSON.stringify({providers:{"openai-codex":{api:"openai-codex-responses",baseUrl:"https://chatgpt.com/backend-api",models:[{id:"test",name:"Fixture",reasoning:false,input:["text"],contextWindow:128000,maxTokens:4096,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}}]}}}));
 const token = "synthetic."+Buffer.from(JSON.stringify({"https://api.openai.com/auth":{chatgpt_account_id:"synthetic-account"}})).toString("base64")+".synthetic";
 await fs.writeFile(path.join(agent,"auth.json"),JSON.stringify({"openai-codex":{type:"oauth",access:token,refresh:"DISABLED_SYNTHETIC",expires:Date.now()+3600000,accountId:"synthetic-account"}}));
@@ -56,7 +58,7 @@ await fs.writeFile(preload,`const original=globalThis.fetch;globalThis.fetch=(in
 await fs.mkdir(path.join(agent,"configs"),{recursive:true});
 for(const file of ["auto-title","discord-presence"])await fs.writeFile(path.join(agent,"configs",file+".jsonc"),'{"enabled":false}');
 try{
- const result=await promisify(execFile)(path.join(app,"pimoon.exe"),["--require",preload,path.join(app,"resources/app/backend.mjs"),"--provider","openai-codex","--model","test","--thinking","off","--system-prompt","Isolated packaged smoke test. Execute the requested Python once.","--mode","json","-p","--no-session","--tools","read,write,process_run","Run packaged fixture."],{cwd,env,windowsHide:true,timeout:60000,maxBuffer:4*1024*1024});
+ const result=await promisify(execFile)(path.join(app,"pimoon.exe"),["--require",preload,path.join(app,"resources/app/backend.mjs"),"--provider","openai-codex","--model","test","--thinking","off","--system-prompt","Isolated packaged smoke test. Execute the requested Python once.","--mode","json","-p","--no-session","--tools","read,write,process_run,http","Run packaged fixture."],{cwd,env,windowsHide:true,timeout:60000,maxBuffer:4*1024*1024});
  await fs.writeFile(path.join(base,"smoke-output.txt"),result.stdout+"\n"+result.stderr);
  const events=result.stdout.split("\n").filter(line=>line.startsWith("{")).map(line=>JSON.parse(line));
  const rootResult=events.find(event=>event.type==="tool_execution_end"&&event.toolName==="execute");
@@ -74,7 +76,9 @@ try{
  }
  const execution=telemetry.find(row=>row.type==="code_end");
  if(execution?.metrics?.batch_peak_concurrency!==2||execution?.metrics?.batch_calls!==2)throw Error("Packaged explicit groups or sequential boundary mismatch");
+ const large=await fs.readFile(path.join(cwd,"large-download.bin"));
+ if(large.length!==24*1024*1024||large.some(byte=>byte!==7)||rootResult?.result?.isError||result.stdout.includes('"body":"'))throw Error("Packaged streaming download failed");
  if(content!=="once"||requests!==2||!result.stdout.includes("packaged complete")||declarations.some(names=>JSON.stringify(names)!=='["execute"]'))throw Error("packaged verification failed");
- console.log(JSON.stringify({ok:true,requests,declarations,content,windowStarted:false}));
- await fs.writeFile(path.join(base,"smoke-result.json"),JSON.stringify({ok:true,requests,declarations,content,windowStarted:false},null,2));
+ console.log(JSON.stringify({ok:true,requests,declarations,content,downloadBytes:large.length,windowStarted:false}));
+ await fs.writeFile(path.join(base,"smoke-result.json"),JSON.stringify({ok:true,requests,declarations,content,downloadBytes:large.length,windowStarted:false},null,2));
 }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}

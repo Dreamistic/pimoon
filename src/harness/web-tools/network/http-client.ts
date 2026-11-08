@@ -36,6 +36,7 @@ export interface HttpResourceOptions {
 	maxBytes?: number;
 	imageMaxBytes?: number;
 	omitSupportedImageBody?: boolean;
+	onChunk?: (chunk: Uint8Array) => Promise<void>;
 }
 
 /** 首次目标由调用边界校验，重定向在请求链内逐跳校验。 */
@@ -82,7 +83,7 @@ async function fetchWithinDeadline(
 		return failure({ status: "failed", error: { code, message: networkErrorMessage(error) } });
 	}
 
-	function success(response: WebHttpResponse, body: Uint8Array, omitted?: HttpFetchSuccess["bodyOmitted"]): HttpFetchSuccess {
+	function success(response: WebHttpResponse, body: Uint8Array, downloadedBytes = body.byteLength, omitted?: HttpFetchSuccess["bodyOmitted"]): HttpFetchSuccess {
 		return {
 			status: "success",
 			requestedUrl,
@@ -94,7 +95,7 @@ async function fetchWithinDeadline(
 			...(omitted !== undefined ? { bodyOmitted: omitted } : {}),
 			authenticated,
 			redirectCount,
-			downloadedBytes: body.byteLength,
+			downloadedBytes,
 		};
 	}
 
@@ -172,7 +173,7 @@ async function fetchWithinDeadline(
 				cancelBody(response.body);
 				const cookieError = await saveCookies();
 				if (cookieError !== undefined) return failure(cookieError, response.status);
-				return success(response, new Uint8Array(), "skipped_image_body");
+				return success(response, new Uint8Array(), 0, "skipped_image_body");
 			}
 
 			const expected = responseContentLength(response.headers);
@@ -189,8 +190,10 @@ async function fetchWithinDeadline(
 			const imageResponse = mimeFromContentType(response.headers.get("content-type")).startsWith("image/");
 			const maxBytes = resource.maxBytes ?? (imageResponse ? resource.imageMaxBytes : undefined) ?? options.config.webfetch.limits.response_bytes;
 			let lastUpdate = 0;
+			const successful = response.status >= 200 && response.status < 300;
 			const body = await readLimitedResponseBody(response, {
-				maxBytes,
+				maxBytes: successful ? maxBytes : Math.min(maxBytes, options.config.webfetch.limits.response_bytes),
+				...(successful && resource.onChunk ? { onChunk: resource.onChunk } : {}),
 				signal,
 				onProgress(receivedBytes) {
 					const now = options.now();
@@ -222,7 +225,7 @@ async function fetchWithinDeadline(
 					response_preview: previewText(body.bytes),
 				}, response.status);
 			}
-			return success(response, body.bytes);
+			return success(response, body.bytes, body.receivedBytes);
 		}
 	} catch (error) {
 		// Cookie 存储与交互端口本身不接受 signal，只在取消时转换等待错误。
