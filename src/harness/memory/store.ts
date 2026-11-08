@@ -5,7 +5,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from
 import path from "node:path";
 import { isNotFound } from "../config-loader.ts";
 import { MutationQueue } from "../filesystem/platform/node/mutation-queue.ts";
-import { MAX_MEMORY_BYTES, memoryIndexLine, parseMemory, type MemoryEntry } from "./format.ts";
+import { MAX_MEMORY_BYTES, memoryIndexLine, parseMemory, upgradeLegacyMemory, type MemoryEntry } from "./format.ts";
 
 const exec = promisify(execFile);
 const queue = new MutationQueue();
@@ -87,28 +87,57 @@ export class MemoryStore {
 	}
 
 	private async load(file: string, name: string, signal?: AbortSignal): Promise<CachedEntry> {
-		try {
-			const before = await regularFile(file);
-			const stamp = `${before.ino}:${before.size}:${before.mtimeMs}:${before.ctimeMs}`;
-			const cached = this.cache.get(file);
-			if (cached?.stamp === stamp) return cached;
-			if (before.size > MAX_MEMORY_BYTES) throw new Error("Memory exceeds 32 KiB.");
-			const text = await readFile(file, { encoding: "utf8", signal });
-			const after = await regularFile(file);
-			if (`${after.ino}:${after.size}:${after.mtimeMs}:${after.ctimeMs}` !== stamp) throw new Error("Memory changed while reading; retry after the writer finishes.");
-			let parsed: ReturnType<typeof parseMemory>;
-			try { parsed = parseMemory(text); }
-			catch (error) {
-				const message = error instanceof Error && error.message.startsWith("Memory ") ? error.message : "Memory frontmatter is invalid.";
-				const failed = { stamp, issue: message }; this.cache.set(file, failed); return failed;
+		// 与普通文件工具共用目标队列。迁移不是一次额外的模型写入，也不会重放工具操作。
+		return queue.run(file, signal, async () => {
+			try {
+				const before = await regularFile(file);
+				let stamp = fileStamp(before);
+				const cached = this.cache.get(file);
+				if (cached?.stamp === stamp) return cached;
+				if (before.size > MAX_MEMORY_BYTES) throw new Error("Memory exceeds 32 KiB.");
+				let text = await readFile(file, { encoding: "utf8", signal });
+				if (fileStamp(await regularFile(file)) !== stamp) throw new Error("Memory changed while reading; retry after the writer finishes.");
+				let parsed: ReturnType<typeof parseMemory>;
+				let upgraded: string | undefined;
+				try {
+					upgraded = upgradeLegacyMemory(text);
+					parsed = parseMemory(upgraded ?? text);
+				} catch (error) {
+					const message = error instanceof Error && error.message.startsWith("Memory ") ? error.message : "Memory frontmatter is invalid.";
+					const failed = { stamp, issue: message }; this.cache.set(file, failed); return failed;
+				}
+				if (upgraded !== undefined) {
+					await backupLegacy(file, text, signal);
+					if (fileStamp(await regularFile(file)) !== stamp || await readFile(file, "utf8") !== text)
+						throw new Error("Memory changed before migration; original was not replaced.");
+					await atomicText(file, upgraded, signal);
+					text = upgraded;
+					stamp = fileStamp(await regularFile(file));
+					if (await readFile(file, "utf8") !== text || fileStamp(await regularFile(file)) !== stamp)
+						throw new Error("Memory changed after migration; reload before relying on it.");
+				}
+				const loaded = { stamp, entry: { ...parsed, file: name, version: `sha256:${hash(text)}` } };
+				this.cache.set(file, loaded); return loaded;
+			} catch (error) {
+				signal?.throwIfAborted();
+				this.cache.delete(file);
+				return { stamp: "", issue: error instanceof Error ? error.message.slice(0, 240) : "Memory unavailable." };
 			}
-			const loaded = { stamp, entry: { ...parsed, file: name, version: `sha256:${hash(text)}` } };
-			this.cache.set(file, loaded); return loaded;
-		} catch (error) {
-			signal?.throwIfAborted();
-			this.cache.delete(file);
-			return { stamp: "", issue: error instanceof Error ? error.message.slice(0, 240) : "Memory unavailable." };
-		}
+		});
+	}
+}
+
+function fileStamp(stat: { ino: number; size: number; mtimeMs: number; ctimeMs: number }): string {
+	return `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+}
+
+async function backupLegacy(file: string, original: string, signal?: AbortSignal): Promise<void> {
+	const backup = `${file}.legacy-${hash(original)}.bak`;
+	try { await writeFile(backup, original, { flag: "wx", mode: 0o600, signal }); }
+	catch (error) {
+		if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+		await regularFile(backup);
+		if (await readFile(backup, "utf8") !== original) throw new Error("Memory migration backup differs; original was not replaced.");
 	}
 }
 

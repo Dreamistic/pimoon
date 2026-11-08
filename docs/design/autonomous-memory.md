@@ -71,13 +71,14 @@ PIMOON_HOME/memory/
 
 ## 4. 记忆格式
 
-保留 Claude Code 风格的短 frontmatter 和自然语言正文，增加独立的 `lesson` 类型承载可复用的坑。
+采用 Claude Code 风格的短 frontmatter、四类 metadata.type 与自然语言正文。旧版独立 lesson 已合入 reference，迁移及当前边界以参考文档为准。
 
 ```markdown
 ---
 name: 失败后先核实副作用
 description: 执行包含写入的代码块报错或取消后，判断是否可以重试时读取
-type: lesson
+metadata:
+  type: reference
 ---
 
 适用：CodeAct 代码块包含文件修改或外部副作用。
@@ -95,7 +96,7 @@ How to apply：核对目标状态，只补做未完成的步骤。
 | --- | --- |
 | `name` | 简短标题，单行，最多 80 个 Unicode 字符 |
 | `description` | 何时值得读取，单行，最多 160 个 Unicode 字符；不是全文摘要 |
-| `type` | `user`、`feedback`、`lesson`、`project`、`reference` |
+| `metadata.type` | `user`、`feedback`、`project`、`reference` |
 | `status` | 可选，默认 `active`；`archived` 不进入自动索引 |
 
 文件名是范围内的稳定标识；优先使用短、可搜索的主题名，避免每次修改都重命名。一篇解决一个可复用的问题，不将一次会话全部塞入一篇。
@@ -122,11 +123,11 @@ AI 修改正文及摘要即可，不负责同步索引。对派生 `MEMORY.md` �
 
 ### 请求中的索引预算
 
-第一版自动提供的记忆上下文总上限为 8 KiB UTF-8、80 条摘要，任一达到即停止加入整条记录。目录说明、标题和溢出提示也占预算。这是字节预算，不宣称等价于固定 token 数。
+当前自动提供的记忆上下文总上限为 25 KiB UTF-8、200 行，任一达到即停止加入整条记录。目录说明、标题和溢出提示也占预算。这是字节预算，不宣称等价于固定 token 数。
 
 两个范围先各分配一半预算，未用完的额度交给另一范围。按类型、稳定文件名排序，不随每次读取改变顺序；不让最近编辑的文章不断挤走其他索引。具体预算集中为实现常量，先测量再决定是否需要用户配置项。
 
-索引头始终给出两个范围的绝对目录、条目相对路径基准和最小格式提示：YAML 的 `name/description/type`、允许的类型、Markdown 正文及 `status: archived`。空目录也提供这些信息，使 AI 第一次写入不需要猜路径、发明格式或先经历一次失败。单行及长度等细节由校验错误按需说明。
+索引头始终给出两个范围的绝对目录、条目相对路径基准和最小格式提示：YAML 的 `name/description/metadata.type`、允许的类型、Markdown 正文及 `status: archived`。空目录也提供这些信息，使 AI 第一次写入不需要猜路径、发明格式或先经历一次失败。单行及长度等细节由校验错误按需说明。
 
 超过预算时明确输出总数、已展示数，以及完整索引的绝对路径。不能静默截断后让 AI 误以为只有这些记忆；长期未进入摘要预览的条目仍可通过完整索引发现。
 
@@ -157,7 +158,7 @@ AI 修改正文及摘要即可，不负责同步索引。对派生 `MEMORY.md` �
 
 ### 模型可见规则草案
 
-只保留一处短规则，具体字段限制交给校验，位置和省略信息交给索引结果：
+实际规则集中在 `src/harness/memory/context.ts`，明确四类含义、主动保存时机、查重、排除项和使用前验证。以下仅保留设计基线草案，不是另一份运行时提示词；具体字段限制交给校验，位置和省略信息交给索引结果：
 
 ```text
 <memory_policy>
@@ -308,4 +309,4 @@ Exclude secrets, transient task state and unverified claims presented as facts. 
 
 参考 [Claude Code auto memory 官方文档](https://code.claude.com/docs/en/memory#auto-memory) 的短索引、主题文件、按需读取和模型自主维护方式。
 
-本方案刻意不完全照搬：索引由运行时生成；补充 `lesson` 类型；索引预算独立定义；用现有文件工具统一处理并发；记忆内容与运行时授权严格分离。对用户提供的样例只借鉴结构，不复制个人资料、原始会话或配置内容。
+本方案刻意不完全照搬：索引由运行时生成；保留 user 与项目双范围并共享 200 行 / 25 KiB 总预算；用现有文件工具统一处理并发；记忆内容与运行时授权严格分离。对用户提供的样例只借鉴结构，不复制个人资料、原始会话或配置内容。

@@ -8,7 +8,7 @@ import { memoryContext } from "../../../src/harness/memory/context.ts";
 
 const temp = useTempDir("pimoon-memory-manager-");
 let store: MemoryStore, cwd: string, file: string;
-const original = "---\nname: 管理测试\ndescription: 测试管理操作时读取\ntype: lesson\n---\n原始正文\n";
+const original = "---\nname: 管理测试\ndescription: 测试管理操作时读取\nmetadata:\n  type: reference\n---\n原始正文\n";
 beforeEach(async () => {
 	cwd = path.join(temp.path, "workspace"); await mkdir(cwd);
 	store = new MemoryStore(path.join(temp.path, "memory"));
