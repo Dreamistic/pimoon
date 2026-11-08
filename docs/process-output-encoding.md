@@ -19,4 +19,13 @@ node node_modules/vitest/vitest.mjs run tests/pimoon/process-batch-sdk.test.ts
 node node_modules/typescript/bin/tsc --noEmit
 ```
 
-定向 Vitest 26 项、Node 61 项（进程编排 25 + 通用运行时 36）及类型检查全部通过，包括 direct/Rust 的真实 Windows `taskkill /?` 只读输出、本地代码页检测、GBK 覆盖、原始字节恢复、无重放副作用、DEVNULL、截断边界、超时与解码失败并存、并发停止派发和真实 SDK 审批。没有执行针对用户进程的 taskkill，没有构建或切换桌面成品。
+定向 Vitest 26 项、Node 61 项（进程编排 25 + 通用运行时 36）及类型检查全部通过，包括 direct/Rust 的真实 Windows `taskkill /?` 只读输出、本地代码页检测、GBK 覆盖、原始字节恢复、无重放副作用、DEVNULL、截断边界、超时与解码失败并存、并发停止派发和真实 SDK 审批。没有执行针对用户进程的 taskkill；源码验证阶段未构建或切换成品，后续交付见下文。
+
+## 桌面交付（2026-11-08）
+
+- 源提交 `81cd26eb65244cc5de921af416d96a419ee35229`；tree `2b6f44b362c52dcaf1af9668e024942af0909639`。在固定提交的独立 worktree 构建，成品目录 `dist/pimoon-encoding-81cd26e`，依赖只读借用，未安装或重建。
+- 原生源码与上一正式版无变化；复用前校验 Electron 71 个运行时文件及原生执行器，未修改旧目录。这是本机运行时复用，不是全新安装验收。
+- 无窗口成品基础烟测、编码专项烟测均通过，各两次本地合成模型请求且只声明 execute：验证自动 UTF-8/GBK 分流、cp936 显式覆盖、真实 `taskkill /?`、解码失败原始字节恢复、Python 状态及副作用仅一次。配置全部隔离至 `.tmp/tests/encoding-release-81cd26e`，没有使用真实模型凭据。
+- `release.json` 记录 1105 个文件 SHA-256，快捷方式切换后已逐项复验；后端 SHA-256 `4a3a1a665c826fb93c7430fdccdbad7fd5f72057094c6d8ab1de97a13322fe5d`，原生执行器 SHA-256 `9b92f3698dc96803d73e9e0d4c59fc593f301dc88bfbaabf9c5f06e8a6a3d4fe`，清单 SHA-256 `ded56173fd8711267c0943f43ac1f2669c286e24102a5623ab841ee6f8616919`。
+- 重新读取桌面快捷方式目标后备份至 `dist/shortcut-backups/pimoon-before-encoding-81cd26e-20261108-114628.lnk`，切换到新目录的 `pimoon.exe`，切换后再次读取目标并核验。旧目录和运行进程保留，没有强制结束或覆盖当前会话；用户正常退出全部窗口后从桌面快捷方式重开生效。
+- 没有启动可见 GUI，后端成品验收不等于可见窗口启动验收；未推送。本文交付记录的后续提交不改变上述成品来源。
