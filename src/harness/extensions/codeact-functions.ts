@@ -19,7 +19,7 @@ const parameters = Type.Object({
 export default function codeactFunctions(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "process_run", label: "进程", defaultActive: true,
-		description: `Run foreground argv without a shell. cwd defaults to workspace; env overrides inherited variables. npm/gradlew Windows launchers map to Node/Java. timeout seconds (default ${DEFAULT_PROCESS_TIMEOUT_SECONDS}, max ${MAX_PROCESS_TIMEOUT_SECONDS}), capped by remaining CodeAct time with cleanup reserved. check defaults true: failure raises; false returns exit_code/status/stdout/stderr/truncated/duration_ms.`,
+		description: `Run foreground argv without an implicit shell. cwd defaults to workspace; env overrides inherited variables. npm/gradlew Windows launchers map to Node/Java. timeout seconds (default ${DEFAULT_PROCESS_TIMEOUT_SECONDS}, max ${MAX_PROCESS_TIMEOUT_SECONDS}), capped by remaining CodeAct time with cleanup reserved. check defaults true: failure raises; false returns exit_code/status/stdout/stderr/truncated/duration_ms.`,
 		parameters,
 		outputSchema: Type.Object({ exit_code: Type.Union([Type.Integer(), Type.Null()]), status: Type.Union([Type.Literal("exited"), Type.Literal("cancelled"), Type.Literal("timeout"), Type.Literal("spawn_error")]), stdout: Type.String(), stderr: Type.String(), truncated: Type.Boolean(), duration_ms: Type.Number(), decode_error: Type.Optional(Type.String()), stdout_base64: Type.Optional(Type.String()), stderr_base64: Type.Optional(Type.String()) }),
 		async execute(_id, input, signal, _update, ctx) {

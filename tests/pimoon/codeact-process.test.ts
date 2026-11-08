@@ -22,10 +22,37 @@ it("非零退出与输出截断是结构化事实，不吞错误", async () => {
 	expect(result).toMatchObject({ exit_code: 7, status: "exited", stderr: "failed", truncated: true });
 	expect(result.stdout.length).toBe(65_536);
 });
-it("拒绝 Shell/curl 包装以及未知 Windows 批处理入口", async () => {
+it.skipIf(process.platform !== "win32")("显式 PowerShell 管道与 cmd 命令正常执行，不再按程序名拒绝", async () => {
 	const cwd = await folder();
-	for (const program of ["powershell.exe", "bash", "cmd.exe", "curl.exe"]) await expect(runProcess({ argv: [program, "anything"] }, cwd)).rejects.toThrow("Shell/curl");
-	if (process.platform === "win32") await expect(runProcess({ argv: ["unknown.cmd"] }, cwd)).rejects.toThrow("批处理");
+	for (const argv of [
+		["powershell", "-NoProfile", "-NonInteractive", "-Command", "Get-Item . | Select-Object -ExpandProperty Name"],
+		[path.join(process.env.SystemRoot ?? "C:/Windows", "System32/cmd.exe"), "/d", "/c", "echo shell-ok"],
+	]) {
+		const result = await runProcess({ argv }, cwd);
+		expect(result).toMatchObject({ exit_code: 0, status: "exited" });
+		expect(result.stdout.trim()).toBe(argv[0] === "powershell" ? path.basename(cwd) : "shell-ok");
+	}
+});
+for (const program of ["pwsh", "bash", "sh", "curl", "wget"]) {
+	const executable = await which(program, { nothrow: true });
+	// Windows bash/sh 可能是 WSL 启动器；不在测试中触发安装或交互窗口。
+	it.skipIf(!executable || process.platform === "win32" && ["bash", "sh"].includes(program))(`${program} 显式入口可运行`, async () => {
+		if (!executable) throw new Error("program unavailable");
+		const argv = program === "pwsh"
+			? [executable, "-NoProfile", "-NonInteractive", "-Command", "Write-Output shell-ok"]
+			: [executable, "--version"];
+		const result = await runProcess({ argv }, await folder());
+		expect(result).toMatchObject({ exit_code: 0, status: "exited" });
+		expect(result.stdout).not.toBe("");
+	});
+}
+it.skipIf(process.platform !== "win32")("批处理须显式指定 cmd，不隐式解释参数", async () => {
+	const cwd = await folder();
+	await expect(runProcess({ argv: ["unknown.cmd"] }, cwd)).rejects.toThrow("显式 cmd.exe /c");
+	await fs.writeFile(path.join(cwd, "sample.cmd"), "@echo batch-ok\r\n");
+	const result = await runProcess({ argv: ["cmd.exe", "/d", "/c", "sample.cmd"] }, cwd);
+	expect(result).toMatchObject({ exit_code: 0, status: "exited" });
+	expect(result.stdout.trim()).toBe("batch-ok");
 });
 it("超时和主动取消回收活动进程树", async () => {
 	const cwd = await folder();

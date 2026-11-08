@@ -151,7 +151,7 @@ test('env 使用标准替换语义而非暗中继承，cwd 定位正确',()=>fix
  const result=await runtime.run(`result=subprocess.run(${JSON.stringify(args)},cwd="nested",env={"MARK":"isolated"},capture_output=True,text=True,check=True)\nassert json.loads(result.stdout)=={"mark":"isolated","cwd":"nested"}`,context);
  assert.equal(result.isError,false,result.content[0].text);
 }));
-test('拒绝 Shell、Popen、二进制捕获及未支持选项，不能绕过桥接直接启动',()=>fixture(async({runtime,context,calls})=>{
+test('拒绝 shell=True、命令字符串、Popen、二进制捕获及未支持选项，不能绕过桥接直接启动',()=>fixture(async({runtime,context,calls})=>{
  const cases=['subprocess.run("git status",shell=True)','subprocess.run(["git"],shell=True)','subprocess.run(["git"],capture_output=True)','subprocess.run(["git"],input="payload")','subprocess.Popen(["git"])'];
  for(const code of cases){const result=await runtime.run(code,context);assert.equal(result.isError,true,code);}
  assert.equal(calls.length,0);

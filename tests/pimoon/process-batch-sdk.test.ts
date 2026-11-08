@@ -97,3 +97,34 @@ it("编码覆盖与解码错误经过真实 SDK，副作用不重放且仍保留
   }
  }finally{await f.close();}
 });
+
+it.skipIf(process.platform !== "win32")("显式 Shell 经真实 SDK 支持串行和 parallel，管道按原参数执行", async () => {
+ const shell = ["powershell", "-NoProfile", "-NonInteractive", "-Command", "Get-Item . | Select-Object -ExpandProperty Name"];
+ const cmd = ["cmd.exe", "/d", "/c", "echo cmd-ok"];
+ const f = await fixture([
+  `r=subprocess.run(${JSON.stringify(shell)},capture_output=True,text=True,check=True)\nassert r.stdout.strip()=="workspace"`,
+  `r=parallel([(subprocess.run,{"args":${JSON.stringify(shell)},"capture_output":True,"text":True,"check":True}),(subprocess.run,{"args":${JSON.stringify(cmd)},"capture_output":True,"text":True,"check":True})])\nassert [v.stdout.strip() for v in r]==["workspace","cmd-ok"]`,
+ ]);
+ try {
+  await f.session.bindExtensions({mode:"print",onError:({error})=>{throw new Error(error);}});
+  await f.session.prompt("Verify explicit shell entrypoints.");
+  const results=f.session.messages.filter(isExecutionResult);
+  expect(results.map(result=>result.isError)).toEqual([false,false]);
+  expect(executionMetrics(results[1]).batch_peak_concurrency).toBe(2);
+ } finally { await f.close(); }
+});
+for (const parallel of [false,true]) it.skipIf(process.platform !== "win32")(`显式 Shell 仍经 SDK 审批，拒绝不产生副作用 parallel=${parallel}`, async () => {
+ const args=["powershell", "-NoProfile", "-NonInteractive", "-Command", "Set-Content -LiteralPath denied-shell -Value bad"];
+ const code=parallel
+  ? `parallel([(subprocess.run,{"args":${JSON.stringify(args)},"check":True})])`
+  : `subprocess.run(${JSON.stringify(args)},check=True)`;
+ const f=await fixture([code],true);
+ try {
+  await f.session.bindExtensions({mode:"print",onError:({error})=>{throw new Error(error);}});
+  await f.session.prompt("Approval must still block explicit shells.");
+  const result=f.session.messages.find(isExecutionResult);
+  expect(result?.isError).toBe(true);
+  expect(JSON.stringify(result?.content)).toMatch(/approval|审批/iu);
+  await expect(fs.access(path.join(f.cwd,"denied-shell"))).rejects.toThrow();
+ } finally { await f.close(); }
+});

@@ -41,7 +41,7 @@ export function isProcessResult(value: unknown): value is ProcessResult {
 }
 const OUTPUT_BYTES = 65_536;
 
-/** 参数数组直接启动程序，不经过 Shell；Windows 包装入口只转换已知 npm/Gradle。 */
+/** 参数数组直接启动程序，不隐式套 Shell；允许显式 Shell，Windows npm/Gradle 入口直接转换。 */
 export async function runProcess(input: ProcessInput, workspace: string, signal?: AbortSignal): Promise<ProcessResult> {
 	// 显式字符集不受支持时必须在任何进程副作用之前拒绝。
 	if (input.encoding !== undefined) outputDecoder(input.encoding);
@@ -98,8 +98,6 @@ async function resolveProgram(argv: readonly string[], cwd: string, env: NodeJS.
 	if (!argv.length || argv.some(arg => arg.includes("\0"))) throw new Error("argv 必须是无 NUL 的程序及参数数组。");
 	const [program = "", ...args] = argv;
 	const name = path.basename(program).toLowerCase().replace(/\.(exe|cmd|bat)$/u, "");
-	if (["powershell", "pwsh", "bash", "sh", "cmd", "curl", "wget"].includes(name))
-		throw new Error("不支持 Shell/curl 包装。请用 argv、cwd、env 编排程序；HTTP 使用 http()。");
 	if (process.platform !== "win32") return [...argv];
 	const lookupPath = Object.entries(env).find(([key]) => key.toLowerCase() === "path")?.[1];
 	if (name === "npm" || name === "npx") {
@@ -117,7 +115,7 @@ async function resolveProgram(argv: readonly string[], cwd: string, env: NodeJS.
 		const javaHome = Object.entries(env).find(([key]) => key.toLowerCase() === "java_home")?.[1];
 		return [javaHome ? path.join(javaHome, "bin/java.exe") : "java", "-Xmx64m", "-Xms64m", "-Dorg.gradle.appname=gradlew", "-classpath", wrapper, "org.gradle.wrapper.GradleWrapperMain", ...args];
 	}
-	if (/\.(cmd|bat)$/iu.test(program)) throw new Error("批处理入口需要 Shell；请改用实际 exe、JS CLI 或 Java 主类。");
+	if (/\.(cmd|bat)$/iu.test(program)) throw new Error("批处理入口需要显式 cmd.exe /c；或改用实际 exe、JS CLI 或 Java 主类。");
 	return [...argv];
 }
 

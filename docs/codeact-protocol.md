@@ -61,7 +61,7 @@ valid=[r for r in rows if r["ok"]]
 4. `print` 不重复输出其 `None` 返回值。异常和部分函数失败始终反馈，已完成写入不回滚。
 5. 静默函数调用返回紧凑计数。图片作为原始图片块转交，不编码进 Python 结果字符串。
 
-`process_run` 默认失败抛异常，使依赖步骤停止；需要自行处理时显式 `check=False`。进程使用 argv/cwd/env，HTTP 使用 `http`，不通过 Shell/curl 包装。详见[函数环境](reference/codeact/README.md)。
+`process_run` 默认失败抛异常，使依赖步骤停止；需要自行处理时显式 `check=False`。该历史版曾拒绝 Shell/curl；现行 `subprocess.run` 允许通过 argv 显式调用 Shell、curl、wget，仍经过原有审批。原始 HTTP 优先使用 `http`。详见[函数环境](reference/codeact/README.md)。
 
 ## 预算与验证
 
