@@ -10,7 +10,7 @@ for(const file of ['worker.py','process_api.py','parallel.py','execution.py','fe
 await fs.copyFile('assets/runtime/pimoon-runtime.exe',path.join(resources,'pimoon/pimoon-runtime.exe'));
 process.env.PIMOON_RESOURCE_DIR=resources;
 const {Runtime}=await import('../../src/pimoon/runtime.mjs');
-const tools=['read','ls','find','grep','write','edit','process_run'].map(name=>({name,parameters:{type:'object',properties:{path:{type:'string'},query:{type:'string'}}}}));
+const tools=['read','ls','find','grep','write','edit','websearch','webfetch','http','process_run'].map(name=>({name,parameters:{type:'object',properties:{path:{type:'string'},query:{type:'string'}}}}));
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function fixture(fn,{transport='direct',fail=null,observe=false}={}){
  const cwd=await fs.mkdtemp(path.join(base,'case-')),runtime=new Runtime({cwd,tools,transport,observe});
@@ -44,6 +44,9 @@ for(const code of [
  'parallel([(read,{"path":"first"}),(write,{"path":"bad"})])',
  'parallel([(read,{"path":"first"}),(subprocess.run,{"args":["node"],"shell":True})])',
  'parallel([(read,{"path":"first"}),(lambda: 1,{})])',
+ 'parallel([(read,{"path":"first"}),(http,{"url":"https://example.com","mode":"download","path":"file"})])',
+ 'parallel([(read,{"path":"first"}),(http,{"url":"https://example.com","path":None})])',
+ 'parallel([(read,{"path":"first"}),(http,{"url":"https://example.com","mode":None})])',
  'parallel([(read,{"path":"first"}),(read,{"path":object()})])',
  'parallel([(read,{"path":"first"}),(read,{1:"bad"})])',
  'parallel([(read,{"path":"first"})],errors="retry")',
@@ -81,7 +84,7 @@ for(const errors of ['raise','collect'])test(`宿主无限流与取消 ${errors}
  let cancelled=false,count=0;await scheduleJobs([{name:'read',args:{}},{name:'read',args:{}}],async()=>{count++;cancelled=true;return 'done';},()=>cancelled);assert.equal(count,1);
 });
 test('宿主拒绝非法进程描述、写入与非法错误策略',async()=>{
- for(const name of ['write','edit','process_run','http'])await assert.rejects(scheduleJobs([{name,args:{}}],async()=>{throw Error('must not call');}),/Invalid parallel schedule/);
+ for(const name of ['write','edit','process_run','custom'])await assert.rejects(scheduleJobs([{name,args:{}}],async()=>{throw Error('must not call');}),/Invalid parallel schedule/);
  await assert.rejects(scheduleJobs([{name:'read',args:{}}],async()=>{},()=>false,()=>{},'retry'),/Invalid parallel schedule/);
 });
 
@@ -111,3 +114,25 @@ for(const transport of ['direct','rust']){
   assert.equal((await run('assert sentinel==42 and "rows" not in globals()')).isError,false);assert.equal(count,7);assert.equal(calls.length,0);
  },{transport}));
 }
+
+for(const transport of ['direct','rust']){
+ test(`${transport}: 网页检索、提取与 HTTP 只读调用混合并发且保持顺序`,()=>fixture(async({run,calls,peak})=>{
+  const result=await run('values=parallel([(websearch,{"query":"Tailscale Windows exit node"}),(webfetch,{"url":"https://example.com/docs"}),(http,{"url":"https://example.com/raw"}),(http,{"url":"https://example.com/probe","mode":"probe"}),(read,{"path":"local"})])\nassert [json.loads(v)["name"] for v in values]==["websearch","webfetch","http","http","read"]');
+  assert.equal(result.isError,false,result.content[0].text);assert.equal(peak(),5);assert.equal(calls.length,5);
+  assert.deepEqual(result.details.scheduling.groups[0].operations.map(x=>x.name),['websearch','webfetch','http','http','read']);
+ },{transport}));
+ test(`${transport}: 网页失败收集、旧代理和动态禁用不能绕过宿主`,()=>fixture(async({runtime,run,calls,context})=>{
+  const partial=await run('rows=parallel([(websearch,{"path":"fail","query":"q"}),(webfetch,{"url":"https://example.com"})],errors="collect")\nassert not rows[0]["ok"] and rows[1]["ok"]\nold_websearch=websearch');
+  assert.equal(partial.isError,false,partial.content[0].text);assert.equal(partial.details.metrics.outcome,'tool_partial_failure');assert.equal(calls.length,2);
+  const stale=await run('parallel([(old_websearch,{"query":"q"})])');assert.equal(stale.isError,true);assert.equal(calls.length,2);
+  const disabled=await runtime.run('parallel([(websearch,{"query":"q"})])',{...context,tools:tools.filter(x=>x.name!=='websearch')});
+  assert.equal(disabled.isError,true);assert.equal(calls.length,2);
+ },{transport,fail:'fail'}));
+}
+test('宿主同样拒绝 HTTP 下载、路径和非法模式，整组预检不派发前项',async()=>{
+ for(const args of [{mode:'download',path:'file'},{path:null},{mode:null},{mode:'invalid'}]){
+  let calls=0;
+  await assert.rejects(scheduleJobs([{name:'read',args:{}},{name:'http',args}],async()=>{calls++;}),/Invalid parallel schedule/);
+  assert.equal(calls,0);
+ }
+});

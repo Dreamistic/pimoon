@@ -2,7 +2,7 @@
 import json
 import subprocess
 
-READ_ONLY = frozenset({"read", "find", "grep", "ls"})
+READ_ONLY = frozenset({"read", "find", "grep", "ls", "websearch", "webfetch", "http"})
 MAX_JOBS = 256
 
 
@@ -39,9 +39,11 @@ class Parallel:
             fn, args = job
             name = next((name for name, proxy in self.proxies.items() if fn is proxy), None)
             if name is None:
-                raise TypeError("parallel accepts current enabled read/find/grep/ls and subprocess.run only; writes and callbacks stay sequential")
+                raise TypeError("parallel accepts current enabled read/find/grep/ls/websearch/webfetch/http and subprocess.run only; writes and callbacks stay sequential")
             if type(args) is not dict or any(type(key) is not str for key in args):
                 raise TypeError("parallel kwargs must be a dict with string keys")
+            if name == "http" and (args.get("mode", "text") not in ("text", "probe") or "path" in args):
+                raise ValueError("parallel http supports text/probe without path only; run downloads sequentially")
             if name == "process_run":
                 args, options = self.prepare_process(**args)
                 process_options[index] = options

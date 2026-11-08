@@ -42,7 +42,7 @@ export class CodeAct {
         session.agent.beforeToolCall = async (event, signal) => {
             const calls = event.assistantMessage.content.filter(part => part.type === "toolCall");
             if (event.assistantMessage.stopReason !== "toolUse" || calls.length !== 1 || calls[0]?.name !== "execute")
-                return { block: true, terminate: true, reason: "Expected exactly one execute call in a successful toolUse response. Nothing executed." };
+                return { block: true, terminate: true, reason: "Expected exactly one execute call in a successful toolUse response. Nothing executed. Call execute directly; put parallel([...]) inside its Python code, not a native tool wrapper." };
             return before?.(event, signal);
         };
         const convert = session.agent.convertToLlm;

@@ -1,6 +1,6 @@
 // 显式任务组共用一个入口；读取不限流，进程最多两个（包括审批等待）。
 import { isProcessResult } from './codeact/process.ts';
-const READ_ONLY = new Set(['read', 'find', 'grep', 'ls']);
+const READ_ONLY = new Set(['read', 'find', 'grep', 'ls', 'websearch', 'webfetch', 'http']);
 export const PROCESS_CONCURRENCY = 2;
 
 export function processFailure(value, check) {
@@ -12,7 +12,8 @@ export function processFailure(value, check) {
 export async function scheduleJobs(jobs, invoke, cancelled = () => false, observe = () => {}, errors = 'raise') {
   if (!Array.isArray(jobs) || jobs.length > 256 || !['raise','collect'].includes(errors) || jobs.some(job =>
     !job || !(READ_ONLY.has(job.name) || job.name === 'process_run' && typeof job.check === 'boolean' && job.args?.check === false)
-    || !job.args || typeof job.args !== 'object' || Array.isArray(job.args)))
+    || !job.args || typeof job.args !== 'object' || Array.isArray(job.args)
+    || job.name === 'http' && (!['text', 'probe'].includes(job.args.mode === undefined ? 'text' : job.args.mode) || Object.hasOwn(job.args, 'path'))))
     throw Error('Invalid parallel schedule');
   const rows = Array(jobs.length);
   let failed = false, cursor = 0;

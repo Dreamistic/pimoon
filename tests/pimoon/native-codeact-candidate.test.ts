@@ -138,6 +138,7 @@ it("同轮两个 execute 在任何代码启动前全部拒绝", async () => {
         await expect(fs.access(path.join(value.cwd, "marker.txt"))).rejects.toThrow();
         expect(value.results()).toHaveLength(2);
         expect(value.results().every(result => result.isError)).toBe(true);
+        expect(JSON.stringify(value.results())).toContain("Call execute directly; put parallel([...]) inside its Python code");
         expect(value.server.requests).toHaveLength(0);
     } finally { await value.close(); }
 });
@@ -367,4 +368,17 @@ it("真实 SSE 参数流中取消不执行，不把部分代码补成完整调�
         await expect(fs.access(path.join(value.cwd, "marker.txt"))).rejects.toThrow();
         expect(value.results()).toHaveLength(0);
     } finally { unsubscribe(); await value.close(); }
+});
+
+it("未声明的外层并发包装不执行代码，也不自动拆解重放", async () => {
+ const value = await fixture([{tool:"multi_tool_use.parallel",args:{tool_uses:[{recipient_name:"functions.execute",parameters:{code:marker,desc:"隔离验证"}}]}}]);
+ try {
+  await value.runtime.session.prompt("Fixture.");
+  await expect(fs.access(path.join(value.cwd,"marker.txt"))).rejects.toThrow();
+  const result=value.runtime.session.messages.find(message=>message.role==="toolResult");
+  expect(result).toMatchObject({isError:true});
+  expect(JSON.stringify(result)).toContain("Tool multi_tool_use.parallel not found");
+  expect(value.results()).toHaveLength(0);
+  expect(value.server.requests).toHaveLength(2);
+ } finally {await value.close();}
 });

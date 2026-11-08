@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { Type } from "typebox";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import type { InlineExtension } from "@earendil-works/pi-coding-agent";
@@ -89,6 +90,28 @@ it("独立原文读取中间缺失仍读完，缺少必需输入不写入",async
   await f.runtime.session.prompt("Run fixture.");expect(f.results()[0]?.isError).toBe(true);
   expect(executionMetrics(f.results()[0])).toMatchObject({internal_tool_calls:5,internal_tool_failures:1,batch_completed:5});
   expect(JSON.stringify(f.results()[0]?.content)).toContain("Required inputs unavailable");
+  await expect(fs.access(path.join(f.cwd,"never.txt"))).rejects.toThrow();
+ }finally{await f.close();}
+});
+
+it.each(["raise","collect"])("网页并发复用真实 SDK 逐项权限与嵌套身份：%s",async errors=>{
+ const calls:string[]=[];
+ const network:InlineExtension={name:"fixture-network",factory(pi){
+  for(const name of ["websearch","webfetch","http"])pi.registerTool({
+   name,label:name,description:"Synthetic network fixture.",parameters:Type.Object({query:Type.Optional(Type.String()),url:Type.Optional(Type.String())}),
+   async execute(){calls.push(name);await new Promise(resolve=>setTimeout(resolve,20));return {content:[{type:"text",text:name+" allowed"}],details:{}};},
+  });
+  pi.on("tool_call",event=>event.toolName==="webfetch"?{block:true,reason:"network fixture denied"}:undefined);
+ }};
+ const f=await fixture([action(`rows=parallel([(websearch,{"query":"Tailscale"}),(webfetch,{"url":"https://example.com/docs"}),(http,{"url":"https://example.com/raw"})],errors="${errors}")
+${errors==="collect"?'assert rows[0]["ok"] and not rows[1]["ok"] and rows[2]["ok"]':'write(path="never.txt",content="bad")'}`),{text:"done"}],undefined,[network],undefined,["execute","websearch","webfetch","http","write"]);
+ try{
+  await f.runtime.session.prompt("Run fixture.");
+  const result=f.results()[0];expect(result?.isError).toBe(errors==="raise");
+  expect(calls.sort()).toEqual(["http","websearch"]);
+  expect(JSON.stringify(result?.content)).toContain("network fixture denied");
+  expect(result?.nestedCalls?.calls.map(call=>call.name)).toEqual(["websearch","webfetch","http"]);
+  expect(executionMetrics(result)).toMatchObject({internal_tool_calls:3,internal_tool_failures:1,batch_jobs:3});
   await expect(fs.access(path.join(f.cwd,"never.txt"))).rejects.toThrow();
  }finally{await f.close();}
 });
