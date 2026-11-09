@@ -68,14 +68,14 @@
 		color-mix(in srgb, var(--soft-base) calc(100% - (100% - var(--material-composer-opacity, 100%)) * var(--material-transparency, 1)), transparent),
 		color-mix(in srgb, var(--soft-base) calc(100% - (100% - var(--material-composer-dark-opacity, 100%)) * var(--material-transparency, 1)), transparent));
 	--popover: light-dark(
-		color-mix(in srgb, var(--panel-base) calc(100% - (100% - var(--material-floating-opacity, 100%)) * var(--material-transparency, 1)), transparent),
-		color-mix(in srgb, var(--panel-base) calc(100% - (100% - var(--material-floating-dark-opacity, 100%)) * var(--material-transparency, 1)), transparent));
+		color-mix(in srgb, var(--elevated-base) calc(100% - (100% - var(--material-floating-opacity, 100%)) * var(--material-transparency, 1)), transparent),
+		color-mix(in srgb, var(--elevated-base) calc(100% - (100% - var(--material-floating-dark-opacity, 100%)) * var(--material-transparency, 1)), transparent));
 	--soft-popover: light-dark(
 		color-mix(in srgb, var(--soft-base) calc(100% - (100% - var(--material-floating-opacity, 100%)) * var(--material-transparency, 1)), transparent),
-		color-mix(in srgb, var(--soft-base) calc(100% - (100% - var(--material-floating-dark-opacity, 100%)) * var(--material-transparency, 1)), transparent));
+		color-mix(in srgb, var(--elevated-base) calc(100% - (100% - var(--material-floating-dark-opacity, 100%)) * var(--material-transparency, 1)), transparent));
 	--dialog: light-dark(
-		color-mix(in srgb, var(--panel-base) calc(100% - (100% - var(--material-dialog-opacity, 100%)) * var(--material-transparency, 1)), transparent),
-		color-mix(in srgb, var(--panel-base) calc(100% - (100% - var(--material-dialog-dark-opacity, 100%)) * var(--material-transparency, 1)), transparent));
+		color-mix(in srgb, var(--elevated-base) calc(100% - (100% - var(--material-dialog-opacity, 100%)) * var(--material-transparency, 1)), transparent),
+		color-mix(in srgb, var(--elevated-base) calc(100% - (100% - var(--material-dialog-dark-opacity, 100%)) * var(--material-transparency, 1)), transparent));
 	--overlay: light-dark(
 		color-mix(in srgb, black var(--material-overlay-opacity, 32%), transparent),
 		color-mix(in srgb, black var(--material-overlay-dark-opacity, 32%), transparent));
@@ -87,7 +87,7 @@
 	--glass-filter: var(--material-filter-override, var(--material-floating-filter, none));
 	--dialog-filter: var(--material-filter-override, var(--material-dialog-filter, none));
 	--overlay-filter: var(--material-filter-override, var(--material-overlay-filter, none));
-	--divider: color-mix(in srgb, var(--border) 65%, transparent);
+	--divider: light-dark(color-mix(in srgb, var(--border) 65%, transparent), color-mix(in srgb, var(--border) 40%, transparent));
 	--text-ui: 0.875rem;
 	--text-body: 0.9375rem;
 	--text-code: 0.8125rem;
@@ -139,9 +139,9 @@
  */
 :root[data-desktop-material="vibrancy"] {
 	--material-filter-override: none !important;
-	--popover: var(--panel-base);
-	--soft-popover: var(--soft-base);
-	--dialog: var(--panel-base);
+	--popover: var(--elevated-base);
+	--soft-popover: light-dark(var(--soft-base), var(--elevated-base));
+	--dialog: var(--elevated-base);
 }
 :root[data-desktop-material="vibrancy"] .mobile-sidebar { background: var(--glass-base); }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {

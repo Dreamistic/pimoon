@@ -57,8 +57,9 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 :is(.history-session-row, .workspace-option-row) .row-action-button > svg { inline-size: 1em; block-size: 1em; }
 /* 工作区按钮在欢迎内容的纵向布局中保持自然高度。 */
 .workspace-welcome .workspace-select { flex: 0 1 auto; justify-content: center; min-inline-size: min(100%, 20rem); max-inline-size: 100%; margin-block-start: var(--space-6); }
-.sidebar-footer { display: flex; flex-wrap: wrap; gap: var(--space-1); padding: var(--space-3); border-block-start: 1px solid var(--divider); color: var(--muted-foreground); }
+.sidebar-footer { display: flex; flex-wrap: wrap; gap: var(--space-1); padding: var(--space-3); border-block-start: 1px solid transparent; color: var(--muted-foreground); }
 .sidebar-footer > button:last-child { margin-left: auto; }
+.sidebar-footer > button:disabled { color: var(--muted-decoration); }
 .usage-button[aria-busy="true"] { color: var(--link); background: color-mix(in srgb, var(--primary) 10%, transparent); cursor: progress; }
 .sidebar[data-collapsed="true"] .brand { inline-size: 0; padding: 0; opacity: 0; }
 .sidebar[data-collapsed="true"] .sidebar-brand { gap: 0; justify-content: center; }
@@ -70,7 +71,7 @@ html:has(#root), body:has(> #root) { block-size: 100%; overflow: clip; }
 .main-panel { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .conversation-canvas { display: flex; flex: 1; flex-direction: column; min-inline-size: 0; min-block-size: 0; background: var(--canvas); backdrop-filter: var(--canvas-filter); }
 .tool-count { font-variant-numeric: tabular-nums; }
-.topbar { display: flex; align-items: center; flex-shrink: 0; gap: var(--space-2); padding: var(--space-4) var(--content-inset); border-block-end: 1px solid var(--divider); background: var(--toolbar); backdrop-filter: var(--toolbar-filter); }
+.topbar { display: flex; align-items: center; flex-shrink: 0; gap: var(--space-2); padding: var(--space-4) var(--content-inset); border-block-end: 1px solid transparent; background: var(--toolbar); backdrop-filter: var(--toolbar-filter); }
 .connection-status { --status-color: var(--muted-foreground); display: flex; align-items: center; gap: 0.5em; flex-shrink: 0; font-size: var(--text-small); color: var(--muted-foreground); }
 .connection-status svg { inline-size: 1em; block-size: 1em; color: var(--status-color); }
 .connection-status[data-state="就绪"] { --status-color: var(--success); }

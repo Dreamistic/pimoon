@@ -96,7 +96,7 @@ export function ModelControls({ snapshot, send, disabled, openManager }: {
 	if (snapshot.model && !models.some((model) => `${model.provider}/${model.id}` === current))
 		models.push(snapshot.model);
 	return (
-		<div className="model-controls">
+		<div className="model-controls" role="group" aria-label="模型与推理设置">
 			{snapshot.codexSpeed !== null && <CodexSpeedControl speed={snapshot.codexSpeed} send={send} disabled={disabled} />}
 			<Select
 				value={current}

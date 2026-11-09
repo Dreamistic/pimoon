@@ -112,7 +112,7 @@ export function SendButton({ mode, disabled, onActivate }: SendButtonProps) {
 			})}
 		</svg>
 		<Hint content={enabled ? `${label} · 拖动后松开可弹射` : label} disabled={dragging}>
-			<Button asChild type="button" variant="default" size="icon" className="send-button" aria-label={label} disabled={disabled}>
+			<Button asChild type="button" variant="default" size="icon-lg" className="send-button" aria-label={label} disabled={disabled}>
 				<motion.button
 					data-sling-enabled={enabled}
 					drag={enabled}
