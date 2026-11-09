@@ -4,7 +4,6 @@ import { SessionManager, type SessionStartEvent } from "@earendil-works/pi-codin
 import type { GuiEvent } from "../../shared/protocol/events.ts";
 import type { GuiSessionActivity } from "../../shared/protocol/state.ts";
 import type { Attention } from "../../../harness/attention.ts";
-import type { ApprovalStores, SessionApprovalRules } from "../../../harness/approval/rules/store.ts";
 import { GuiExecution, type SessionClient } from "./execution.ts";
 
 type Listener = (event: GuiEvent) => void;
@@ -21,7 +20,6 @@ export class GuiSession {
 	readonly file: string | null;
 	private manager: SessionManager | undefined;
 	private resources: Resources = { state: "unloaded" };
-	private rules: SessionApprovalRules = { rules: [] };
 	private listeners = new Set<Listener>();
 	private holds = 0;
 	private closed = false;
@@ -34,7 +32,7 @@ export class GuiSession {
 	private awaitingMessage: boolean;
 
 	constructor(manager: SessionManager,
-		private permissions: { stores: ApprovalStores; trust: Map<string, boolean> },
+		private permissions: { trust: Map<string, boolean> },
 		private startEvent: SessionStartEvent,
 		private notify: (activityChanged: boolean) => void,
 		private refreshHistory: () => void,
@@ -122,7 +120,7 @@ export class GuiSession {
 				if (manager.getSessionId() !== this.id) throw new Error("会话文件已被替换，请刷新列表。");
 			}
 			this.assertOpen();
-			await execution.start(manager, { ...this.permissions, rules: this.rules }, client, { event: this.startEvent, models: this.scopedModels });
+			await execution.start(manager, this.permissions, client, { event: this.startEvent, models: this.scopedModels });
 			// 退出中的启动正常结算，但不重新挂载正在释放的资源。
 			if (!this.closed) {
 				this.resources = { state: "ready", execution };

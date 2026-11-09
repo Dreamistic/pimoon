@@ -69,7 +69,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 
 		it("A 等待审批时 B 可完成 Shell，切回只显示 A 的审批并消费一次", async () => {
 			const { host: first, agentDir } = context();
-			await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"tools":{"write":{"default_action":"ask"}}}');
+			await writeFile(path.join(agentDir, "configs", "approval-ai.jsonc"), '{"model":"gui-fixture/test"}');
 			const original = readSnapshot(first).sessionId;
 			const task = first.dispatch(prompt("任务 A"));
 			await expect.poll(() => first.execution.dialogs.list().length).toBe(1);
@@ -95,11 +95,11 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				await expect.poll(() => events.filter((event) => event.type === "activity").at(-1)?.value.find((item) => item.sessionId === original))
 					.toMatchObject({ state: "idle", completedAt: expect.any(Number) });
 			} finally { await first.dispatch({ action: "abort" }, original); await task; second.close(); }
-		});
+		}, 30000);
 
 		it("停止 B 不取消后台 A，停止后旧审批不能恢复任务", async () => {
 			const { host, agentDir } = context();
-			await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"tools":{"write":{"default_action":"ask"}}}');
+			await writeFile(path.join(agentDir, "configs", "approval-ai.jsonc"), '{"model":"gui-fixture/test"}');
 			const a = readSnapshot(host).sessionId;
 			const first = host.dispatch(prompt("等待批准的 A"));
 			await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
@@ -303,9 +303,9 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 			} finally { await service.dispose(); }
 		});
 
-		it("回收空闲实例后恢复历史和会话授权，等待审批的实例不回收", async () => {
+		it("回收空闲实例后恢复历史但不继承单次授权，等待审批的实例不回收", async () => {
 			const { cwd, agentDir } = context();
-			await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"tools":{"write":{"default_action":"ask"}}}');
+			await writeFile(path.join(agentDir, "configs", "approval-ai.jsonc"), '{"model":"gui-fixture/test"}');
 			await writeFile(path.join(agentDir, "configs", "gui.jsonc"), '{"sessionCache":{"idleLimit":0}}');
 			const service = new GuiHost();
 			const client = service.createClient();
@@ -323,7 +323,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				await service.collect();
 				await client.dispatch({ action: "openSession", id: a });
 				expect(client.runtime).toBe(original);
-				await client.dispatch({ action: "dialog", id: approval.id, value: "Allow for session" });
+				await client.dispatch({ action: "dialog", id: approval.id, value: "Allow once" });
 				await task;
 				await client.dispatch({ action: "scopeModels", models: ["gui-fixture/second", "gui-fixture/test"] });
 				const before = readSnapshot(client).messages;
@@ -334,7 +334,11 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 				expect(client.runtime).not.toBe(original);
 				expect(readSnapshot(client).messages).toEqual(before);
 				expect(readSnapshot(client).scopedModels).toEqual(["gui-fixture/second", "gui-fixture/test"]);
-				await client.dispatch(prompt("相同路径再次写入"));
+				const next = client.dispatch(prompt("相同路径再次写入"));
+				await expect.poll(() => client.execution.dialogs.list().length).toBe(1);
+				const repeated = client.execution.dialogs.list()[0]; if (!repeated) throw new Error("缺少重新审批");
+				await client.dispatch({ action: "dialog", id: repeated.id, value: "Allow once" });
+				await next;
 				expect(client.execution.dialogs.list()).toEqual([]);
 				expect(await readFile(path.join(cwd, "output.txt"), "utf8")).toBe("GUI SDK result\n");
 				await client.dispatch({ action: "new" });

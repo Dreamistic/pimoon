@@ -3,7 +3,7 @@ import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component } fr
 import { borderedPanelContentWidth, renderBorderedPanel } from "../../components/scroll-viewer.ts";
 import { approvalText, buildApprovalContent, type ApprovalDisplayLine, type ApprovalLineStyle } from "../../../harness/approval/presentation.ts";
 import {
-	ALLOW_ONCE, ALLOW_PERSISTENT, ALLOW_SESSION, DENY_WITH_INSTRUCTION, approvalScopes,
+	ALLOW_ONCE, approvalScopes,
 	type ApprovalChoice, type ApprovalDialogOptions, type ApprovalOptions, type ApprovalReply, type ApprovalCard,
 } from "../../../harness/approval/runtime/interaction.ts";
 import type { ApprovalDecision, ApprovalRequest } from "../../../harness/approval/types.ts";
@@ -56,7 +56,7 @@ export class ApprovalDialog implements Component {
 		card?: ApprovalCard,
 	) {
 		signal?.addEventListener("abort", this.abort, { once: true });
-		this.selectedChoice = options[0];
+		this.selectedChoice = card?.recommendation ?? "Deny";
 		this.content = [
 			...(card ? [{ text: approvalText(`${card.title}\n${card.explanation}\n${card.recommendationReason}`), style: "text" as const }] : []),
 			...approvalScopes(request, decision, options).map(scope => ({ text: approvalText(`${scope.choice}: ${scope.detail}`), style: "dim" as const })),
@@ -178,8 +178,5 @@ function lineColor(style: ApprovalLineStyle): Parameters<Theme["fg"]>[0] {
 
 function optionDescription(option: ApprovalChoice): string {
 	if (option === ALLOW_ONCE) return "run only this call";
-	if (option === ALLOW_SESSION) return "remember exact sensitive units for this session";
-	if (option === ALLOW_PERSISTENT) return "save conservative rules for similar calls";
-	if (option === DENY_WITH_INSTRUCTION) return "block and tell the agent what to do instead";
 	return "block this call";
 }

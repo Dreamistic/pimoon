@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "approval-ai.schema.json",
+  "title": "pimoon AI approval",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "model": {
+      "type": "string",
+      "pattern": "^[^/]+/.+$"
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 120000
+    }
+  }
+}

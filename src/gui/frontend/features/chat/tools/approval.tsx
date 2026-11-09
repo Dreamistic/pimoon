@@ -27,11 +27,11 @@ export function ApprovalBar({ dialog, send, disabled }: { dialog: GuiDialog; sen
 	if (!permission && !codeact) return null;
 	const selected = permission?.scopes.find(option => option.scope === scope);
 	const card = permission?.card;
-	const recommendsDeny = card?.decision === "deny" || card?.recommendation === "Deny" || card?.recommendation === "Deny with instruction";
+	const recommendsDeny = card?.decision === "deny" || card?.recommendation === "Deny";
 	const label = (choice: string, fallback: string) => card?.actions.find(action => action.choice === choice)?.label ?? fallback;
 	const expired = dialog.deadline !== null && now >= dialog.deadline;
 	const locked = disabled || busy || expired;
-	const approveLabel = !permission ? "确认执行" : !selected ? "选择范围后仍要执行" : label(selected?.choice ?? "", scope === "persistent" ? "保存规则并授权" : scope === "session" ? "授权本会话" : "授权本次");
+	const approveLabel = !permission ? "确认执行" : !selected ? "选择范围后仍要执行" : label(selected?.choice ?? "", "授权本次");
 	const respond = async (approved: boolean, discuss = false) => {
 		if (submitting.current || locked || approved && permission && !selected) return;
 		submitting.current = true; setBusy(true);
@@ -58,9 +58,8 @@ export function ApprovalBar({ dialog, send, disabled }: { dialog: GuiDialog; sen
 					<span>{card ? `${label(option.choice, option.label)} · ` : ""}{option.label}{card?.recommendation === option.choice && <small> · AI 建议</small>}</span>
 				</label>)}
 			</fieldset>
-			{permission.advisorUnavailable && <p className="tool-note">审批顾问暂不可用{permission.advisorFailure ? `（${permission.advisorFailure}）` : ""}，已回退为普通审批；操作仍在等待确认。</p>}
 			<p className="approval-bar-range">{clean(selected?.detail ?? (recommendsDeny ? "AI建议拒绝；如要覆盖此建议，请先明确选择授权范围。" : "请选择授权范围"))}</p>
-			<p className="tool-note">{scope === "persistent" ? "将保存所示授权规则。" : ""}不重跑整段代码；明确拒绝规则和文件版本检查仍生效。</p>
+			<p className="tool-note">不重跑整段代码；文件版本检查和取消保护仍生效。</p>
 		</> : codeact && <>
 			<Disclosure summary="查看待执行代码与工作区" lazy>
 				<p className="tool-note">工作区：<code>{codeact.cwd}</code></p>

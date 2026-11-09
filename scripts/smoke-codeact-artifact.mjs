@@ -16,8 +16,8 @@ const cwd = path.join(base,"smoke","workspace"); await fs.mkdir(cwd,{recursive:t
 const agent = path.join(env.PIMOON_HOME,"agent"); await fs.mkdir(agent,{recursive:true});
 await fs.writeFile(path.join(cwd,"a.txt"),"alpha");await fs.writeFile(path.join(cwd,"b.txt"),"beta");
 // 这里只验证成品桥接；审批授权的暂停/拒绝由开启审批的 SDK 用例覆盖。
-env.PI_APPROVAL_GATE_CONFIG=path.join(base,"smoke-approval.jsonc");
-await fs.writeFile(env.PI_APPROVAL_GATE_CONFIG,'{"enabled":false}');
+env.PIMOON_APPROVAL_AI_CONFIG=path.join(base,"smoke-approval.jsonc");
+await fs.writeFile(env.PIMOON_APPROVAL_AI_CONFIG,'{"enabled":false}');
 let requests=0, declarations=[];
 const server=createServer(async(req,res)=>{
     if(req.method==="GET" && req.url==="/download.bin"){res.writeHead(200,{"content-type":"application/octet-stream","content-length":24*1024*1024});res.end(Buffer.alloc(24*1024*1024,7));return;}

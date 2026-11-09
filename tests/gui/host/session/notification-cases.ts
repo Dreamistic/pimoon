@@ -74,7 +74,7 @@ export function notificationTests(context: () => { host: GuiClient; agentDir: st
 		it("后台审批独立于当前会话订阅，取消审批不发完成通知", async () => {
 			const { host, agentDir } = context();
 			await host.dispatch(prompt("后台写文件"));
-			await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"tools":{"write":{"default_action":"ask"}}}');
+			await writeFile(path.join(agentDir, "configs", "approval-ai.jsonc"), '{"model":"gui-fixture/test"}');
 			const id = host.runtime.session.sessionId;
 			const execution = host.execution;
 			await host.dispatch({ action: "new" });

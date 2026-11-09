@@ -1,195 +1,145 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadApprovalGateConfig } from "../approval/config.ts";
-import { createApprovalGate, blockForDenyRule } from "../approval/runtime/gate.ts";
 import { approvalFingerprint } from "../approval/runtime/pending.ts";
 import { approvalBinding, type ApprovalPresenter } from "../approval/pi/proposal.ts";
 import { adviseApproval, ApprovalAdvisorError, advisorFailureText } from "../approval/advisor.ts";
-import { approvalDiagnostic, type ApprovalDiagnostic } from "../approval/diagnostics.ts";
-import { approvalPresence } from "../approval/presence.ts";
-import { approvalTaskContext } from "../approval/advisor-context.ts";
-import { ApprovalExperiences, type ApprovalExperience } from "../approval/experience.ts";
+import { approvalDiagnostic } from "../approval/diagnostics.ts";
+import { approvalTaskContext, boundedText } from "../approval/advisor-context.ts";
+import { collectApprovalEvidence } from "../approval/evidence.ts";
 import { buildApprovalRequest, isApprovalToolCall } from "../approval/pi/request.ts";
-import { buildBashApprovalRequest } from "../approval/request/bash/parse.ts";
-import { formatBashPolicyEvaluation } from "../approval/rules/bash-facts.ts";
-import { evaluateBashGatePolicy } from "../approval/rules/policy.ts";
-import { approvalSummary, formatApprovalPrompt } from "../approval/presentation.ts";
+import { APPROVAL_OPTIONS, type ApprovalCard, type ApprovalReply } from "../approval/runtime/interaction.ts";
+import { formatApprovalPrompt } from "../approval/presentation.ts";
 import { APPROVAL_STATUS_CHANNEL, type ApprovalStatusEvent } from "../approval/events.ts";
 import { canPresent } from "../presentation.ts";
 import { attachPrivateNetworkGrant, createPrivateNetworkGrantFor } from "../web-tools/network/private-network-grant.ts";
 
 export type { ApprovalPresenter } from "../approval/pi/proposal.ts";
-export default function approvalGateExtension(pi: ExtensionAPI, present?: ApprovalPresenter, gate = createApprovalGate()): void {
-	let lifetime = new AbortController(), queue: Promise<void> = Promise.resolve(), task = "";
-	const closed = new Set<string>(), history: ApprovalExperience[] = [];
-	const feedback = new Map<string, { text: string; advisor: boolean }>();
-	const evidence: string[] = [];
-	let closedPolicy = "";
-	const reset = () => { lifetime.abort(); lifetime = new AbortController(); closed.clear(); feedback.clear(); };
-	pi.on("before_agent_start", event => { reset(); if (event.messageType === "user") task = event.prompt; });
-	pi.on("session_start", () => { reset(); history.length = 0; evidence.length = 0; task = ""; });
-	pi.on("session_tree", reset);
+
+/** 唯一裁决者为独立审批 AI；宿主只保证暂停、单次消费、取消及上下文绑定。 */
+export default function approvalGateExtension(pi: ExtensionAPI, present?: ApprovalPresenter): void {
+	let lifetime = new AbortController(), queue: Promise<void> = Promise.resolve();
+	const feedback = new Map<string, { text: string; actor: string }>();
+	const recent: unknown[] = [];
+	const reset = () => { lifetime.abort(); lifetime = new AbortController(); feedback.clear(); };
+	pi.on("before_agent_start", reset);
+	pi.on("session_start", () => { reset(); recent.length = 0; });
+	pi.on("session_tree", () => { reset(); recent.length = 0; });
 	pi.on("session_shutdown", reset);
-	pi.registerCommand("approval-check", {
-		description: "Explain the Bash gate decision without executing the command.",
-		async handler(args, ctx) {
-			const command = args.trim();
-			if (!command) { ctx.ui.notify("Usage: /approval-check <bash command>", "warning"); return; }
-			const [config, request] = await Promise.all([loadApprovalGateConfig(), buildBashApprovalRequest(command, ctx.cwd)]);
-			const evaluation = evaluateBashGatePolicy(request, config, { matchesAllowRule: () => false });
-			ctx.ui.notify(formatBashPolicyEvaluation(evaluation.bash, config.enabled ? evaluation.decision : { kind: "allow" }),
-				evaluation.decision.kind === "deny" ? "warning" : "info");
-		},
-	});
 	pi.on("tool_call", async (event, ctx) => {
 		if (!isApprovalToolCall(event)) return;
-		const config = await loadApprovalGateConfig();
-		if (!config.enabled) {
-			approvalDiagnostic(ctx.sessionManager.getSessionId(), event.toolCallId, approvalFingerprint(event.input), event.toolName,
-				{ phase: "policy", enabled: false, autonomous: config.advisor?.autonomous === true, advisorEnabled: config.advisor?.enabled === true,
-					model: config.advisor?.model ?? "", decision: "allow", policyHash: approvalFingerprint(config) });
-			return;
+		const signal = ctx.signal ? AbortSignal.any([ctx.signal, lifetime.signal]) : lifetime.signal;
+		const binding = approvalBinding(ctx), inputHash = approvalFingerprint(event.input);
+		let config, request;
+		try {
+			config = await loadApprovalGateConfig();
+			if (!config.enabled) return;
+			request = await buildApprovalRequest(event, ctx.cwd);
+		} catch {
+			return { block: true, reason: "Approval configuration or request inspection failed. Nothing executed." };
 		}
-		const request = await buildApprovalRequest(event, ctx.cwd);
-		if (!request) return;
-		const experiences = new ApprovalExperiences(config.remember.persistent_store);
-		const currentPolicy = approvalFingerprint(config);
-		if (closedPolicy !== currentPolicy) { closed.clear(); closedPolicy = currentPolicy; }
-		const key = approvalFingerprint(request);
-		const eventCallId = event.toolCallId;
-		const diagnostic = (value: ApprovalDiagnostic) => approvalDiagnostic(ctx.sessionManager.getSessionId(), eventCallId, key, request.tool, value);
-		if (closed.has(key)) { diagnostic({ phase: "invalidated", reason: "already_closed" }); return { block: true, reason: "Approval closed. Wait for a new user instruction; do not retry or bypass." }; }
-		const decision = await gate.inspect(request, config);
-		diagnostic({ phase: "policy", enabled: config.enabled, autonomous: config.advisor?.autonomous === true,
-			advisorEnabled: config.advisor?.enabled === true, model: config.advisor?.model ?? "", decision: decision.kind, policyHash: currentPolicy });
-		if (decision.kind === "deny") return { block: true, reason: blockForDenyRule(decision).reason };
-		if (decision.kind === "ask") {
-			// 并发调用逐个展示；前一个保存规则后，下一个在 authorize 内重新检查。
-			const previous = queue;
-			let release = () => {};
-			queue = new Promise<void>(resolve => { release = resolve; });
-			const signal = ctx.signal ? AbortSignal.any([ctx.signal, lifetime.signal]) : lifetime.signal;
-			const binding = approvalBinding(ctx), inputHash = approvalFingerprint(event.input), policy = approvalFingerprint(config);
-			const valid = async () => !signal.aborted && approvalBinding(ctx) === binding
-				&& approvalFingerprint(event.input) === inputHash && approvalFingerprint(await loadApprovalGateConfig()) === policy;
-			let requested = false, approved = false;
-			const approvalStarted = performance.now();
-			try {
-				await previous;
-				if (closed.has(key)) return { block: true, reason: "Approval closed. Wait for a new user instruction; do not retry or bypass." };
-				if (!await valid()) { diagnostic({ phase: "invalidated", reason: "context_changed" }); return { block: true, reason: "Approval cancelled or context changed. No permission granted." }; }
-				const outcome = await gate.authorize(request, config, ctx.hasUI || config.advisor?.autonomous ? {
-					async approve(current, asked, options, opts) {
-						const discussion: string[] = [];
-						requested = true;
-						pi.events.emit(APPROVAL_STATUS_CHANNEL, { type: "requested", toolCallId: event.toolCallId, toolName: "approval" } satisfies ApprovalStatusEvent);
-						for (;;) {
-							const presence = approvalPresence();
-							let card, advisorUnavailable = false, advisorFailure: string | undefined;
-							if (config.advisor?.enabled) {
-								const timeout = new AbortController(), advisorSignal = AbortSignal.any([signal, timeout.signal]);
-								const timer = setTimeout(() => timeout.abort(), config.advisor.timeout_ms);
-								const advisorStarted = performance.now();
-								try {
-									const stored = await experiences.relevant(current).catch(() => []);
-									const previous = stored.filter(entry => !history.some(item => item.requestHash === entry.requestHash));
-									const context = approvalTaskContext(ctx), relevantHistory = [...previous, ...history].slice(-12);
-									diagnostic({ phase: "advisor_start", autonomous: config.advisor.autonomous === true,
-										model: config.advisor.model, presence: presence.state, contextCount: context.length,
-										evidenceCount: evidence.length, historyCount: relevantHistory.length, discussionCount: discussion.length });
-									const pending = adviseApproval(current, asked, options, config.advisor, ctx,
-										{ task, requestHash: key, history: relevantHistory, signal: advisorSignal, discussion, presence, context, evidence: [...evidence] });
-									card = await Promise.race([pending, new Promise<never>((_resolve, reject) => {
-										if (advisorSignal.aborted) reject(new Error("Advisor cancelled."));
-										else advisorSignal.addEventListener("abort", () => reject(new Error("Advisor cancelled.")), { once: true });
-									})]);
-									diagnostic({ phase: "advisor_end", decision: card.decision ?? "missing", recommendation: card.recommendation,
-										elapsedMs: performance.now() - advisorStarted });
-								} catch (error) {
-									advisorUnavailable = true;
-									const reason = timeout.signal.aborted ? "timeout" : error instanceof ApprovalAdvisorError ? error.reason : "unavailable";
-									advisorFailure = advisorFailureText(reason);
-									diagnostic({ phase: "advisor_failure", reason, elapsedMs: performance.now() - advisorStarted });
-								}
-								finally { clearTimeout(timer); timeout.abort(); }
-							}
-							if (!await valid()) return;
-							if (config.advisor?.autonomous) {
-								if (!card || !card.decision || approvalPresence().state === "away" && card.decision === "ask")
-									return { choice: "Deny", actor: "advisor", feedback: advisorFailure ?? "AI无法形成有效放行判断，本次不执行。" };
-								if (card.decision !== "ask") return {
-									choice: card.decision === "allow" ? "Allow once" : "Deny", actor: "advisor", feedback: card.explanation,
-								};
-							}
-							diagnostic({ phase: "present", presence: approvalPresence().state, fallback: advisorUnavailable });
-							const dialog = { ...opts, ...(card ? { card } : {}), advisorUnavailable, ...(advisorFailure ? { advisorFailure } : {}), discuss: Boolean(card) };
-							if (present && canPresent(ctx, present)) {
-								const waiting = new AbortController();
-								const timer = config.advisor?.autonomous ? setInterval(() => {
-									if (approvalPresence().state === "away") waiting.abort();
-								}, 1000) : undefined;
-								let reply;
-								try {
-									reply = await present.show(ctx.ui, current, asked, options, { ...dialog,
-										signal: AbortSignal.any([signal, waiting.signal]) });
-								} finally { clearInterval(timer); }
-								if (waiting.signal.aborted && !signal.aborted) { diagnostic({ phase: "takeover", presence: approvalPresence().state }); continue; }
-								if (reply?.choice !== "Discuss") return reply;
-								if (!reply.feedback?.trim() || !await valid()) return;
-								discussion.push(`AI: ${card?.explanation ?? ""}`, `User: ${reply.feedback.slice(0, 2000)}`);
-								if (discussion.length > 6) discussion.splice(0, discussion.length - 6);
-								continue;
-							}
-							const choice = await ctx.ui.select([card?.title, card?.explanation, formatApprovalPrompt(current, asked)].filter(Boolean).join("\n\n"), [...options], dialog);
-							const offered = options.find(option => option === choice);
-							return offered ? { choice: offered } : undefined;
-						}
-					},
-					input: (title, placeholder, opts) => ctx.ui.input(title, placeholder, opts),
-					notify: (message, type) => ctx.ui.notify(message, type),
-				} : undefined, { signal, validate: valid });
-				approved = outcome.kind === "approved";
-				diagnostic({ phase: "resolved", outcome: outcome.receipt?.decision ?? outcome.kind,
-					actor: outcome.receipt?.actor ?? "policy", scope: outcome.receipt?.scope ?? "", elapsedMs: performance.now() - approvalStarted });
-				const receipt = outcome.receipt;
-				if (receipt) {
-					const experience: ApprovalExperience = { requestHash: key, tool: request.tool, decision: receipt.decision, actor: receipt.actor ?? "user", summary: approvalSummary(request),
-						...(receipt.scope ? { scope: receipt.scope } : {}), ...(receipt.feedback ? { feedback: receipt.feedback } : {}) };
-					history.push(experience); if (history.length > 24) history.shift();
-					if (config.advisor?.enabled && receipt.actor !== "advisor") {
-						try { await experiences.remember(request, receipt); }
-						catch { ctx.ui.notify("审批已处理，但经验未保存；授权结果不变。", "warning"); }
-					}
-					const { feedback: note, ...audit } = receipt;
-					try { pi.appendEntry("approval_decision", { request_hash: key, tool: request.tool, ...audit, has_feedback: Boolean(note) }); }
-					catch { ctx.ui.notify("审批已处理，但审计记录未保存。", "warning"); }
-					if (note && outcome.kind === "approved") feedback.set(event.toolCallId, { text: note, advisor: receipt.actor === "advisor" });
+		if (!request) return { block: true, reason: "Approval could not inspect this request. Nothing executed." };
+		const key = approvalFingerprint(request), policyHash = approvalFingerprint(config);
+		const valid = async () => !signal.aborted && approvalBinding(ctx) === binding
+			&& approvalFingerprint(event.input) === inputHash && approvalFingerprint(await loadApprovalGateConfig()) === policyHash;
+		const diagnostic = (value: Parameters<typeof approvalDiagnostic>[4]) =>
+			approvalDiagnostic(ctx.sessionManager.getSessionId(), event.toolCallId, key, request.tool, value);
+		const previous = queue;
+		let release = () => {};
+		const turn = new Promise<void>(resolve => { release = resolve; });
+		queue = previous.then(() => turn);
+		let approved = false, requested = false;
+		const started = performance.now();
+		try {
+			await abortable(previous, signal);
+			if (!await valid()) return { block: true, reason: "Approval cancelled or context changed. Nothing executed." };
+			const asked = { kind: "ask" as const, reason: "AI security review", items: request.units.map(unit => ({ unit, reason: "Pending AI decision" })) };
+			const discussion: { role: "assistant" | "user"; content: string }[] = [];
+			let reply: ApprovalReply | undefined;
+			for (;;) {
+				const timeout = new AbortController();
+				const timer = setTimeout(() => timeout.abort(), config.timeout_ms);
+				const advisorSignal = AbortSignal.any([signal, timeout.signal]);
+				const reviewStarted = performance.now();
+				let card: ApprovalCard;
+				try {
+					const evidence = await abortable(collectApprovalEvidence(request, advisorSignal), advisorSignal);
+					const conversation = approvalTaskContext(ctx);
+					diagnostic({ phase: "advisor_start", model: config.model, contextCount: conversation.entries.length,
+						evidenceCount: evidence.length + recent.length, discussionCount: discussion.length });
+					card = await abortable(adviseApproval(request, asked, APPROVAL_OPTIONS, config, ctx,
+						{ conversation, evidence: [...evidence, ...recent], discussion, signal: advisorSignal }), advisorSignal);
+					diagnostic({ phase: "advisor_end", decision: card.decision ?? "missing", recommendation: card.recommendation, elapsedMs: performance.now() - reviewStarted });
+				} catch (error) {
+					const reason = timeout.signal.aborted ? "timeout" : error instanceof ApprovalAdvisorError ? error.reason : "unavailable";
+					diagnostic({ phase: "advisor_failure", reason, elapsedMs: performance.now() - reviewStarted });
+					recordDecision(ctx, "unavailable", "host", key, event.toolCallId);
+					return { block: true, reason: `Approval unavailable: ${advisorFailureText(reason)}. Not executed; not a policy denial.` };
+				} finally { clearTimeout(timer); timeout.abort(); }
+				if (!await valid()) return { block: true, reason: "Approval context changed. Nothing executed." };
+				if (card.decision === "deny") { reply = { choice: "Deny", actor: "advisor", feedback: card.explanation }; break; }
+				if (card.decision === "allow" && discussion.length === 0) { reply = { choice: "Allow once", actor: "advisor", feedback: card.explanation }; break; }
+				if (card.decision !== "ask" && card.decision !== "allow") throw new Error("Missing classifier decision");
+				// ask 不因用户离开而转交模型自批；讨论也不能成为隐式批准。
+				if (!requested) {
+					requested = true;
+					pi.events.emit(APPROVAL_STATUS_CHANNEL, { type: "requested", toolCallId: event.toolCallId, toolName: "approval" } satisfies ApprovalStatusEvent);
 				}
-				if (outcome.kind === "blocked") { closed.add(key); return { block: true, reason: outcome.reason }; }
-			} catch {
-				diagnostic({ phase: "invalidated", reason: "exception" });
-				closed.add(key);
-				return { block: true, reason: "Approval unavailable. No permission granted; wait for a new user instruction." };
-			} finally {
-				if (requested) pi.events.emit(APPROVAL_STATUS_CHANNEL, { type: "resolved", toolCallId: event.toolCallId, outcome: approved ? "approved" : "denied" } satisfies ApprovalStatusEvent);
-				release();
+				const opts = { signal, card, discuss: true };
+				diagnostic({ phase: "present" });
+				if (present && canPresent(ctx, present)) reply = await abortable(present.show(ctx.ui, request, asked, APPROVAL_OPTIONS, opts), signal);
+				else if (ctx.hasUI) {
+					const choice = await abortable(ctx.ui.select(`${card.title}\n${card.explanation}\n${formatApprovalPrompt(request, asked)}`, [...APPROVAL_OPTIONS], opts), signal);
+					reply = choice === "Allow once" || choice === "Deny" ? { choice } : undefined;
+				} else return { block: true, reason: "AI requested a human decision, but no interactive UI is available. Not executed." };
+				if (!await valid()) return { block: true, reason: "Approval cancelled or context changed. Nothing executed." };
+				if (reply?.choice !== "Discuss") break;
+				if (!reply.feedback?.trim()) return { block: true, reason: "Empty clarification. Nothing executed." };
+				discussion.push({ role: "assistant", content: card.explanation }, { role: "user", content: reply.feedback.slice(0, 2000) });
+				if (discussion.length > 20) return { block: true, reason: "Clarification limit reached. Start a new user turn; nothing executed." };
 			}
-		}
-		if ((request.tool === "webfetch" || request.tool === "http") && request.detail.addresses !== undefined) {
-			attachPrivateNetworkGrant(event.input, createPrivateNetworkGrantFor(request.detail.origin, request.detail.addresses));
+			if (!await valid()) return { block: true, reason: "Approval invalidated. Nothing executed." };
+			approved = reply?.choice === "Allow once";
+			const actor = reply?.actor ?? "user", outcome = approved ? "approved" : reply ? "rejected" : "cancelled";
+			recordDecision(ctx, outcome, actor, key, event.toolCallId);
+			diagnostic({ phase: "resolved", outcome, actor, scope: approved ? "once" : "", elapsedMs: performance.now() - started });
+			if (!approved) return { block: true, reason: `${actor === "advisor" ? "AI denied" : "User rejected or cancelled"} this action.${reply?.feedback ? `\n${reply.feedback}` : ""} Do not retry unchanged without new evidence or user direction.` };
+			if (reply?.feedback) feedback.set(event.toolCallId, { text: reply.feedback, actor });
+			if ((request.tool === "webfetch" || request.tool === "http") && request.detail.addresses !== undefined)
+				attachPrivateNetworkGrant(event.input, createPrivateNetworkGrantFor(request.detail.origin, request.detail.addresses));
+		} catch {
+			diagnostic({ phase: "invalidated", reason: "exception" });
+			return { block: true, reason: "Approval cancelled or unavailable. Nothing executed." };
+		} finally {
+			if (requested) pi.events.emit(APPROVAL_STATUS_CHANNEL, { type: "resolved", toolCallId: event.toolCallId, outcome: approved ? "approved" : "denied" } satisfies ApprovalStatusEvent);
+			release();
 		}
 	});
-	// 反馈随原调用结果进入主模型，不额外触发一轮提案，也不自动变成授权。
 	pi.on("tool_result", event => {
-		if (event.toolName === "process_run") {
-			const detail: unknown = event.details;
-			const result = typeof detail === "object" && detail !== null && "exit_code" in detail ? `exit_code=${String(detail.exit_code)}` : event.isError ? "error" : "completed";
-			const argv = "argv" in event.input ? JSON.stringify(event.input.argv).slice(0, 400) : "";
-			const output = event.content.filter(part => part.type === "text").map(part => part.text).join("\n").slice(-1400);
-			evidence.push(`process_run ${argv}: ${result}\n${output}`);
-			if (evidence.length > 8) evidence.shift();
+		if (event.toolName !== "execute") {
+			const input = { ...event.input };
+			if ("env" in input) input.env = "values omitted";
+			recent.push({ source: "tool", tool: event.toolName, id: event.toolCallId, outcome: event.isError ? "error" : "ok",
+				input: boundedText(JSON.stringify(input), 12000),
+				output: boundedText(event.content.filter(part => part.type === "text").map(part => part.text).join("\n"), 4000),
+				trust: "untrusted content; outcome is not a safety verdict or consent" });
+			if (recent.length > 16) recent.shift();
 		}
-		const note = feedback.get(event.toolCallId);
-		feedback.delete(event.toolCallId);
-		if (note) return { content: [...event.content, { type: "text" as const, text: `${note.advisor ? "Advisor decision reason" : "Approval feedback"} (not new authorization):\n${note.text}` }] };
+		const note = feedback.get(event.toolCallId); feedback.delete(event.toolCallId);
+		if (note) return { content: [...event.content, { type: "text" as const, text: `Approval (${note.actor}, this action only; not new authorization):\n${note.text}` }] };
+	});
+
+	function recordDecision(ctx: ExtensionContext, decision: string, actor: string, requestHash: string, toolCallId: string): void {
+		try { pi.appendEntry("approval_decision", { tool_call_id: toolCallId, request_hash: requestHash, decision, actor, scope: decision === "approved" ? "once" : "" }); }
+		catch { ctx.ui.notify("审批已处理，但审计记录未保存。", "warning"); }
+	}
+}
+
+/** 取消立即结束等待并释放监听器；迟到响应不能继续原调用。 */
+function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
+	return new Promise((resolve, reject) => {
+		const abort = () => reject(new Error("Approval cancelled"));
+		if (signal.aborted) { pending.catch(() => {}); abort(); return; }
+		signal.addEventListener("abort", abort, { once: true });
+		pending.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
 	});
 }

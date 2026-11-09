@@ -52,13 +52,10 @@ it("从校验 schema 返回固定字段的枚举，包括本地引用和未展�
 	expect(web.fields).not.toHaveProperty("websearch.exa_api.highlight_chars");
 	expect(web.fields).not.toHaveProperty("websearch.exa_mcp.highlight_chars");
 	const approval = await host.query({ query: "moduleConfig", id: "approvalGate" });
-	expect(approval).toMatchObject({ options: {
-		"ui.non_interactive": ["block", "allow"],
-		"tools.write.default_action": ["allow", "ask", "deny"],
-		"tools.edit.default_action": ["allow", "ask", "deny"],
-		"tools.webfetch.default_action": ["allow", "ask", "deny"],
-		"tools.bash.default_action": ["allow", "ask", "deny"],
-	} });
+	expect(approval.options).toEqual({});
+	expect(approval.fields).toMatchObject({ enabled: { type: "boolean" }, model: { type: "string" }, timeout_ms: { type: "integer" } });
+	expect(approval.fields).not.toHaveProperty("tools.write.default_action");
+	expect(approval.path).toContain("approval-ai.jsonc");
 	const lsp = await host.query({ query: "moduleConfig", id: "lsp" });
 	expect(lsp).toMatchObject({ options: { "diagnostics.min_severity": ["error", "warning", "information", "hint"] } });
 	const tui = await host.query({ query: "moduleConfig", id: "tui" });

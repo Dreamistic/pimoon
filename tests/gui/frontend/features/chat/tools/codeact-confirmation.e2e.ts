@@ -72,7 +72,7 @@ test("执行确认不抢焦点，支持检查源码、拒绝意见与一次性�
 	} finally { release(); channel.close(); }
 });
 
-test("工具审批共用非模态入口，用户可收窄 AI 建议，意见与真实范围一次提交", async ({ page }, info) => {
+test("工具审批共用非模态入口，用户明确选择单次操作，意见与真实范围一次提交", async ({ page }, info) => {
 	const model = guiModelFixture();
 	const snapshot = { ...guiSnapshot(), model, models: [model], running: true, streaming: true };
 	const channel = await replayTranscript(page, snapshot);
@@ -84,17 +84,15 @@ test("工具审批共用非模态入口，用户可收窄 AI 建议，意见与�
 		await route.fulfill({ json: null });
 	});
 	const pending: GuiDialog = { id: "permission-1", kind: "approval", title: "操作审批", message: "", initial: "", deadline: null,
-		options: ["Allow once", "Allow for session", "Always allow similar", "Deny"], approval: {
+		options: ["Allow once", "Deny"], approval: {
 			tool: "process_run", cwd: "D:/fixture/中文工作区", reason: "先检查项目状态，避免覆盖未提交内容。", summary: '["git","status"]',
-			content: [{ style: "text", text: 'argv: ["git","status"]\nenv: {}\nReason: default process_run approval policy' }], recommended: "persistent",
-			card: { title: "检查项目状态", explanation: "只查看状态", recommendation: "Always allow similar", recommendationReason: "重复检查可以记住精确规则",
+			content: [{ style: "text", text: 'argv: ["git","status"]\nenv: {}\nReason: default process_run approval policy' }], recommended: "once",
+			card: { title: "检查项目状态", explanation: "只查看状态", recommendation: "Allow once", recommendationReason: "仅本次操作",
 				feedbackPlaceholder: "补充要求", actions: [
-					{ choice: "Allow once", label: "本次查看" }, { choice: "Allow for session", label: "本会话查看" },
-					{ choice: "Always allow similar", label: "记住这项检查" }, { choice: "Deny", label: "暂不查看" }] },
+					{ choice: "Allow once", label: "本次查看" },
+					{ choice: "Deny", label: "暂不查看" }] },
 			scopes: [
 				{ scope: "once", choice: "Allow once", label: "仅本次", detail: "只允许当前暂停的调用；不重跑整段代码。" },
-				{ scope: "session", choice: "Allow for session", label: "本会话相同操作", detail: "同一工作目录、argv 和环境覆盖。" },
-				{ scope: "persistent", choice: "Always allow similar", label: "以后按所示规则", detail: 'process_run command: {"argv":["git","status"],"env":{}} in D:/fixture/中文工作区' },
 			],
 		} };
 	try {
@@ -104,16 +102,14 @@ test("工具审批共用非模态入口，用户可收窄 AI 建议，意见与�
 		await expect(bar).toBeVisible(); await expect(editor).toBeFocused();
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 		await expect(bar).toContainText('["git","status"]');
-		await expect(bar.getByRole("radio", { name: "记住这项检查 · 以后按所示规则 · AI 建议", exact: true })).toBeChecked();
-		await expect(bar.getByRole("button", { name: "记住这项检查", exact: true })).toBeVisible();
-		await bar.getByRole("radio", { name: "本次查看 · 仅本次", exact: true }).check();
+		await bar.getByRole("radio", { name: "本次查看 · 仅本次 · AI 建议", exact: true }).check();
 		await expect(bar.locator(".approval-bar-range")).toContainText("当前暂停的调用");
 		await bar.getByRole("button", { name: "查看实际操作与拦截原因", exact: true }).click();
 		await expect(bar.locator("pre")).toContainText("default process_run approval policy");
 		await bar.getByRole("button", { name: "补充意见", exact: true }).click();
 		await bar.getByRole("textbox", { name: "审批意见", exact: true }).fill("只允许本次，今后仍需说明原因");
 		channel.accept({ type: "dialogs", value: [pending] });
-		await expect(bar.getByRole("radio", { name: "本次查看 · 仅本次", exact: true })).toBeChecked();
+		await expect(bar.getByRole("radio", { name: "本次查看 · 仅本次 · AI 建议", exact: true })).toBeChecked();
 		await page.emulateMedia({ colorScheme: "dark" });
 		await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
 		const approve = bar.getByRole("button", { name: "本次查看", exact: true });
@@ -123,7 +119,7 @@ test("工具审批共用非模态入口，用户可收窄 AI 建议，意见与�
 		await approve.click(); await expect.poll(() => submitted.length).toBe(1);
 		expect(submitted[0]).toEqual({ action: "dialog", id: pending.id, value: "Allow once", feedback: "只允许本次，今后仍需说明原因" });
 		await expect(bar.getByRole("button", { name: "正在提交…", exact: true })).toBeDisabled();
-		await expect(bar.getByRole("radio", { name: "本次查看 · 仅本次", exact: true })).toBeDisabled();
+		await expect(bar.getByRole("radio", { name: "本次查看 · 仅本次 · AI 建议", exact: true })).toBeDisabled();
 		channel.accept({ type: "dialogs", value: [] }); release(); await expect(bar).toHaveCount(0);
 		expect(submitted).toHaveLength(1);
 	} finally { release(); channel.close(); }

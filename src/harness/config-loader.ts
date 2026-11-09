@@ -40,7 +40,7 @@ export interface LoadedConfigLayers {
 
 /** 配置范围与 schema 的唯一装配入口。 */
 export const CONFIG_DEFINITIONS = {
-	approvalGate: globalConfig("approval-gate", "approval-gate.jsonc", "PI_APPROVAL_GATE_CONFIG"),
+	approvalGate: globalConfig("approval-ai", "approval-ai.jsonc", "PIMOON_APPROVAL_AI_CONFIG"),
 	autoTitle: globalConfig("auto-title", "auto-title.jsonc", "PI_AUTO_TITLE_CONFIG"),
 	memory: globalConfig("memory", "memory.jsonc", "PIMOON_MEMORY_CONFIG"),
 	bashTool: globalConfig("bash-tool", "bash-tool.jsonc", "PI_BASH_TOOL_CONFIG"),

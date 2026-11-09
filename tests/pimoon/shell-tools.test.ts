@@ -13,6 +13,10 @@ import { defaultWebToolsConfig } from "../harness/web-tools/config-fixture.ts";
 import { httpResponse } from "../helpers/http.ts";
 import { createRuntimeResources } from "./runtime-resources.ts";
 
+vi.mock("../../src/harness/approval/advisor.ts", async importOriginal => ({
+	...await importOriginal<typeof import("../../src/harness/approval/advisor.ts")>(),
+	adviseApproval: async (request: { tool: string }) => ({ decision: request.tool === "process_run" ? "deny" : "allow", explanation: "fixture decision" }),
+}));
 const network = vi.hoisted(() => ({ fetch: vi.fn<WebHttpFetch>() }));
 vi.mock("undici/index.js", async importOriginal => ({ ...await importOriginal<typeof import("undici")>(), fetch: network.fetch }));
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
@@ -20,6 +24,8 @@ it("进程、搜索、网页与 HTTP 都是 CodeAct 函数，审批拦截未批�
 	const base = path.resolve(".tmp/tests/pimoon-function-approvals"); await fs.mkdir(base, { recursive: true });
 	const folder = await fs.mkdtemp(path.join(base, "case-")), cwd = path.join(folder, "workspace"), agentDir = path.join(folder, "agent");
 	await fs.mkdir(cwd); await fs.mkdir(agentDir);
+	const approval = path.join(folder, "approval-ai.jsonc"); await fs.writeFile(approval, "{}");
+	vi.stubEnv("PIMOON_APPROVAL_AI_CONFIG", approval);
 	const protectedDir = path.join(os.homedir(), ".ssh"); await fs.mkdir(protectedDir, { recursive: true });
 	await fs.writeFile(path.join(cwd, "sentinel.txt"), "keep");
 	vi.stubEnv("PIMOON_RESOURCE_DIR", await createRuntimeResources(folder));

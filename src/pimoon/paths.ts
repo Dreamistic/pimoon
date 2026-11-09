@@ -11,7 +11,7 @@ const inside = (root: string, file: string): boolean => {
 export function protectedControlPaths(): string[] {
 	const home = process.env.PIMOON_HOME ?? path.join(process.env.APPDATA ?? os.homedir(), "pimoon");
 	return [path.join(home, "agent", "settings.json"), path.join(home, "agent", "configs"), path.join(home, "agent", "state"),
-		...[process.env.PI_APPROVAL_GATE_CONFIG, process.env.PI_FILE_TOOLS_CONFIG].filter((item): item is string => Boolean(item))];
+		...[process.env.PIMOON_APPROVAL_AI_CONFIG, process.env.PI_FILE_TOOLS_CONFIG].filter((item): item is string => Boolean(item))];
 }
 
 export function systemWriteRoots(): string[] {

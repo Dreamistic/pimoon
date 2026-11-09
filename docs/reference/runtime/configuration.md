@@ -22,7 +22,7 @@ Pi 管理 `settings.json`、`models.json`、`keybindings.json`、认证、主题
 
 | 模块 | 用户路径环境变量 | 项目路径环境变量 | 项目根目录环境变量 |
 | --- | --- | --- | --- |
-| approval-gate | `PI_APPROVAL_GATE_CONFIG` | — | — |
+| approval-ai | `PIMOON_APPROVAL_AI_CONFIG` | — | — |
 | auto-title | `PI_AUTO_TITLE_CONFIG` | — | — |
 | bash-tool | `PI_BASH_TOOL_CONFIG` | — | — |
 | discord-presence | `PI_DISCORD_PRESENCE_CONFIG` | `PI_DISCORD_PRESENCE_PROJECT_CONFIG` | `PI_DISCORD_PRESENCE_PROJECT_ROOT` |

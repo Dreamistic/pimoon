@@ -15,6 +15,11 @@ async function fixture(codes: string[], gate = false) {
 	const base = path.resolve(".tmp/tests/process-batch-sdk"); await fs.mkdir(base, { recursive: true });
 	const folder = await fs.mkdtemp(path.join(base, "case-")), cwd = path.join(folder, "workspace"), agentDir = path.join(folder, "agent");
 	await fs.mkdir(cwd); await fs.mkdir(agentDir);
+	if (gate) {
+		const approval = path.join(folder, "approval-ai.jsonc");
+		await fs.writeFile(approval, JSON.stringify({ model: "fixture/unavailable" }));
+		vi.stubEnv("PIMOON_APPROVAL_AI_CONFIG", approval);
+	}
 	vi.stubEnv("PIMOON_RESOURCE_DIR", await createRuntimeResources(folder));
 	const replies: ModelResponse[] = [...codes.map(code => ({ tool: "execute", args: { code, desc: "进程验证" } })), { text: "done" }];
 	const server = await startModelServer(() => replies.shift() ?? { text: "done" });

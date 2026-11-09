@@ -25,8 +25,6 @@ export interface GuiApproval {
 	scopes: ApprovalScopeOption[];
 	recommended: ApprovalScope | null;
 	card?: ApprovalCard;
-	advisorUnavailable?: boolean;
-	advisorFailure?: string;
 	discuss?: boolean;
 }
 export interface GuiDialog {

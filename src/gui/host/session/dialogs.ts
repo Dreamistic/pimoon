@@ -24,12 +24,12 @@ export class GuiDialogs {
 	async approve(...[request, decision, options, opts]: Parameters<ApprovalInteractionPort["approve"]>): Promise<ApprovalReply | undefined> {
 		const scopes = approvalScopes(request, decision, options);
 		const card = opts?.card;
-		const recommended = card?.decision === "deny" || card?.recommendation === DENY || card?.recommendation === "Deny with instruction"
+		const recommended = card?.decision === "deny" || card?.recommendation === DENY
 			? null : scopes.find(scope => scope.choice === card?.recommendation)?.scope ?? "once";
 		const response = await this.request({ kind: "approval", title: card?.title ?? "操作审批", message: "", options: [...scopes.map(scope => scope.choice), DENY, ...(opts?.discuss ? ["Discuss"] : [])], initial: "",
 			approval: { tool: request.tool, cwd: approvalText(request.cwd), reason: approvalText(card?.explanation ?? decision.reason),
 				summary: approvalSummary(request), content: buildApprovalContent(request, decision), scopes, recommended,
-				...(card ? { card } : {}), ...(opts?.advisorUnavailable ? { advisorUnavailable: true } : {}), ...(opts?.advisorFailure ? { advisorFailure: opts.advisorFailure } : {}), ...(opts?.discuss ? { discuss: true } : {}) } }, opts);
+				...(card ? { card } : {}), ...(opts?.discuss ? { discuss: true } : {}) } }, opts);
 		if (opts?.discuss && response.value === "Discuss") return { choice: "Discuss", feedback: response.feedback ?? "" };
 		const choice = options.find(choice => choice === response.value);
 		return choice ? { choice, ...(response.feedback ? { feedback: response.feedback } : {}) } : undefined;

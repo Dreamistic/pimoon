@@ -43,12 +43,20 @@ beforeEach(async () => {
 	delete process.env.PI_GUI_CONFIG;
 	process.env.PI_OFFLINE = "1";
 	await mkdir(path.join(agentDir, "configs"), { recursive: true });
-	vi.stubEnv("PI_APPROVAL_GATE_CONFIG", path.join(agentDir, "configs", "approval-gate.jsonc"));
+	vi.stubEnv("PIMOON_APPROVAL_AI_CONFIG", path.join(agentDir, "configs", "approval-ai.jsonc"));
     vi.stubEnv("PI_AUTO_TITLE_CONFIG", path.join(agentDir, "configs", "auto-title.jsonc"));
     vi.stubEnv("PI_LSP_CONFIG", path.join(agentDir, "configs", "lsp.jsonc"));
+	await writeFile(path.join(agentDir, "configs", "approval-ai.jsonc"), '{"enabled":false}');
 	await mkdir(cwd, { recursive: true });
 	titleReply = () => ({ text: "检查文件并写入结果" });
 	server = await startModelServer((request) => {
+		if (JSON.stringify(request.messages[0]).includes("independent security monitor")) {
+			const message = request.messages.at(-1)?.content;
+			const text = typeof message === "string" ? message : Array.isArray(message) ? message.map(part => part.text ?? "").join("") : "{}";
+			const payload = JSON.parse(text) as { action: { tool: string } };
+			const decision = payload.action.tool === "write" ? "ask" : "allow";
+			return { text: JSON.stringify({ decision, title: "确认写入", explanation: "是否允许本次写入？", recommendation: "Allow once", recommendationReason: "仅本次", feedbackPlaceholder: "补充要求", actions: [{ choice: "Allow once", label: "本次写入" }, { choice: "Deny", label: "不写入" }] }) };
+		}
 		if (!request.tools) return titleReply();
 		const lastUser = request.messages.findLastIndex((message) => message.role === "user");
 		const tools = request.messages.slice(lastUser + 1).filter((message) => message.role === "tool").length;
@@ -585,8 +593,8 @@ describe("GUI 直接使用 SDK", () => {
 
 	it("审批在界面重连后仍存在，拒绝不写文件，旧响应不可再次消费", async () => {
 		await writeFile(
-			path.join(temp.path, ".pi", "agent", "configs", "approval-gate.jsonc"),
-			'{"tools":{"write":{"default_action":"ask"}}}',
+			path.join(temp.path, ".pi", "agent", "configs", "approval-ai.jsonc"),
+			'{"model":"gui-fixture/test"}',
 		);
 		const task = host.dispatch(prompt("Write output"));
 		await expect.poll(() => host.execution.dialogs.list().length).toBe(1);

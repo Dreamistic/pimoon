@@ -1,5 +1,4 @@
 import path from "node:path";
-import { updateApprovalPresence } from "../harness/approval/presence.ts";
 import { directory } from "./environment.ts";
 import { decodeGuiRequest } from "../gui/host/request.ts";
 import type { BackendCommand, BackendMessage, BackendRequest } from "./backend-contract.ts";
@@ -53,7 +52,6 @@ if (!(await runChildProcess())) {
 	let connection: ReturnType<typeof client.connect> | undefined;
 	process.parentPort.on("message", ({ data }: { data: BackendCommand }) => {
 		switch (data.kind) {
-			case "presence": updateApprovalPresence(data.idleSeconds); return;
 			case "attention": connection?.attend(data.value); return;
 			case "subscribe":
 				connection?.close();

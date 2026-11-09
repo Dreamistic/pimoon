@@ -132,7 +132,7 @@ export function historyDeletionTests(context: () => { host: GuiClient; cwd: stri
 		it("审批只保护所属会话，不阻止删除其他空闲历史", async () => {
 			const { host, cwd, agentDir } = context();
 			const file = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
-			await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"tools":{"write":{"default_action":"ask"}}}');
+			await writeFile(path.join(agentDir, "configs", "approval-ai.jsonc"), '{"model":"gui-fixture/test"}');
 			const task = host.dispatch(prompt);
 			await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
 			const dialog = host.execution.dialogs.list()[0];

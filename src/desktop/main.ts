@@ -7,7 +7,6 @@ import {
 	dialog,
 	ipcMain,
 	net,
-	powerMonitor,
 	protocol,
 	shell,
 	type IpcMainInvokeEvent,
@@ -249,15 +248,7 @@ function startDesktop(): void {
 				}),
 			},
 		);
-		const reportPresence = () => {
-			try { client.send({ kind: "presence", idleSeconds: powerMonitor.getSystemIdleTime() }); }
-			catch { /* 后端将过期样本视为未知，不伪造在线状态。 */ }
-		};
-		reportPresence();
-		const presenceTimer = setInterval(reportPresence, 10_000);
-		presenceTimer.unref();
-		window.once("closed", () => clearInterval(presenceTimer));
-		app.once("before-quit", () => clearInterval(presenceTimer));
+
 		const attend = trackDesktopAttention(window, (value) => client.send({ kind: "attention", value }));
 		ipcMain.on("gui:attention", (event, sessionId: unknown) => {
 			trusted(event);

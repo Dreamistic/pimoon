@@ -11,7 +11,7 @@ export function queueTests(context: () => { host: GuiClient; agentDir: string })
 	describe("GUI 消息队列同步", () => {
 		it.each([false, true])("普通停止取回队列、保留最新草稿且仅回填发起客户端，queued=%s", async (queued) => {
 			const { host, agentDir } = context();
-			await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"tools":{"write":{"default_action":"ask"}}}');
+			await writeFile(path.join(agentDir, "configs", "approval-ai.jsonc"), '{"model":"gui-fixture/test"}');
 			const id = host.execution.id;
 			const views = new SessionViews();
 			const view = views.open({ id, path: null });
@@ -55,7 +55,7 @@ export function queueTests(context: () => { host: GuiClient; agentDir: string })
 
 		it("运行中逐次入队和清空通过增量通道同步，旧快照保持不变", async () => {
 			const { host, agentDir } = context();
-			await writeFile(path.join(agentDir, "configs", "approval-gate.jsonc"), '{"tools":{"write":{"default_action":"ask"}}}');
+			await writeFile(path.join(agentDir, "configs", "approval-ai.jsonc"), '{"model":"gui-fixture/test"}');
 			const receiver = new GuiReceiver();
 			const received: GuiSnapshot[] = [];
 			const connection = host.connect((delivery) => {

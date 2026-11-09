@@ -9,7 +9,7 @@ import { defaultWebToolsConfig } from "../web-tools/config-fixture.ts";
 const resolver: { lookup(hostname: string, options: { all: true }): Promise<LookupAddress[]> } = dns;
 afterEach(() => vi.restoreAllMocks());
 
-it("可信站点免重复网络审批，下载仍审批文件；撤销或特殊地址恢复网络审批", async () => {
+it("可信站点仍经过 AI 审批，地址检查与下载目标独立保留", async () => {
 	const config = defaultWebToolsConfig();
 	config.network.restrict_private_addresses = true;
 	config.network.trusted_https_origins = ["https://github.com"];
@@ -17,9 +17,9 @@ it("可信站点免重复网络审批，下载仍审批文件；撤销或特殊�
 	const lookup = vi.spyOn(resolver, "lookup").mockResolvedValue([{ address: "172.19.0.9", family: 4 }]);
 	const cwd = path.resolve(".tmp/tests/trusted-sites-approval");
 	const input = { url: "https://github.com/repo" };
-	await expect(buildApprovalRequest({ type: "tool_call", toolName: "webfetch", toolCallId: "read", input }, cwd)).resolves.toBeUndefined();
+	await expect(buildApprovalRequest({ type: "tool_call", toolName: "webfetch", toolCallId: "read", input }, cwd)).resolves.toMatchObject({ tool: "webfetch", detail: { origin: "https://github.com" } });
 	const download = await buildApprovalRequest({ type: "tool_call", toolName: "http", toolCallId: "download", input: { ...input, mode: "download", path: "repo.zip" } }, cwd);
-	expect(download?.units.map(unit => unit.action)).toEqual(["write_file"]);
+	expect(download?.units.map(unit => unit.action)).toEqual(["fetch_url", "write_file"]);
 	config.network.trusted_https_origins = [];
 	expect((await buildApprovalRequest({ type: "tool_call", toolName: "http", toolCallId: "revoked", input }, cwd))?.units.map(unit => unit.action)).toEqual(["fetch_url"]);
 	config.network.trusted_https_origins = ["https://github.com"];

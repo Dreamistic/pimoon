@@ -15,6 +15,7 @@ export function buildApprovalContent(request: ApprovalRequest, decision: AskDeci
 		...[...new Set(decision.items.map((item) => item.reason))].map((reason) => line(`Reason: ${reason}`, "warning")),
 		line(""),
 	];
+	if (request.tool === "other") return [...common, line(`Tool: ${request.detail.name}`), ...payloadLines(JSON.stringify(request.detail.input, null, 2), "text")];
 	if (request.tool === "process_run") return [
 		...common, line(`argv: ${JSON.stringify(request.detail.argv)}`),
 		line(`env overrides: ${JSON.stringify(request.detail.env)}`),
@@ -66,7 +67,7 @@ export function buildApprovalContent(request: ApprovalRequest, decision: AskDeci
 
 export function approvalSummary(request: ApprovalRequest): string {
 	const target = request.tool === "process_run" ? JSON.stringify(request.detail.argv) : request.tool === "bash" ? request.detail.command
-		: request.tool === "write" || request.tool === "edit" ? request.detail.path : request.detail.url;
+		: request.tool === "write" || request.tool === "edit" ? request.detail.path : request.tool === "other" ? `${request.detail.name} ${JSON.stringify(request.detail.input)}` : request.detail.url;
 	const characters = [...approvalText(target)];
 	return characters.length > 240 ? `${characters.slice(0, 240).join("")}...` : characters.join("");
 }

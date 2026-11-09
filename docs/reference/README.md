@@ -41,7 +41,6 @@ TUI 和 GUI 在输入框执行命令。RPC 通过 `prompt` 提交命令，交互
 | `/agents` | 列出子代理 | 见[子代理](subagent/README.md) |
 | `/run <agent> "task"` | 直接运行子代理 | TUI、GUI 提供进度，RPC 返回通知。见[子代理执行](subagent/execution.md) |
 | `/subagent-config` | 查看子代理配置 | 界面通知 |
-| `/approval-check <command>` | 查看 Bash 审批判定 | 解析而不执行命令。见[审批](approval-gate/README.md) |
 | `/lsp status` | 查看 LSP 状态 | `/lsp` 为简写。见 [LSP](lsp/README.md) |
 | `/lsp reload` | 重置语言服务器 | 见 [LSP](lsp/README.md) |
 | `/lsp diagnostics [path]` | 查看已知诊断 | 见 [LSP](lsp/README.md) |

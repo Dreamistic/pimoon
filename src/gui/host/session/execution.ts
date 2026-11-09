@@ -7,7 +7,6 @@ import type { GuiAction, GuiActionResult } from "../../shared/protocol/actions.t
 import type { GuiEvent } from "../../shared/protocol/events.ts";
 import type { SessionQuery, GuiQueryResults } from "../../shared/protocol/queries.ts";
 import type { GuiSnapshot } from "../../shared/protocol/state.ts";
-import type { ApprovalStores, SessionApprovalRules } from "../../../harness/approval/rules/store.ts";
 import { GuiDialogs } from "./dialogs.ts";
 import { createGuiRuntime } from "./runtime.ts";
 import { exportSession, completeFiles, expandAttachments, readConfig, saveConfig } from "./files.ts";
@@ -127,7 +126,7 @@ export class GuiExecution {
 		return task.finally(() => { this.tasks.delete(task); this.changed(); });
 	}
 
-	start(manager: SessionManager, permissions: { stores: ApprovalStores; rules: SessionApprovalRules; trust: Map<string, boolean> }, client: SessionClient | undefined, initial: { event: SessionStartEvent; models: string[] | undefined }): Promise<void> {
+	start(manager: SessionManager, permissions: { trust: Map<string, boolean> }, client: SessionClient | undefined, initial: { event: SessionStartEvent; models: string[] | undefined }): Promise<void> {
 		const initialize = async () => {
 			this.changing = true;
 			try {
@@ -141,7 +140,7 @@ export class GuiExecution {
 					commandSignal: () => this.commandController.signal,
 					reports: this.reports,
 					usageService: this.usageService,
-					approvalStores: permissions.stores, approvalRules: permissions.rules, projectTrust: permissions.trust,
+					projectTrust: permissions.trust,
 					titleGenerationChanged: (state) => { this.titleGeneration = state; this.schedule(); },
 					signal: this.lifetime.signal,
 				}, manager, initial.event, initial.models, this.modelScope);

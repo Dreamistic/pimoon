@@ -48,14 +48,10 @@ export const moduleGroups: Record<ModuleConfigId, ConfigGroup[]> = {
 			{ ...field("webfetch.cookies.confirmation", "发送 Cookie", "radio"), enabledBy: "webfetch.cookies.enabled", optionLabels: { always: "每次确认", session: "每个会话确认", never: "不确认" } },
 		] },
 	],
-	approvalGate: [
-		{ title: "权限审批", fields: [field("enabled", "权限审批"), field("ui.timeout_ms", "审批超时（毫秒，0 不超时）"), field("ui.non_interactive", "非交互操作", "radio")] },
-		{ title: "工具默认权限", fields: [
-			field("tools.write.default_action", "写入文件", "radio"), field("tools.edit.default_action", "编辑文件", "radio"),
-			field("tools.webfetch.default_action", "读取网页", "radio"), field("tools.bash.default_action", "执行命令", "radio"),
-		] },
-		{ title: "授权记忆", fields: [field("remember.allow_session", "允许会话授权"), field("remember.allow_persistent", "允许永久授权")] },
-	],
+	approvalGate: [{ title: "AI 审批", fields: [
+		field("enabled", "AI 自主审批"), field("model", "审批模型", "model"),
+		field("timeout_ms", "模型超时（毫秒）"),
+	] }],
 	subagent: [
 		{ title: "默认配置", fields: [field("default_model", "默认模型", "model"), field("default_tools", "默认工具", "tools")] },
 		{ title: "任务执行", fields: [
