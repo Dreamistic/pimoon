@@ -31,7 +31,8 @@ test("模块下拉框采用 schema 选项，网页图片开启可保存、刷新
 	await save(page);
 	expect(parse(await readFile(file, "utf8"))).toEqual({ webfetch: { media: { mode: "on" } } });
 	await selectSettingsCategory(page, "权限与安全");
-	for (const label of ["写入文件", "编辑文件", "读取网页", "执行命令"]) await expectOptions(page, label, ["allow", "ask", "deny"]);
+	await expect(settings(page).getByRole("switch", { name: "常规本地开发免审", exact: true })).toBeVisible();
+	await expect(settings(page).getByRole("switch", { name: "本机脱敏详细记录", exact: true })).toBeVisible();
 	await selectSettingsCategory(page, "工具与代码");
 	await expectOptions(page, "诊断级别", ["error", "warning", "information", "hint"]);
 	await selectSettingsCategory(page, "终端界面");

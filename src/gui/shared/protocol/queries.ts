@@ -1,3 +1,4 @@
+import type { ApprovalTraceDetail, ApprovalTraceSummary } from "../../../harness/approval/trace-store.ts";
 import { Type, type Static } from "typebox";
 import type { FilePreview, WorkspaceEntry, WorkspaceGit } from "../workspace.ts";
 import type { GuiConfigDocument } from "../config/preferences.ts";
@@ -11,6 +12,8 @@ import type { ModelServicesDocument, ModelServiceCatalog } from "../config/model
 import { moduleConfigId, object, short } from "./schema.ts";
 
 export const querySchema = Type.Union([
+	object({ query: Type.Literal("approvalTraces") }),
+	object({ query: Type.Literal("approvalTrace"), id: short }),
 	object({ query: Type.Literal("storage") }),
 	object({ query: Type.Literal("searchSessions"), cwd: short, text: Type.String({ minLength: 1, maxLength: 256 }) }),
 	object({ query: Type.Literal("continueSessionSearch"), id: short }),
@@ -34,10 +37,12 @@ export const querySchema = Type.Union([
 	object({ query: Type.Literal("config"), file: Type.Literal("settings.json") }),
 ]);
 export type GuiQuery = Static<typeof querySchema>;
-export type GlobalQuery = Extract<GuiQuery, { query: "guiConfig" | "moduleConfig" | "searchApiKeyAvailable" | "directories" | "startupChangelog" | "availableVersion" | "mcpConfig" | "modelServices" | "storage" | "searchSessions" | "continueSessionSearch" }>;
+export type GlobalQuery = Extract<GuiQuery, { query: "approvalTraces" | "approvalTrace" | "guiConfig" | "moduleConfig" | "searchApiKeyAvailable" | "directories" | "startupChangelog" | "availableVersion" | "mcpConfig" | "modelServices" | "storage" | "searchSessions" | "continueSessionSearch" }>;
 export type WorkspaceQuery = Extract<GuiQuery, { query: "workspaceFiles" | "workspaceGit" | "previewFile" | "lspServers" }>;
 export type SessionQuery = Exclude<GuiQuery, GlobalQuery | WorkspaceQuery>;
 export interface GuiQueryResults {
+	approvalTraces: ApprovalTraceSummary[];
+	approvalTrace: ApprovalTraceDetail;
 	searchSessions: SessionSearchPage;
 	continueSessionSearch: SessionSearchPage;
 	storage: StorageSnapshot;

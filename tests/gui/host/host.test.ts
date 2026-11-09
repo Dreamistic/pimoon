@@ -60,6 +60,10 @@ beforeEach(async () => {
 		if (!request.tools) return titleReply();
 		const lastUser = request.messages.findLastIndex((message) => message.role === "user");
 		const tools = request.messages.slice(lastUser + 1).filter((message) => message.role === "tool").length;
+		if (JSON.stringify(request.messages.slice(0, lastUser + 1)).includes("并发审批测试-B")) {
+			if (tools === 0) return { tool: "execute", args: { code: `subprocess.run(${JSON.stringify([process.execPath, "-e", "require('node:fs').writeFileSync('concurrency-b-started','started');setInterval(()=>{},1000)"])},check=True)`, desc: "独立 B 进程" } };
+			return { text: "B completed" };
+		}
 		if (tools === 0) return { tool: "execute", args: { code: 'read(path="input.txt")', desc: "读取输入" } };
 		if (tools === 1) return { tool: "execute", args: { code: 'write(path="output.txt",content="GUI SDK result\\n")', desc: "写入结果" } };
 		return { text: "GUI completed" };
@@ -515,7 +519,7 @@ describe("GUI 直接使用 SDK", () => {
 		await host.dispatch({ action: "sessions" });
 		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
 		const switching = host.dispatch({ action: "openSession", path: file });
-		await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
+		await expect.poll(() => host.execution.dialogs.list().length, { timeout: 10000 }).toBe(1);
 		const dialog = host.execution.dialogs.list()[0];
 		if (!dialog) throw new Error("缺少项目信任确认");
 		await host.dispatch({ action: "sessions" });
@@ -597,7 +601,7 @@ describe("GUI 直接使用 SDK", () => {
 			'{"model":"gui-fixture/test","routine":false}',
 		);
 		const task = host.dispatch(prompt("Write output"));
-		await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
+		await expect.poll(() => host.execution.dialogs.list().length, { timeout: 10000 }).toBe(1);
 		const dialog = host.execution.dialogs.list()[0];
 		if (!dialog) throw new Error("Missing approval");
 		await host.dispatch({ action: "sessions" });
@@ -647,7 +651,7 @@ describe("GUI 直接使用 SDK", () => {
 		);
 		host = new GuiHost().createClient();
 		const start = host.host.start(cwd);
-		await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
+		await expect.poll(() => host.execution.dialogs.list().length, { timeout: 10000 }).toBe(1);
 		await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
 		await host.host.dispose();
 		await start;

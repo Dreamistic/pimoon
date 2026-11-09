@@ -1,3 +1,4 @@
+import { listApprovalTraces, readApprovalTrace } from "../../src/harness/approval/trace-store.ts";
 import fs from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
@@ -12,7 +13,7 @@ import { startModelServer, type ModelResponse } from "../cli/model-server.ts";
 import { createRuntimeResources } from "./runtime-resources.ts";
 
 afterEach(() => vi.unstubAllEnvs());
-async function fixture(reply: (step: number, request: unknown) => string | ModelResponse, verdict: "ask" | "allow" | "deny" = "ask", routine = false) {
+async function fixture(reply: (step: number, request: unknown) => string | ModelResponse, verdict: "ask" | "allow" | "deny" | "invalid" = "ask", routine = false) {
 	const base = path.resolve(".tmp/tests/approval-integration"); await fs.mkdir(base, { recursive: true });
 	const root = await fs.mkdtemp(path.join(base, "case-"));
 	const cwd = path.join(root, "workspace"), agentDir = path.join(root, "agent");
@@ -29,8 +30,9 @@ async function fixture(reply: (step: number, request: unknown) => string | Model
 			reviews++;
 			const message = request.messages.at(-1)?.content;
 			const text = typeof message === "string" ? message : Array.isArray(message) ? message.map(part => part.text ?? "").join("") : "{}";
-			const payload = JSON.parse(text) as { action: { tool: string } };
-			const decision = payload.action.tool === "process_run" ? verdict : "allow";
+			const payload = JSON.parse(text) as { action: { tool: string }; codeact?: { code: { text: string } } };
+			const decision = payload.action.tool === "process_run" || payload.codeact?.code.text.includes("subprocess.run") ? verdict : "allow";
+			if (decision === "invalid") return { text: "invalid-json-fixture" };
 			return { text: JSON.stringify({ decision, title: "本次写入测试标记", explanation: "确认仅在隔离工作区写标记。", recommendation: decision === "allow" ? "Allow once" : "Deny",
 				recommendationReason: "仅本次验证", feedbackPlaceholder: "补充要求", actions: [{ choice: "Allow once", label: "本次写入" }, { choice: "Deny", label: "不写入" }] }) };
 		}
@@ -61,7 +63,7 @@ const execution = (code: string): ModelResponse => ({ tool: "execute", args: { c
 const append = `subprocess.run(${JSON.stringify([process.execPath, "-e", 'require("node:fs").appendFileSync("effect.txt","once")'])},check=True)`;
 
 it("真实 CodeAct 经 AI 判断：原调用等待，批准后继续且不重放此前副作用", async () => {
-	const f = await fixture(step => step === 0 ? execution(`write(path="earlier.txt",content="keep")\n${append}\nwrite(path="later.txt",content="continued")`) : "done");
+	const f = await fixture(step => step === 0 ? execution(`write(path="earlier.txt",content="keep")\n${append}\nwrite(path="later.txt",content="continued")`) : "done", "ask", true);
 	try {
 		const running = f.runtime.session.prompt("Run the isolated approval fixture.");
 		await vi.waitFor(() => expect(f.dialogs.list()).toHaveLength(1), { timeout: 10000 });
@@ -73,17 +75,17 @@ it("真实 CodeAct 经 AI 判断：原调用等待，批准后继续且不重放
 		await running;
 		expect(await fs.readFile(path.join(f.cwd, "effect.txt"), "utf8")).toBe("once");
 		expect(await fs.readFile(path.join(f.cwd, "later.txt"), "utf8")).toBe("continued");
-		expect(f.reviews).toBe(3); expect(f.dialogs.list()).toEqual([]);
+		expect(f.reviews).toBe(1); expect(f.dialogs.list()).toEqual([]);
 		expect(f.runtime.session.getCallableToolNames()).not.toContain("approval");
 	} finally { await f.close(); }
 }, 30000);
 
-it("AI 放行直接执行，两次相同进程仍分别审查", async () => {
+it("同一 CodeAct 两次进程共用一次整段审查", async () => {
 	const f = await fixture(step => step === 0 ? execution(`${append}\n${append}`) : "done", "allow");
 	try {
 		await f.runtime.session.prompt("Run two isolated operations.");
 		expect(await fs.readFile(path.join(f.cwd, "effect.txt"), "utf8")).toBe("onceonce");
-		expect(f.reviews).toBe(2); expect(f.dialogs.list()).toEqual([]);
+		expect(f.reviews).toBe(1); expect(f.dialogs.list()).toEqual([]);
 	} finally { await f.close(); }
 }, 30000);
 
@@ -202,3 +204,92 @@ it.each(["test", "build"] as const)("真实 SDK 隔离 %s 使用已安装 CLI �
 		if (workflow === "build") expect(await fs.readFile(path.join(f.cwd, "dist/index.html"), "utf8")).toContain("build fixture");
 	} finally { await f.close(); }
 }, 45000);
+
+
+it("同段不同进程与 parallel 只审一次，下一段重新审查", async () => {
+	const jobs = ["one", "two", "three"].map(name => ({ args: [process.execPath, "-e", `require('node:fs').writeFileSync('${name}.txt','once')`], check: true }));
+	const first = `parallel([(subprocess.run,kw) for kw in json.loads(${JSON.stringify(JSON.stringify(jobs))})])`;
+	const f = await fixture(step => step === 0 ? execution(first) : step === 1 ? execution(append) : "done", "allow", true);
+	try {
+		await f.runtime.session.prompt("Run independent fixture processes in one block, then another block.");
+		expect(f.reviews).toBe(2);
+		for (const name of ["one", "two", "three"]) expect(await fs.readFile(path.join(f.cwd, name + ".txt"), "utf8")).toBe("once");
+		expect(await fs.readFile(path.join(f.cwd, "effect.txt"), "utf8")).toBe("once");
+	} finally { await f.close(); }
+}, 30000);
+
+it("拒绝整段后即使 Python 捕获工具异常也不能继续本地副作用", async () => {
+	const code = `try:\n ${append}\nexcept BaseException:\n pass\nPath("after-denial.txt").write_text("bad")`;
+	const f = await fixture(step => step === 0 ? execution(code) : "done", "deny", true);
+	try {
+		await f.runtime.session.prompt("Reject this isolated block.");
+		expect(f.reviews).toBe(1);
+		await expect(fs.access(path.join(f.cwd, "effect.txt"))).rejects.toThrow();
+		await expect(fs.access(path.join(f.cwd, "after-denial.txt"))).rejects.toThrow();
+	} finally { await f.close(); }
+}, 30000);
+
+it("审批后读到的新动态进程不继承批次许可，不二次询问而停止", async () => {
+	const dynamic = [process.execPath, "-e", "require('node:fs').writeFileSync('dynamic.txt','bad')"];
+	const code = `${append}\nargs=json.loads(read(path="next.json",mode="raw"))\ntry:\n subprocess.run(args,check=True)\nexcept BaseException:\n pass\nPath("after-scope.txt").write_text("bad")`;
+	const f = await fixture(step => step === 0 ? execution(code) : "done", "allow", true);
+	try {
+		await fs.writeFile(path.join(f.cwd, "next.json"), JSON.stringify(dynamic));
+		await f.runtime.session.prompt("Run a known action, then inspect dynamic arguments.");
+		expect(f.reviews).toBe(1);
+		expect(await fs.readFile(path.join(f.cwd, "effect.txt"), "utf8")).toBe("once");
+		await expect(fs.access(path.join(f.cwd, "dynamic.txt"))).rejects.toThrow();
+		await expect(fs.access(path.join(f.cwd, "after-scope.txt"))).rejects.toThrow();
+		expect(JSON.stringify(f.runtime.session.messages)).toContain("not covered");
+	} finally { await f.close(); }
+}, 30000);
+
+it("一次人工选择覆盖整段余下已展示进程，不重跑前序写入", async () => {
+	const second = `subprocess.run(${JSON.stringify([process.execPath, "-e", "require('node:fs').writeFileSync('second.txt','ok')"])},check=True)`;
+	const f = await fixture(step => step === 0 ? execution(`write(path="earlier.txt",content="keep")\n${append}\n${second}`) : "done", "ask", true);
+	try {
+		const running = f.runtime.session.prompt("Ask once for the complete remaining block.");
+		await vi.waitFor(() => expect(f.dialogs.list()).toHaveLength(1), { timeout: 10000 });
+		const dialog = f.dialogs.list()[0]; if (!dialog?.approval?.block) throw new Error("missing batch context");
+		expect(dialog.approval.block.code).toContain("second.txt");
+		expect(dialog.approval.scopes[0]?.label).toBe("本次 CodeAct");
+		expect(await fs.readFile(path.join(f.cwd, "earlier.txt"), "utf8")).toBe("keep");
+		f.dialogs.respond(dialog.id, "Allow once"); await running;
+		expect(f.reviews).toBe(1);
+		expect(await fs.readFile(path.join(f.cwd, "effect.txt"), "utf8")).toBe("once");
+		expect(await fs.readFile(path.join(f.cwd, "second.txt"), "utf8")).toBe("ok");
+	} finally { await f.close(); }
+}, 30000);
+
+
+it.each(["allow", "invalid"] as const)("真实审批 %s 保存实际输入输出和解析/执行终态", async verdict => {
+	const f = await fixture(step => step === 0 ? execution(append) : "done", verdict, true);
+	try {
+		await f.runtime.session.prompt("Record the isolated approval model boundary.");
+		const details = await Promise.all((await listApprovalTraces()).map(row => readApprovalTrace(row.id)));
+		const trace = details.find(detail => detail.events.some(event => event.phase === "begin" && typeof event.data === "object" && event.data !== null && "sessionId" in event.data && event.data.sessionId === f.runtime.session.sessionId));
+		if (!trace) throw new Error("missing approval trace");
+		expect(trace.events.map(event => event.phase)).toContain("request");
+		expect(trace.events.map(event => event.phase)).toContain("response");
+		if (verdict === "allow") {
+			expect(trace.events.map(event => event.phase)).toEqual(expect.arrayContaining(["parsed", "resolved", "dispatch", "execution"]));
+			expect(await fs.readFile(path.join(f.cwd, "effect.txt"), "utf8")).toBe("once");
+		} else {
+			expect(JSON.stringify(trace.events)).toContain("invalid-json-fixture");
+			expect(trace.events.map(event => event.phase)).toContain("failure");
+			await expect(fs.access(path.join(f.cwd, "effect.txt"))).rejects.toThrow();
+		}
+	} finally { await f.close(); }
+}, 30000);
+
+
+it("不能完整提交的超长风险代码块停止而不以截断源码批准", async () => {
+	const code = "#" + "x".repeat(97000) + "\n" + append;
+	const f = await fixture(step => step === 0 ? execution(code) : "done", "allow", true);
+	try {
+		await f.runtime.session.prompt("Do not approve an incomplete code review.");
+		expect(f.reviews).toBe(0);
+		await expect(fs.access(path.join(f.cwd, "effect.txt"))).rejects.toThrow();
+		expect(JSON.stringify(f.runtime.session.messages)).toContain("complete-review limit");
+	} finally { await f.close(); }
+}, 30000);

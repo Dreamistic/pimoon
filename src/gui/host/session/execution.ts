@@ -277,7 +277,7 @@ export class GuiExecution {
 
 	private async perform(action: GuiAction, client: SessionClient): Promise<GuiActionResult> {
 		switch (action.action) {
-			case "dialog": this.dialogs.respond(action.id, action.value, action.feedback); return;
+			case "dialog": this.dialogs.respond(action.id, action.value, action.feedback, action.answers); return;
 			case "clearNotices": this.dialogs.clearNotices(action.ids); return;
 			case "draft": client.writeDraft(action.text); return;
 			case "cancelLogin": this.loginController?.abort(); if (this.mcpLoggingIn) this.dialogs.cancel(); return;

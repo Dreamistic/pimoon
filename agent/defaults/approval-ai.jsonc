@@ -3,5 +3,6 @@
   "enabled": true,
   "routine": true,
   "model": "openai-codex/gpt-6.1-sol",
-  "timeout_ms": 60000
+  "timeout_ms": 60000,
+  "diagnostics": { "enabled": true, "retention_days": 7, "max_mb": 32 }
 }

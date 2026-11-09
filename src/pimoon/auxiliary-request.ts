@@ -19,6 +19,7 @@ export function bindAuxiliaryRequest(payload: unknown, model: Pick<Model<Api>, "
 		payload: hash, token_estimate: estimateRequestTokens(payload) });
 	let ended = false;
 	return {
+		id: labels.model_request_id,
 		finish(response?: AssistantMessage): void {
 			if (ended) return;
 			ended = true;

@@ -11,7 +11,10 @@
     "enabled": {
       "type": "boolean"
     },
-    "routine": { "type": "boolean", "description": "Skip AI for bounded local development operations." },
+    "routine": {
+      "type": "boolean",
+      "description": "Skip AI for bounded local development operations."
+    },
     "model": {
       "type": "string",
       "pattern": "^[^/]+/.+$"
@@ -20,6 +23,25 @@
       "type": "integer",
       "minimum": 100,
       "maximum": 120000
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "retention_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "max_mb": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        }
+      }
     }
   }
 }

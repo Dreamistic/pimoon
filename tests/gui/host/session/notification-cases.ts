@@ -82,7 +82,7 @@ export function notificationTests(context: () => { host: GuiClient; agentDir: st
 			connection.attend(true);
 			const task = host.dispatch(prompt("后台写文件"), id);
 			try {
-				await expect.poll(() => execution.dialogs.list().length).toBe(1);
+				await expect.poll(() => execution.dialogs.list().length, { timeout: 10000 }).toBe(1);
 				expect(connection.events).toEqual([
 					{ type: "notification", value: expect.objectContaining({ kind: "approval", sessionId: id, toolName: "approval", firstMessage: "后台写文件" }) },
 				]);

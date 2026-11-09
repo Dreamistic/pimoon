@@ -53,3 +53,12 @@ it("保留早先用户边界，不发送思考；文本中的伪造角色不改�
 it("显示内容移除终端控制序列而保留 Unicode", () => {
 	expect(parseApprovalCard(JSON.stringify({ ...card, title: "\u001b[31m确认中文🧪\u001b[0m" }), choices).title).toBe("确认中文🧪");
 });
+
+it("批次输入包含完整源码和计划，但计划中的环境值不经旁路字段发送", () => {
+	const request: ApprovalRequest = { tool: "process_run", cwd: "fixture", detail: { argv: ["node", "check.js"], env: {} }, units: [] };
+	const payload = approvalAdvisorInput(request, asked, choices, "", { ...input, block: { id: "block", code: "subprocess.run(args)", codeHash: "hash", plan: { calls: [{ tool: "process_run", input: { env: { TOKEN: "plan-secret" } } }] } } });
+	expect(JSON.stringify(payload)).toContain("subprocess.run(args)"); expect(JSON.stringify(payload)).not.toContain("plan-secret");
+});
+it("模型不能在 allow 的同时要求用户勾选确认", () => {
+	expect(() => parseApprovalCard(JSON.stringify({ ...card, decision: "allow", recommendation: "Allow once", widgets: [{ kind: "checklist", title: "风险", items: [{ id: "risk", label: "确认", required: true }] }] }), choices)).toThrow();
+});

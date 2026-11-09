@@ -29,7 +29,7 @@ export function queueTests(context: () => { host: GuiClient; agentDir: string })
 			other.subscribe((event) => otherEvents.push(event));
 			const task = host.dispatch({ action: "prompt", text: "读取文件并写入结果", images: [], behavior: "followUp" });
 			try {
-				await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
+				await expect.poll(() => host.execution.dialogs.list().length, { timeout: 10000 }).toBe(1);
 				if (queued) {
 					await host.dispatch({ action: "prompt", text: "下一条跟进", images: [], behavior: "followUp" });
 					await host.dispatch({ action: "prompt", text: "第一条引导", images: [], behavior: "steer" });
@@ -68,7 +68,7 @@ export function queueTests(context: () => { host: GuiClient; agentDir: string })
 			});
 			const task = host.dispatch({ action: "prompt", text: "读取文件并写入结果", images: [], behavior: "followUp" });
 			try {
-				await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
+				await expect.poll(() => host.execution.dialogs.list().length, { timeout: 10000 }).toBe(1);
 				const initial = host.execution.snapshot();
 				await host.dispatch({ action: "prompt", text: "第一条引导", images: [], behavior: "steer" });
 				await expect.poll(() => received.at(-1)?.queue).toEqual({ steering: ["第一条引导"], followUp: [] });

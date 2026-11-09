@@ -7,8 +7,8 @@ import { migrateToolSettings } from "./tool-settings.ts";
 /** 应用标识与 SDK 的兼容边界；从不沿用调用者的 .pi 配置。 */
 export const pimoonHome = path.resolve(process.env.PIMOON_HOME ?? path.join(process.env.APPDATA ?? os.homedir(), "pimoon"));
 export const agentHome = path.join(pimoonHome, "agent");
-/** 原生 Python、宿主读取与文件工具共享的凭据保护集合。 */
-export const protectedCredentialPaths = [path.join(agentHome, "auth.json"),
+/** 原生 Python、宿主读取与文件工具共享的凭据及详细诊断保护集合。 */
+export const protectedCredentialPaths = [path.join(agentHome, "auth.json"), path.join(pimoonHome, "diagnostics", "approval"),
 	...[".ssh", ".aws", ".azure", ".gnupg", ".kube"].map(name => path.join(os.homedir(), name))];
 export const defaultWorkspace = path.resolve(process.env.PIMOON_WORKSPACE ?? path.join(pimoonHome, "workspace"));
 for (const folder of [agentHome, defaultWorkspace, path.join(pimoonHome, "desktop"), path.join(pimoonHome, "telemetry")]) fs.mkdirSync(folder, { recursive: true });

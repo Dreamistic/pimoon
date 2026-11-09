@@ -1,3 +1,4 @@
+import { ApprovalTraces } from "@/features/modules/approval-traces.tsx";
 import { useEffect, useId, useMemo, useState } from "react";
 import { Tabs } from "radix-ui";
 import { motion } from "motion/react";
@@ -67,7 +68,7 @@ export function Settings({ snapshot, guiConfig, send, query, globalQuery, disabl
 				sessionId={snapshot?.sessionId} sessionRevision={snapshot?.modelServicesRevision} sessionReady={snapshot?.canSubmit ?? false} />;
 			case "web": return module("webTools", "网络与网页");
 			case "agents": return module("subagent", "子代理");
-			case "security": return module("approvalGate", "权限与安全");
+			case "security": return <>{module("approvalGate", "权限与安全")}<ApprovalTraces query={globalQuery} send={send} disabled={!connected} /></>;
 			case "connections": return <>
 				<McpSettings query={globalQuery} send={send} disabled={!connected} />
 				<GuiSettings title="桌面 Web 访问" section="desktopWeb" />

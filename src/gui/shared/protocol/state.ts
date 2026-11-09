@@ -25,6 +25,8 @@ export interface GuiApproval {
 	scopes: ApprovalScopeOption[];
 	recommended: ApprovalScope | null;
 	card?: ApprovalCard;
+	block?: { id: string; code: string; codeHash: string; plannedCalls: number; dispatchedCalls?: number; unresolvedLines: number[] };
+	reviewId?: string;
 	discuss?: boolean;
 }
 export interface GuiDialog {

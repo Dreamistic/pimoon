@@ -1,3 +1,5 @@
+import type { ApprovalAnswers } from "../../../../../harness/approval/widgets.ts";
+import { ApprovalWidgets } from "./approval-widgets.tsx";
 import { useEffect, useId, useRef, useState } from "react";
 import { ShieldQuestion } from "lucide-react";
 import type { GuiDialog } from "../../../../shared/protocol/state.ts";
@@ -16,6 +18,7 @@ export function ApprovalBar({ dialog, send, disabled }: { dialog: GuiDialog; sen
 	const [busy, setBusy] = useState(false);
 	const [explaining, setExplaining] = useState(false);
 	const [feedback, setFeedback] = useState("");
+	const [answers, setAnswers] = useState<ApprovalAnswers>({});
 	const [scope, setScope] = useState(dialog.approval ? dialog.approval.recommended : "once");
 	const [now, setNow] = useState(Date.now());
 	useEffect(() => {
@@ -27,26 +30,36 @@ export function ApprovalBar({ dialog, send, disabled }: { dialog: GuiDialog; sen
 	if (!permission && !codeact) return null;
 	const selected = permission?.scopes.find(option => option.scope === scope);
 	const card = permission?.card;
+	const widgets = card?.widgets ?? [];
+	const hasQuestion = widgets.some(widget => widget.kind === "question");
+	const acknowledged = widgets.every(widget => widget.kind !== "checklist" || widget.items.every(item => !item.required || answers[item.id] === true));
 	const recommendsDeny = card?.decision === "deny" || card?.recommendation === "Deny";
 	const label = (choice: string, fallback: string) => card?.actions.find(action => action.choice === choice)?.label ?? fallback;
 	const expired = dialog.deadline !== null && now >= dialog.deadline;
 	const locked = disabled || busy || expired;
 	const approveLabel = !permission ? "确认执行" : !selected ? "选择范围后仍要执行" : label(selected?.choice ?? "", "授权本次");
 	const respond = async (approved: boolean, discuss = false) => {
-		if (submitting.current || locked || approved && permission && !selected) return;
+		if (submitting.current || locked || approved && permission && (!selected || hasQuestion || !acknowledged)) return;
 		submitting.current = true; setBusy(true);
 		try {
 			const accepted = await send({ action: "dialog", id: dialog.id, value: discuss ? "Discuss" : permission ? approved ? selected?.choice ?? "Deny" : "Deny" : approved ? "yes" : "no",
-				...((permission || !approved) && feedback.trim() ? { feedback: feedback.trim() } : {}) });
+				...((permission || !approved) && feedback.trim() ? { feedback: feedback.trim() } : {}),
+				...(permission && Object.keys(answers).length ? { answers } : {}) });
 			if (accepted) return;
 		} catch { /* 连接边界负责显示错误，未知结果不自动重试。 */ }
 		submitting.current = false; setBusy(false);
 	};
 	return <section className="approval-bar" aria-labelledby={titleId} data-execution-id={codeact?.id}>
-		<div className="approval-bar-heading"><ShieldQuestion aria-hidden="true" /><strong id={titleId}>{clean(dialog.title)}</strong><span role="status">等待确认 · {permission ? "此操作尚未执行" : "尚未执行"}</span></div>
+		<div className="approval-bar-heading"><ShieldQuestion aria-hidden="true" /><strong id={titleId}>{clean(dialog.title)}</strong><span role="status">等待确认 · {permission?.block ? "代码块在此暂停" : permission ? "此操作尚未执行" : "尚未执行"}</span></div>
 		<p className="approval-bar-reason">{clean(permission?.reason ?? codeact?.reason ?? "")}</p>
 		{permission ? <>
 			<p className="tool-note"><code>{permission.tool}</code> · 工作区：<code>{clean(permission.cwd)}</code></p>
+			{permission.block && <Disclosure summary={`本次 CodeAct · ${permission.block.plannedCalls} 个确定调用`} lazy>
+				<p className="tool-note">审批覆盖此段余下确定操作；此前已完成的不回滚、不重跑。动态新目标超出计划时停止。已派发 {permission.block.dispatchedCalls ?? 0} 个调用。</p>
+				{permission.block.unresolvedLines.length > 0 && <p className="tool-note">有动态调用未解析，不能把未知目标当作已授权。</p>}
+				<CodeBlock label="宿主绑定的 CodeAct 源码" language="python" text={permission.block.code} />
+			</Disclosure>}
+			{widgets.length > 0 && <><p className="tool-note">以下为 AI 整理；真实操作以宿主展示为准。</p><ApprovalWidgets widgets={widgets} answers={answers} disabled={locked} change={(id, value) => setAnswers(previous => ({ ...previous, [id]: value }))} /></>}
 			<p className="approval-bar-target"><code>{clean(permission.summary)}</code></p>
 			<Disclosure summary="查看实际操作与拦截原因" lazy>
 				<CodeBlock label="运行时核验的操作" text={permission.content.map(line => line.text).join("\n")} />
@@ -73,8 +86,8 @@ export function ApprovalBar({ dialog, send, disabled }: { dialog: GuiDialog; sen
 		<div className="approval-bar-actions">
 			<Button variant={recommendsDeny ? "default" : "outline"} size="sm" disabled={locked} onClick={() => void respond(false)}>{explaining && !permission ? "提交拒绝" : card ? `拒绝 · ${label("Deny", "不执行")}${recommendsDeny ? " · AI推荐" : ""}` : "拒绝"}</Button>
 			{!permission?.discuss && <Button variant="ghost" size="sm" disabled={locked} onClick={() => setExplaining(value => !value)}>{explaining ? "收起说明" : permission ? "补充意见" : "拒绝并说明"}</Button>}
-			{permission?.discuss && <Button variant="outline" size="sm" disabled={locked || !feedback.trim()} onClick={() => void respond(false, true)}>先聊一下，不执行</Button>}
-			<Button variant={recommendsDeny ? "outline" : "default"} size="sm" disabled={locked || Boolean(permission && !selected)} onClick={() => void respond(true)}>{busy ? "正在提交…" : approveLabel}</Button>
+			{permission?.discuss && <Button variant="outline" size="sm" disabled={locked || !feedback.trim() && !Object.keys(answers).length} onClick={() => void respond(false, true)}>{hasQuestion ? "提交答案，不执行" : "先聊一下，不执行"}</Button>}
+			<Button variant={recommendsDeny ? "outline" : "default"} size="sm" disabled={locked || Boolean(permission && (!selected || hasQuestion || !acknowledged))} onClick={() => void respond(true)}>{busy ? "正在提交…" : approveLabel}</Button>
 		</div>
 	</section>;
 }

@@ -1,3 +1,4 @@
+import { validateApprovalAnswers, type ApprovalAnswers } from "../../../harness/approval/widgets.ts";
 import { randomUUID } from "node:crypto";
 import type { ExtensionUIDialogOptions, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import type { GuiDialog, GuiNotice } from "../../shared/protocol/state.ts";
@@ -7,11 +8,11 @@ import { approvalSummary, approvalText, buildApprovalContent } from "../../../ha
 import { plainTheme } from "./theme.ts";
 import type { CodeActConfirmation, CodeActConfirmationDecision } from "../../../pimoon/codeact/confirmation.ts";
 
-interface DialogResponse { value: string | undefined; feedback?: string | undefined }
+interface DialogResponse { value: string | undefined; feedback?: string | undefined; answers?: ApprovalAnswers | undefined }
 
 /** 对话框属于会话，不随浏览器连接销毁。响应只能消费一次。 */
 export class GuiDialogs {
-	private pending = new Map<string, { dialog: GuiDialog; finish: (value: string | undefined, feedback?: string) => void }>();
+	private pending = new Map<string, { dialog: GuiDialog; finish: (value: string | undefined, feedback?: string, answers?: ApprovalAnswers) => void }>();
 	readonly notices: GuiNotice[] = [];
 	readonly status: Record<string, string> = {};
 	constructor(private readonly emit: (event: GuiEvent) => void, private readonly tail: () => number,
@@ -22,17 +23,17 @@ export class GuiDialogs {
 	}
 
 	async approve(...[request, decision, options, opts]: Parameters<ApprovalInteractionPort["approve"]>): Promise<ApprovalReply | undefined> {
-		const scopes = approvalScopes(request, decision, options);
+		const scopes = approvalScopes(request, decision, options).map(scope => opts?.block ? { ...scope, label: "本次 CodeAct", detail: "仅批准展示的这段 CodeAct 余下确定操作；不重跑已完成步骤，不生成会话许可。" } : scope);
 		const card = opts?.card;
 		const recommended = card?.decision === "deny" || card?.recommendation === DENY
 			? null : scopes.find(scope => scope.choice === card?.recommendation)?.scope ?? "once";
 		const response = await this.request({ kind: "approval", title: card?.title ?? "操作审批", message: "", options: [...scopes.map(scope => scope.choice), DENY, ...(opts?.discuss ? ["Discuss"] : [])], initial: "",
 			approval: { tool: request.tool, cwd: approvalText(request.cwd), reason: approvalText(card?.explanation ?? decision.reason),
 				summary: approvalSummary(request), content: buildApprovalContent(request, decision), scopes, recommended,
-				...(card ? { card } : {}), ...(opts?.discuss ? { discuss: true } : {}) } }, opts);
-		if (opts?.discuss && response.value === "Discuss") return { choice: "Discuss", feedback: response.feedback ?? "" };
+				...(card ? { card } : {}), ...(opts?.block ? { block: opts.block } : {}), ...(opts?.reviewId ? { reviewId: opts.reviewId } : {}), ...(opts?.discuss ? { discuss: true } : {}) } }, opts);
+		if (opts?.discuss && response.value === "Discuss") return { choice: "Discuss", feedback: response.feedback ?? "", ...(response.answers ? { answers: response.answers } : {}) };
 		const choice = options.find(choice => choice === response.value);
-		return choice ? { choice, ...(response.feedback ? { feedback: response.feedback } : {}) } : undefined;
+		return choice ? { choice, ...(response.feedback ? { feedback: response.feedback } : {}), ...(response.answers ? { answers: response.answers } : {}) } : undefined;
 	}
 
 	async confirmCodeAct(request: CodeActConfirmation, signal?: AbortSignal): Promise<CodeActConfirmationDecision> {
@@ -59,13 +60,13 @@ export class GuiDialogs {
 		return new Promise((resolve) => {
 			let timeout: ReturnType<typeof setTimeout> | undefined;
 			const abort = () => finish(undefined);
-			const finish = (value: string | undefined, feedback?: string) => {
+			const finish = (value: string | undefined, feedback?: string, answers?: ApprovalAnswers) => {
 				if (!this.pending.has(id)) return;
 				clearTimeout(timeout);
 				opts?.signal?.removeEventListener("abort", abort);
 				this.pending.delete(id);
 				this.emit({ type: "dialogs", value: this.list() });
-				resolve({ value, feedback });
+				resolve({ value, feedback, answers });
 			};
 			this.pending.set(id, {
 				dialog: { ...dialog, id, deadline: opts?.timeout ? Date.now() + opts.timeout : null },
@@ -77,7 +78,7 @@ export class GuiDialogs {
 		});
 	}
 
-	respond(id: string, value: string | null, feedback?: string): void {
+	respond(id: string, value: string | null, feedback?: string, answers?: ApprovalAnswers): void {
 		const pending = this.pending.get(id);
 		if (!pending) throw new Error("对话框已结束，请刷新当前状态。");
 		if (value !== null && (pending.dialog.kind === "select" || pending.dialog.kind === "approval") && !pending.dialog.options.includes(value))
@@ -85,8 +86,10 @@ export class GuiDialogs {
 		if (value !== null && pending.dialog.kind === "confirm" && value !== "yes") throw new Error("无效确认。");
 		if (pending.dialog.kind === "codeact" && value !== null && value !== "yes" && value !== "no") throw new Error("无效执行确认。");
 		if (feedback !== undefined && (!(pending.dialog.kind === "approval" && value !== null || pending.dialog.kind === "codeact" && value === "no") || feedback.length > 2000)) throw new Error("无效拒绝意见。");
-		if (value === "Discuss" && !feedback?.trim()) throw new Error("请先填写要交流的内容。");
-		pending.finish(value ?? undefined, feedback?.trim());
+		if (pending.dialog.approval) validateApprovalAnswers(pending.dialog.approval.card?.widgets ?? [], answers ?? {}, value === "Allow once");
+		else if (answers && Object.keys(answers).length) throw new Error("此对话不接受表单。");
+		if (value === "Discuss" && !feedback?.trim() && !Object.keys(answers ?? {}).length) throw new Error("请先填写要交流的内容。");
+		pending.finish(value ?? undefined, feedback?.trim(), answers);
 	}
 
 	cancel(): void {

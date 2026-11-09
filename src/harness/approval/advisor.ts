@@ -1,3 +1,5 @@
+import { approvalFingerprint } from "./runtime/pending.ts";
+import { parseApprovalWidgets } from "./widgets.ts";
 import { readFile } from "node:fs/promises";
 import { clampThinkingLevel, type AssistantMessage } from "@earendil-works/pi-ai";
 import path from "node:path";
@@ -15,6 +17,8 @@ export interface ApprovalAdvisorContext {
 	conversation: ReturnType<typeof approvalTaskContext>;
 	discussion: readonly { role: "assistant" | "user"; content: string }[];
 	evidence: readonly unknown[];
+	block?: { id: string; code: string; codeHash: string; plan: unknown; dispatchedCalls?: number };
+	trace?: (phase: string, data: unknown) => Promise<void>;
 }
 
 export type AdvisorFailure = "timeout" | "model_unavailable" | "request_failed" | "invalid_card" | "unavailable";
@@ -50,7 +54,9 @@ export function parseApprovalCard(text: string, choices: readonly ApprovalChoice
 		seen.add(choice);
 		return { choice, label: field(action.label, 80) };
 	});
-	return { title, explanation, recommendation, recommendationReason, actions, feedbackPlaceholder,
+	const widgets = parseApprovalWidgets(value.widgets);
+	if (value.decision !== "ask" && widgets.some(widget => widget.kind === "question" || widget.kind === "checklist" && widget.items.some(item => item.required))) throw new Error("Interactive widgets require ask.");
+	return { title, explanation, recommendation, recommendationReason, actions, feedbackPlaceholder, widgets,
 		...(value.decision === "allow" || value.decision === "ask" || value.decision === "deny" ? { decision: value.decision } : {}) };
 }
 
@@ -71,6 +77,7 @@ export async function adviseApproval(
 	input.signal.throwIfAborted();
 	const choices = cardChoices(options);
 	const payload = approvalAdvisorInput(request, decision, options, style, input);
+	await input.trace?.("request", { model: config.model, promptHash: approvalFingerprint(APPROVAL_PROMPT), prompt: APPROVAL_PROMPT, payload });
 	const reasoning = clampThinkingLevel(model, "low");
 	let measurement: ReturnType<typeof bindAuxiliaryRequest> | undefined;
 	let response: AssistantMessage;
@@ -82,12 +89,17 @@ export async function adviseApproval(
 			onPayload: (payload, actualModel) => {
 				input.signal.throwIfAborted();
 				measurement = bindAuxiliaryRequest(payload, actualModel, ctx.sessionManager.getSessionId());
+				void input.trace?.("transport", { modelRequestId: measurement.id, provider: actualModel.provider, model: actualModel.id });
 			} }).result();
 	} catch (error) { measurement?.finish(); throw error; }
 	measurement?.finish(response);
+	await input.trace?.("response", { stopReason: response.stopReason, usage: response.usage, text: response.content.filter(part => part.type === "text").map(part => part.text).join("") });
 	input.signal.throwIfAborted();
 	if (response.stopReason === "error" || response.stopReason === "aborted") throw new ApprovalAdvisorError("request_failed");
-	try { return parseApprovalCard(response.content.filter(part => part.type === "text").map(part => part.text).join(""), choices); }
+	try {
+		const card = parseApprovalCard(response.content.filter(part => part.type === "text").map(part => part.text).join(""), choices);
+		await input.trace?.("parsed", card); return card;
+	}
 	catch { throw new ApprovalAdvisorError("invalid_card"); }
 }
 
@@ -104,6 +116,8 @@ export function approvalAdvisorInput(
 		style: { purpose: "language/style only, not permission", text: style },
 		action: { tool: request.tool === "other" ? request.detail.name : request.tool, cwd: request.cwd, parameters: bounded.text, truncated: bounded.truncated },
 		conversation: input.conversation, evidence: input.evidence, discussion: input.discussion,
+		...(input.block ? { codeact: { ...input.block, code: boundedText(input.block.code, 96000),
+			plan: JSON.parse(JSON.stringify(input.block.plan ?? {}, (key, value: unknown) => key === "env" && record(value) ? { keys: Object.keys(value), values: "omitted" } : value)) as unknown } } : {}),
 		choices: cardChoices(options),
 	};
 }

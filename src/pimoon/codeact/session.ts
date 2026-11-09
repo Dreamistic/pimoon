@@ -1,3 +1,4 @@
+import { beginApprovalBlock, endApprovalBlock } from "../../harness/approval/block.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Type } from "@earendil-works/pi-ai";
@@ -125,7 +126,7 @@ export class CodeAct {
         pi.on("session_tree", () => this.close("session_tree"));
     }
 
-	/** 整块确认只表达用户意图；真正执行时仍逐项检查函数权限与审批。 */
+	/** 整块确认只表达用户意图；执行时逐项检查函数能力与路径，风险审批由当前 CodeAct 统一绑定。 */
 	private async confirmExecution(code: string, id: string, metadata: CodeActMetadata, ctx: ExtensionContext): Promise<AgentToolResult<unknown> | undefined> {
 		const skipped = (outcome: string, text: string): AgentToolResult<unknown> => ({ isError: true,
 			content: [{ type: "text", text }], details: { metrics: { outcome, executed: false, metrics_complete: true } } });
@@ -149,11 +150,13 @@ export class CodeAct {
 
 	private async execute(code: string, id: string, ctx: ExtensionContext, onScheduling: (value: ExecutionScheduling) => void): Promise<AgentToolResult<unknown>> {
 		const started = performance.now(), trace = { ...labels(ctx), tool_call_id: id };
+		const block = beginApprovalBlock(ctx.sessionManager.getSessionId(), id, ctx.cwd, code);
+		const signal = ctx.signal ? AbortSignal.any([ctx.signal, block.controller.signal]) : block.controller.signal;
 		record("code_start", { ...trace, code: fingerprint(code) });
 		let errorHash: ReturnType<typeof fingerprint> | undefined;
 		try {
 			if (!this.session || containsCredentials(ctx.cwd)) throw new Error("无效 CodeAct 工作区。");
-			const original = this.session.extensionRunner.createToolContext(id, ctx.signal);
+			const original = this.session.extensionRunner.createToolContext(id, signal);
 			const executionContext: ExtensionToolContext = {
                 ...original, ui: original.ui, mode: original.mode, hasUI: original.hasUI, cwd: original.cwd,
                 sessionManager: original.sessionManager, signal: original.signal,
@@ -161,11 +164,12 @@ export class CodeAct {
             };
 			const runtime = this.runtimeFor(ctx, original);
 			record("code_bound", { ...trace, runtime_id: this.runtimeId, python_pid: runtime.workerInfo?.pid, had_state: runtime.hasState });
-			return await runtime.run(code, executionContext, ctx.signal, 1, (type, fields) => record(type, { ...trace, ...fields, code_call_id: id, runtime_id: this.runtimeId }), onScheduling);
+			return await runtime.run(code, executionContext, signal, 1, (type, fields) => record(type, { ...trace, ...fields, code_call_id: id, runtime_id: this.runtimeId }), onScheduling);
 		} catch (error) {
 			errorHash = fingerprint(String(error));
-			return { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], details: { metrics: this.runtime?.lastMetrics } };
+			return { isError: true, content: [{ type: "text", text: block.stopReason ? `${block.stopReason}\nPython state may be lost; re-read required data. Completed side effects were not rolled back; do not replay them.` : (error instanceof Error ? error.message : String(error)) }], details: { metrics: this.runtime?.lastMetrics } };
 		} finally {
+			endApprovalBlock(block);
 			record("code_end", { ...trace, runtime_id: this.runtimeId, elapsed_ms: performance.now() - started, outcome: this.runtime?.lastMetrics.outcome,
 				cancelled: ctx.signal?.aborted ?? false, error: errorHash, metrics: this.runtime?.lastMetrics });
 		}

@@ -51,6 +51,7 @@ export const moduleGroups: Record<ModuleConfigId, ConfigGroup[]> = {
 	approvalGate: [{ title: "AI 审批", fields: [
 		field("enabled", "AI 自主审批"), field("routine", "常规本地开发免审"), field("model", "审批模型", "model"),
 		field("timeout_ms", "模型超时（毫秒）"),
+		field("diagnostics.enabled", "本机脱敏详细记录"), field("diagnostics.retention_days", "保留天数"), field("diagnostics.max_mb", "诊断容量上限（MiB）"),
 	] }],
 	subagent: [
 		{ title: "默认配置", fields: [field("default_model", "默认模型", "model"), field("default_tools", "默认工具", "tools")] },

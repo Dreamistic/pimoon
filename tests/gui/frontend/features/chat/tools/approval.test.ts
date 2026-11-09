@@ -87,3 +87,23 @@ it("卡内交流必须有文字，不消费原授权，不能在普通审批伪�
 	expect(() => dialogs.respond(normalId, "Discuss", "伪造")).toThrow();
 	dialogs.respond(normalId, "Deny"); await normal;
 });
+
+
+it("互动组件以文本渲染；宿主拒绝未勾选确认与把问题答案当批准", async () => {
+	const dialogs = ui();
+	const card = { title: "批次影响", explanation: "核对后续操作", recommendation: "Allow once" as const, recommendationReason: "仅本次", feedbackPlaceholder: "补充", actions: [{ choice: "Allow once" as const, label: "运行本段" }, { choice: "Deny" as const, label: "停止本段" }],
+		widgets: [{ kind: "facts" as const, title: "影响", items: [{ label: "目标", value: "<script>not executable</script>" }] }, { kind: "checklist" as const, title: "确认", items: [{ id: "risk", label: "确认当前范围", required: true }] }] };
+	const pending = dialogs.approve(request, decision, options, { card, block: { id: "block", code: "print(42)", codeHash: "fixture", plannedCalls: 2, unresolvedLines: [] } });
+	const dialog = dialogs.list()[0]; if (!dialog) throw new Error("missing dialog");
+	const doc = parseHTML(renderWithMemory(createElement(ApprovalBar, { dialog, disabled: false, send: async () => true }))).document;
+	expect(doc.querySelector("script")).toBeNull(); expect(doc.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
+	expect(doc.querySelector(".approval-widgets")?.textContent).toContain("<script>not executable</script>");
+	expect(dialog.approval?.scopes[0]?.label).toBe("本次 CodeAct");
+	expect(() => dialogs.respond(dialog.id, "Allow once")).toThrow("确认");
+	dialogs.respond(dialog.id, "Allow once", undefined, { risk: true });
+	expect(await pending).toMatchObject({ choice: "Allow once", answers: { risk: true } });
+	const question = dialogs.approve(request, decision, options, { discuss: true, card: { ...card, widgets: [{ kind: "question", id: "target", title: "处理方式", options: ["保留", "调整"] }] } });
+	const id = dialogs.list()[0]?.id; if (!id) throw new Error("missing question");
+	expect(() => dialogs.respond(id, "Allow once", undefined, { target: "保留" })).toThrow("澄清");
+	dialogs.respond(id, "Discuss", undefined, { target: "调整" }); expect(await question).toMatchObject({ choice: "Discuss", answers: { target: "调整" } });
+});

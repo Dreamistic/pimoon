@@ -20,7 +20,7 @@ vi.mock("../../src/harness/approval/advisor.ts", async importOriginal => ({
 const network = vi.hoisted(() => ({ fetch: vi.fn<WebHttpFetch>() }));
 vi.mock("undici/index.js", async importOriginal => ({ ...await importOriginal<typeof import("undici")>(), fetch: network.fetch }));
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
-it("进程、搜索、网页与 HTTP 都是 CodeAct 函数，审批拦截未批准执行但不拦截内网请求", async () => {
+it("进程、搜索、网页与 HTTP 都是 CodeAct 函数，整段审批拒绝进程但不拦截允许的内网请求", async () => {
 	const base = path.resolve(".tmp/tests/pimoon-function-approvals"); await fs.mkdir(base, { recursive: true });
 	const folder = await fs.mkdtemp(path.join(base, "case-")), cwd = path.join(folder, "workspace"), agentDir = path.join(folder, "agent");
 	await fs.mkdir(cwd); await fs.mkdir(agentDir);
@@ -68,7 +68,7 @@ it("进程、搜索、网页与 HTTP 都是 CodeAct 函数，审批拦截未批�
 			for (const request of server.requests) expect(request.tools?.map(tool => tool.function.name)).toEqual(["execute"]);
 			const results = runtime.session.messages.filter(isExecutionResult);
 			expect(results.map(result => ({ isError: result.isError })), JSON.stringify(results.map(result => result.content))).toEqual([expect.objectContaining({ isError: true }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: false }), expect.objectContaining({ isError: true })]);
-			expect(JSON.stringify(results[0]?.content)).toMatch(/approval|审批/iu);
+			expect(JSON.stringify(results[0]?.content)).toMatch(/AI denied|approval|审批/iu);
 			expect(JSON.stringify(results[1]?.content)).toContain("fixture search result");
 			expect(JSON.stringify(results[2]?.content)).toContain("fixture web content");
 			expect(JSON.stringify(results[3]?.content)).toContain("total_ms");

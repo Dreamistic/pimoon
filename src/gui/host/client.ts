@@ -1,3 +1,5 @@
+import { listApprovalTraces, readApprovalTrace, removeApprovalTraces, appendApprovalTrace } from "../../harness/approval/trace-store.ts";
+import { loadApprovalGateConfig } from "../../harness/approval/config.ts";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
@@ -232,6 +234,13 @@ export class GuiClient {
 		const action = value as GuiAction;
 		const source = sessionId ? this.host.sessions.get(sessionId) : undefined;
 		switch (action.action) {
+			case "clearApprovalTraces": await removeApprovalTraces(); return;
+			case "annotateApprovalTrace": {
+				await readApprovalTrace(action.id);
+				const config = await loadApprovalGateConfig();
+				await appendApprovalTrace(action.id, "annotation", { actor: "user", label: action.label }, { ...(config.diagnostics ?? { retention_days: 7, max_mb: 32 }), enabled: true });
+				return;
+			}
 			case "observe": {
 				if (this.observing === action.visible) return;
 				this.observing = action.visible;
@@ -301,6 +310,8 @@ export class GuiClient {
 			return this.search.start(query.cwd, query.text);
 		}
 		if (query.query === "continueSessionSearch") return this.search.next(query.id);
+		if (query.query === "approvalTraces") return listApprovalTraces();
+		if (query.query === "approvalTrace") return readApprovalTrace(query.id);
 		if (query.query === "storage") return this.host.manageStorage(() => this.storage.read());
 		if (query.query === "mcpConfig") return readMcpConfig();
 		if (query.query === "modelServices") return readModelServices();

@@ -16,7 +16,9 @@ for (const key of ["PIMOON_HOME", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDAT
 const cwd = path.join(base, "workspace"), agent = path.join(env.PIMOON_HOME, "agent");
 await fs.mkdir(cwd); await fs.mkdir(path.join(agent, "configs"), { recursive: true });
 const operation = name => `subprocess.run(${JSON.stringify(["node", "-e", `require('node:fs').appendFileSync('${name}-marker','once')`])},check=True)`;
-const code = `${routine ? 'write(path="routine.ts",content="before")\nread(path="routine.ts")\nwrite(path="routine.ts",content="after")\nsubprocess.run(["git","status","--short"],check=True,capture_output=True,text=True)\n' : ""}${operation("allow")}\nfor name in ["deny","ask"]:\n try:\n  subprocess.run(["node","-e", "require('node:fs').writeFileSync('"+name+"-marker','bad')"],check=True)\n except ToolError:\n  pass\n else:\n  raise AssertionError(name+" unexpectedly executed")\nprint("approval-artifact-complete")`;
+const prelude = routine ? 'write(path="routine.ts",content="before")\nread(path="routine.ts")\nwrite(path="routine.ts",content="after")\nsubprocess.run(["git","status","--short"],check=True,capture_output=True,text=True)\n' : "";
+const blocks = [prelude + operation("allow") + "\n" + operation("allow-second") + '\nprint("approval-artifact-complete")',
+    'try:\n ' + operation("deny") + '\nexcept BaseException:\n pass\nPath("after-denial").write_text("bad")', operation("ask")];
 let mainRequests = 0; const decisions = [];
 const server = createServer(async (req, res) => {
     try {
@@ -36,9 +38,9 @@ const server = createServer(async (req, res) => {
         res.writeHead(200, { "content-type": "text/event-stream" });
         const send = value => res.write(`data: ${JSON.stringify(value)}\n\n`);
         send({ type: "response.created", response: { id: "fixture" } });
-        if (!review && mainRequests === 1) {
-            const item = { type: "function_call", id: "item", call_id: "fixture-call", name: "execute" };
-            const args = JSON.stringify({ code, desc: "隔离审批三态验证" });
+        if (!review && mainRequests <= blocks.length) {
+            const item = { type: "function_call", id: "item", call_id: `fixture-call-${mainRequests}`, name: "execute" };
+            const args = JSON.stringify({ code: blocks[mainRequests - 1], desc: "隔离批次审批验证" });
             send({ type: "response.output_item.added", output_index: 0, item: { ...item, arguments: "" } });
             send({ type: "response.function_call_arguments.delta", output_index: 0, item_id: "item", delta: args });
             send({ type: "response.output_item.done", output_index: 0, item: { ...item, arguments: args } });
@@ -68,7 +70,9 @@ try {
     await fs.writeFile(path.join(base, "output.txt"), result.stdout + "\n" + result.stderr);
     if (await fs.readFile(path.join(cwd, "allow-marker"), "utf8") !== "once") throw new Error("allow did not execute exactly once");
     for (const name of ["deny", "ask"]) if (await fs.stat(path.join(cwd, name + "-marker")).then(() => true, () => false)) throw new Error(name + " unexpectedly executed");
-    if (mainRequests !== 2 || JSON.stringify(decisions) !== '["allow","deny","ask"]' || !result.stdout.includes("approval-artifact-complete")) throw new Error("classification flow mismatch");
+    if (mainRequests !== 4 || JSON.stringify(decisions) !== '["allow","deny","ask"]' || !result.stdout.includes("approval-artifact-complete")) throw new Error("classification flow mismatch");
+    if (await fs.readFile(path.join(cwd, "allow-second-marker"), "utf8") !== "once") throw new Error("second covered action failed");
+    if (await fs.stat(path.join(cwd, "after-denial")).then(() => true, () => false)) throw new Error("denied block continued native side effects");
     const categories = [];
     if (routine) {
         if (await fs.readFile(path.join(cwd, "routine.ts"), "utf8") !== "after") throw new Error("routine edit failed");
@@ -79,6 +83,14 @@ try {
         }
         if (JSON.stringify(categories) !== '["project_new_file","local_inspection","project_edit","git_inspection"]') throw new Error("routine routing mismatch: " + JSON.stringify(categories));
     }
-    const report = { ok: true, routine, categories, mainRequests, decisions, allowSideEffects: 1, denySideEffects: 0, askWithoutUiSideEffects: 0, windowStarted: false, realCredentialsUsed: false };
+    const traceRoot = path.join(env.PIMOON_HOME, "diagnostics", "approval");
+    const traceFiles = (await fs.readdir(traceRoot)).filter(name => name.endsWith(".jsonl"));
+    if (traceFiles.length !== 3) throw new Error("expected one detailed trace per reviewed CodeAct");
+    for (const file of traceFiles) {
+        const events = (await fs.readFile(path.join(traceRoot, file), "utf8")).trim().split("\n").map(line => JSON.parse(line));
+        if (!events.some(row => row.phase === "request") || !events.some(row => row.phase === "response")) throw new Error("missing actual model boundary trace");
+        if (JSON.stringify(events).includes(token)) throw new Error("credential reached diagnostics");
+    }
+    const report = { ok: true, routine, categories, mainRequests, decisions, traces: traceFiles.length, allowSideEffects: 2, denySideEffects: 0, askWithoutUiSideEffects: 0, windowStarted: false, realCredentialsUsed: false };
     await fs.writeFile(path.join(base, "result.json"), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report));
 } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

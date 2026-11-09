@@ -15,3 +15,13 @@
 .approval-bar-scopes small { color: var(--muted-foreground); }
 .approval-bar-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block-start: var(--space-2); }
 .approval-bar-actions > button:last-child { margin-inline-start: auto; }
+
+.approval-widgets { display: grid; gap: var(--space-3); }
+.approval-widget { min-width: 0; border: 0; padding: var(--space-3); border-radius: var(--radius-md); background: var(--muted); }
+.approval-widget legend { font-weight: 600; padding: 0; }
+.approval-widget label { display: flex; align-items: start; gap: var(--space-2); margin-block: var(--space-2); }
+.approval-widget dl { display: grid; gap: var(--space-2); margin: 0; }
+.approval-widget dl > div { display: grid; grid-template-columns: minmax(5em, 1fr) minmax(0, 3fr); gap: var(--space-2); }
+.approval-widget dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.approval-widget-comparison dl { grid-template-columns: repeat(auto-fit, minmax(min(100%, 12em), 1fr)); }
+.approval-widget-comparison dl > div { display: block; }

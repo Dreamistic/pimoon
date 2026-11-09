@@ -23,7 +23,7 @@ export async function openApprovalDialog(
 	const choice = await ui.custom<string | undefined>(
 		(tui, theme, _keybindings, done) => new ApprovalDialog(
 			request, decision, options, theme,
-			() => tui.terminal.rows, () => tui.requestRender(), done, dialogOptions?.timeout, dialogOptions?.signal, dialogOptions?.card,
+			() => tui.terminal.rows, () => tui.requestRender(), done, dialogOptions?.timeout, dialogOptions?.signal, dialogOptions?.card, dialogOptions?.block,
 		),
 		{ overlay: true, overlayOptions: { anchor: "center", width: "90%", minWidth: 80, maxHeight: "90%", margin: 1 } },
 	);
@@ -54,12 +54,14 @@ export class ApprovalDialog implements Component {
 		timeoutMs?: number,
 		private readonly signal?: AbortSignal,
 		card?: ApprovalCard,
+		block?: ApprovalDialogOptions["block"],
 	) {
 		signal?.addEventListener("abort", this.abort, { once: true });
 		this.selectedChoice = card?.recommendation ?? "Deny";
 		this.content = [
+			...(block ? [{ text: "本次 CodeAct 的余下确定操作；不重跑已完成步骤。", style: "warning" as const }, ...approvalText(block.code).split("\n").map(text => ({ text, style: "text" as const }))] : []),
 			...(card ? [{ text: approvalText(`${card.title}\n${card.explanation}\n${card.recommendationReason}`), style: "text" as const }] : []),
-			...approvalScopes(request, decision, options).map(scope => ({ text: approvalText(`${scope.choice}: ${scope.detail}`), style: "dim" as const })),
+			...approvalScopes(request, decision, options).map(scope => ({ text: approvalText(`${scope.choice}: ${block ? "仅本次 CodeAct 余下确定操作" : scope.detail}`), style: "dim" as const })),
 			...buildApprovalContent(request, decision),
 		];
 		if (timeoutMs !== undefined) {

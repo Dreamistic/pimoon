@@ -1,0 +1,24 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, writeFile, access } from "node:fs/promises";
+import path from "node:path";
+import { afterEach, expect, it, vi } from "vitest";
+const scope = vi.hoisted(() => ({ home: `${process.cwd()}/.tmp/tests/gui-approval-traces-${Date.now()}` }));
+vi.mock("../../../../src/pimoon/profile.ts", async original => ({ ...await original<typeof import("../../../../src/pimoon/profile.ts")>(), pimoonHome: scope.home }));
+import { GuiHost } from "../../../../src/gui/host/host.ts";
+import { appendApprovalTrace, readApprovalTrace } from "../../../../src/harness/approval/trace-store.ts";
+const host = new GuiHost(); const client = host.createClient();
+afterEach(async () => { await host.dispose(); });
+it("无模型执行也能查询诊断、标注和清除；拒绝任意路径和非法标注", async () => {
+	const id = "20261109-" + randomUUID();
+	await appendApprovalTrace(id, "request", { text: 'token="fixture-secret"', prompt: "fixture" }, { enabled: true, retention_days: 7, max_mb: 1 });
+	const rows = await client.query({ query: "approvalTraces" }); expect(rows).toMatchObject([{ id }]);
+	const detail = await client.query({ query: "approvalTrace", id }); expect(JSON.stringify(detail)).not.toContain("fixture-secret");
+	await expect(client.query({ query: "approvalTrace", id: "../../auth.json" })).rejects.toThrow();
+	await expect(client.dispatch({ action: "annotateApprovalTrace", id, label: "auto-approve" })).rejects.toThrow();
+	await client.dispatch({ action: "annotateApprovalTrace", id, label: "false_block" });
+	expect((await readApprovalTrace(id)).events.at(-1)).toMatchObject({ phase: "annotation", data: { actor: "user", label: "false_block" } });
+	await mkdir(path.join(scope.home, "diagnostics"), { recursive: true });
+	const unrelated = path.join(scope.home, "diagnostics", "keep.txt"); await writeFile(unrelated, "keep");
+	await client.dispatch({ action: "clearApprovalTraces" });
+	expect(await client.query({ query: "approvalTraces" })).toEqual([]); await expect(access(unrelated)).resolves.toBeUndefined();
+});

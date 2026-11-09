@@ -11,7 +11,7 @@ const advise = vi.hoisted(() => vi.fn());
 vi.mock("../../../src/harness/approval/advisor.ts", async importOriginal => ({
 	...await importOriginal<typeof import("../../../src/harness/approval/advisor.ts")>(), adviseApproval: advise,
 }));
-vi.mock("../../../src/harness/approval/evidence.ts", () => ({ collectApprovalEvidence: async () => [] }));
+vi.mock("../../../src/harness/approval/evidence.ts", () => ({ collectApprovalEvidence: async () => [], collectBlockEvidence: async () => [] }));
 const temp = useTempDir("approval-ai-");
 preserveEnv("PIMOON_APPROVAL_AI_CONFIG");
 const card = (decision = "ask") => ({ decision, title: "确认操作", explanation: "是否允许本次操作？",
@@ -80,7 +80,7 @@ it("澄清不是授权，即使讨论后的模型返回 allow 也继续等待人
 	const f = fixture(), running = f.call(); await f.respond("Discuss", "会修改文件吗？");
 	await vi.waitFor(() => expect(advise).toHaveBeenCalledTimes(2));
 	await vi.waitFor(() => expect(f.dialogs.list()).toHaveLength(1)); expect(f.audit).toEqual([]);
-	expect(advise.mock.calls[1]?.[5].discussion).toContainEqual({ role: "user", content: "会修改文件吗？" });
+	expect(advise.mock.calls[1]?.[5].discussion).toContainEqual({ role: "user", content: JSON.stringify({ feedback: "会修改文件吗？", answers: {} }) });
 	await f.respond(); expect(await running).toBeUndefined();
 });
 it("人工问题保持暂停，不转为模型替人批准", async () => {

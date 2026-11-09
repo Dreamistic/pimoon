@@ -29,7 +29,7 @@ await import(${JSON.stringify(path.join(root, "src/desktop/backend.ts"))});\n`);
 			await collectAssets(root, path.join(appDir, "resources"), { target: "node", platform });
 			const workerDir = path.join(appDir, "resources", "pimoon");
 			await mkdir(workerDir, { recursive: true });
-			for (const file of ["worker.py","process_api.py", "parallel.py", "execution.py", "feedback.py", "observations.py", "worker_hooks.py"]) await cp(path.join(root, "src/pimoon", file), path.join(workerDir, file));
+			for (const file of ["worker.py","approval_plan.py","process_api.py", "parallel.py", "execution.py", "feedback.py", "observations.py", "worker_hooks.py"]) await cp(path.join(root, "src/pimoon", file), path.join(workerDir, file));
 			await cp(path.join(root, "assets/runtime/pimoon-runtime.exe"), path.join(workerDir, "pimoon-runtime.exe"));
 			const sdkPackageFile = path.join(appDir, "resources/pi/package.json");
 			const sdkPackage = JSON.parse(await readFile(sdkPackageFile, "utf8"));

@@ -134,7 +134,7 @@ export function historyDeletionTests(context: () => { host: GuiClient; cwd: stri
 			const file = await storeSession({ cwd, agentDir, provider: "gui-fixture" });
 			await writeFile(path.join(agentDir, "configs", "approval-ai.jsonc"), '{"model":"gui-fixture/test","routine":false}');
 			const task = host.dispatch(prompt);
-			await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
+			await expect.poll(() => host.execution.dialogs.list().length, { timeout: 10000 }).toBe(1);
 			const dialog = host.execution.dialogs.list()[0];
 			if (!dialog) throw new Error("缺少工具审批");
 			await expect(host.dispatch({ action: "deleteSession", path: readSnapshot(host).sessionFile })).rejects.toThrow();

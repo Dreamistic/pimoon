@@ -1,3 +1,4 @@
+import type { ApprovalAnswers, ApprovalWidget } from "../widgets.ts";
 import type { ApprovalDecision, ApprovalRequest } from "../types.ts";
 
 export const ALLOW_ONCE = "Allow once";
@@ -13,13 +14,16 @@ export interface ApprovalCard {
 	recommendationReason: string;
 	actions: { choice: ApprovalChoice; label: string }[];
 	feedbackPlaceholder: string;
+	widgets?: ApprovalWidget[];
 }
-export interface ApprovalReply { choice: ApprovalChoice; feedback?: string; actor?: "advisor" }
+export interface ApprovalReply { choice: ApprovalChoice; feedback?: string; answers?: ApprovalAnswers; actor?: "advisor" }
 export interface ApprovalScopeOption { scope: ApprovalScope; choice: ApprovalChoice; label: string; detail: string }
 export interface ApprovalDialogOptions {
 	timeout?: number;
 	signal?: AbortSignal;
 	card?: ApprovalCard;
+	block?: { id: string; code: string; codeHash: string; plannedCalls: number; dispatchedCalls?: number; unresolvedLines: number[] };
+	reviewId?: string;
 	discuss?: boolean;
 }
 export interface ApprovalInteractionPort {
