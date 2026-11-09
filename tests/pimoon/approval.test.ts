@@ -85,6 +85,8 @@ it("同一 CodeAct 两次进程共用一次整段审查", async () => {
 	try {
 		await f.runtime.session.prompt("Run two isolated operations.");
 		expect(await fs.readFile(path.join(f.cwd, "effect.txt"), "utf8")).toBe("onceonce");
+		const executed = f.runtime.session.messages.find(message => message.role === "toolResult" && message.toolName === "execute");
+		expect((JSON.stringify(executed).match(/确认仅在隔离工作区写标记/gu) ?? [])).toHaveLength(1);
 		expect(f.reviews).toBe(1); expect(f.dialogs.list()).toEqual([]);
 	} finally { await f.close(); }
 }, 30000);

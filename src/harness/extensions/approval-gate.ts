@@ -100,7 +100,10 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 			if (category && request.tool === "process_run") await grantRoutineProcess(event.input, ctx.cwd, category);
 			if (category === "local_inspection") await grantRoutineInspection(event.input, ctx.cwd);
 			if (signal.aborted) return stop("CodeAct cancelled. Nothing further executed.");
-			feedback.set(event.toolCallId, { reason: result.reason, actor: "actor" in result ? String(result.actor) : "advisor" });
+			if (!block?.notified) {
+				feedback.set(event.toolCallId, { reason: result.reason, actor: "actor" in result ? String(result.actor) : "advisor" });
+				if (block) block.notified = true;
+			}
 			if (config.diagnostics) {
 				traceCalls.set(event.toolCallId, { reviewId: result.reviewId, config: config.diagnostics });
 				void appendApprovalTrace(result.reviewId, "dispatch", { callId: event.toolCallId, blockId: block?.id, tool: event.toolName, input: event.input }, config.diagnostics).catch(() => approvalDiagnostic(session, event.toolCallId, hash, request.tool, { phase: "trace_failure" }));

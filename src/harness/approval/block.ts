@@ -9,7 +9,7 @@ export interface ApprovalBlock {
 	plan?: Promise<BlockPlan>;
 	verdict?: Promise<BlockVerdict>;
 	result?: BlockVerdict;
-	stopReason?: string;
+	stopReason?: string;	notified?: boolean;
 	remaining?: Map<string, number>;
 	seen: Map<string, number>;
 }
