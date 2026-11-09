@@ -11,6 +11,7 @@
     "enabled": {
       "type": "boolean"
     },
+    "routine": { "type": "boolean", "description": "Skip AI for bounded local development operations." },
     "model": {
       "type": "string",
       "pattern": "^[^/]+/.+$"

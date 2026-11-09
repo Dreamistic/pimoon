@@ -103,3 +103,12 @@ it("配置接口不接受文件路径或未注册模块", async () => {
 	await expect(host.query({ query: "moduleConfig", id: "../../secret" })).rejects.toThrow();
 	await expect(host.dispatch({ action: "saveModuleConfig", id: "gui", original: "", content: "{}" })).rejects.toThrow();
 });
+
+it("常规开发免审开关可单独关闭，不关闭 AI 审批", async () => {
+	const initial = await host.query({ query: "moduleConfig", id: "approvalGate" });
+	expect(parse(initial.defaults)).toMatchObject({ enabled: true, routine: true });
+	await host.dispatch({ action: "saveModuleConfig", id: "approvalGate", original: initial.content, content: '{"routine":false}' });
+	const saved = await host.query({ query: "moduleConfig", id: "approvalGate" });
+	expect(parse(saved.content)).toEqual({ routine: false });
+	await expect(host.dispatch({ action: "saveModuleConfig", id: "approvalGate", original: saved.content, content: '{"routine":"yes"}' })).rejects.toThrow();
+});

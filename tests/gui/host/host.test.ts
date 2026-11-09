@@ -594,7 +594,7 @@ describe("GUI 直接使用 SDK", () => {
 	it("审批在界面重连后仍存在，拒绝不写文件，旧响应不可再次消费", async () => {
 		await writeFile(
 			path.join(temp.path, ".pi", "agent", "configs", "approval-ai.jsonc"),
-			'{"model":"gui-fixture/test"}',
+			'{"model":"gui-fixture/test","routine":false}',
 		);
 		const task = host.dispatch(prompt("Write output"));
 		await expect.poll(() => host.execution.dialogs.list().length).toBe(1);

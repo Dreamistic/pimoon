@@ -1,6 +1,7 @@
 {
   "$schema": "../schemas/approval-ai.schema.json",
   "enabled": true,
+  "routine": true,
   "model": "openai-codex/gpt-6.1-sol",
   "timeout_ms": 60000
 }

@@ -399,6 +399,9 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 	private validateAccess(lexical: LexicalPathIdentity, candidate: string, phase: AccessCheckPhase): FsResult<void> {
 		const access = this.validateNamespaceAccess(lexical, candidate);
 		if (!access.ok) return access;
+		if (this.options.pathAccess?.denies?.(candidate)) return fsFailure({
+			code: "blocked", message: "Path is outside this local inspection scope.", path: lexical.displayPath,
+		});
 		const identity = phase === "lexical" ? lexical : this.canonicalIdentity(candidate, lexical);
 		const matchedRule = this.blockedPaths.match(identity);
 		return matchedRule === undefined ? access : fsFailure({

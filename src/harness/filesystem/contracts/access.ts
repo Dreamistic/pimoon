@@ -9,4 +9,6 @@ export interface FilesystemPathAccess {
 	readonly mounts: readonly FilesystemMount[];
 	readonly protectedRoots: readonly string[];
 	readonly managedSchemes: readonly string[];
+	/** 宿主单次调用附加过滤；只收紧访问，不覆盖其他文件系统规则。 */
+	readonly denies?: (absolutePath: string) => boolean;
 }

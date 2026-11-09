@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { SessionManager, createAgentSessionRuntime, createAgentSessionServices, createAgentSessionFromServices } from "@earendil-works/pi-coding-agent";
@@ -11,14 +12,14 @@ import { startModelServer, type ModelResponse } from "../cli/model-server.ts";
 import { createRuntimeResources } from "./runtime-resources.ts";
 
 afterEach(() => vi.unstubAllEnvs());
-async function fixture(reply: (step: number, request: unknown) => string | ModelResponse, verdict: "ask" | "allow" | "deny" = "ask") {
+async function fixture(reply: (step: number, request: unknown) => string | ModelResponse, verdict: "ask" | "allow" | "deny" = "ask", routine = false) {
 	const base = path.resolve(".tmp/tests/approval-integration"); await fs.mkdir(base, { recursive: true });
 	const root = await fs.mkdtemp(path.join(base, "case-"));
 	const cwd = path.join(root, "workspace"), agentDir = path.join(root, "agent");
 	await fs.mkdir(cwd); await fs.mkdir(agentDir);
 	vi.stubEnv("PIMOON_RESOURCE_DIR", await createRuntimeResources(root));
 	const config = path.join(root, "approval.jsonc");
-	await fs.writeFile(config, JSON.stringify({ model: "fixture/test" }));
+	await fs.writeFile(config, JSON.stringify({ model: "fixture/test", routine }));
 	vi.stubEnv("PIMOON_APPROVAL_AI_CONFIG", config);
 	const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
 	let step = 0;
@@ -41,7 +42,7 @@ async function fixture(reply: (step: number, request: unknown) => string | Model
 	} } }));
 	try {
 		const manager = SessionManager.inMemory(cwd);
-		manager.appendCustomEntry("codeact_functions", ["process_run", "read", "write"]);
+		manager.appendCustomEntry("codeact_functions", ["process_run", "read", "write", "grep", "find", "ls"]);
 		const runtime = await createAgentSessionRuntime(async ({ cwd, agentDir, sessionManager }) => {
 			const codeact = new CodeAct();
 			const services = await createAgentSessionServices({ cwd, agentDir, resourceLoaderOptions: {
@@ -112,3 +113,92 @@ it("停止等待立即撤销选择框，迟到批准不能执行", async () => {
 		await expect(fs.access(path.join(f.cwd, "effect.txt"))).rejects.toThrow();
 	} finally { await f.close(); }
 }, 30000);
+
+
+it("真实 SDK 常规读写不请求审批模型，未知进程仍停在人类选择框", async () => {
+	const f = await fixture(step => step === 0 ? execution(`write(path="ordinary.txt",content="keep")\nread(path="ordinary.txt")\n${append}`) : "done", "ask", true);
+	try {
+		const running = f.runtime.session.prompt("Write and inspect ordinary project file; ask about unknown process.");
+		await vi.waitFor(() => expect(f.dialogs.list()).toHaveLength(1), { timeout: 10000 });
+		expect(f.reviews).toBe(1);
+		expect(await fs.readFile(path.join(f.cwd, "ordinary.txt"), "utf8")).toBe("keep");
+		const id = f.dialogs.list()[0]?.id; if (!id) throw new Error("missing human choice");
+		f.dialogs.respond(id, "Deny"); await running;
+		await expect(fs.access(path.join(f.cwd, "effect.txt"))).rejects.toThrow();
+	} finally { await f.close(); }
+}, 30000);
+
+
+it("真实 SDK Git 查询免审且不执行外部 diff；后续编辑本轮新文件仍免审", async () => {
+	const argv = JSON.stringify(["git", "diff"]);
+	const f = await fixture(step => step === 0 ? execution(`subprocess.run(${argv},check=True,capture_output=True,text=True)\nwrite(path="new.ts",content="before")\nread(path="new.ts")\nwrite(path="new.ts",content="after")`) : "done", "deny", true);
+	try {
+		execFileSync("git", ["init", f.cwd], { windowsHide: true, stdio: "pipe" });
+		await fs.writeFile(path.join(f.cwd, "tracked.txt"), "before");
+		execFileSync("git", ["-C", f.cwd, "add", "tracked.txt"], { windowsHide: true, stdio: "pipe" });
+		await fs.writeFile(path.join(f.cwd, "tracked.txt"), "after");
+		execFileSync("git", ["-C", f.cwd, "config", "diff.external", "!echo injected > bad-marker"], { windowsHide: true, stdio: "pipe" });
+		await f.runtime.session.prompt("Inspect the ordinary diff and edit new file.");
+		expect(f.reviews).toBe(0);
+		expect(await fs.readFile(path.join(f.cwd, "new.ts"), "utf8")).toBe("after");
+		await expect(fs.access(path.join(f.cwd, "bad-marker"))).rejects.toThrow();
+		const result = f.runtime.session.messages.find(message => message.role === "toolResult" && message.toolName === "execute");
+		expect(result).toMatchObject({ isError: false });
+	} finally { await f.close(); }
+}, 30000);
+
+
+it("真实 SDK 类型检查免审且不会写入 tsconfig 指定的缓存", async () => {
+	const argv = JSON.stringify([process.execPath, "node_modules/typescript/bin/tsc", "--noEmit", "--pretty", "false"]);
+	const f = await fixture(step => step === 0 ? execution(`subprocess.run(${argv},capture_output=True,text=True,check=True)`) : "done", "deny", true);
+	try {
+		await fs.symlink(path.resolve("node_modules"), path.join(f.cwd, "node_modules"), "junction");
+		await fs.writeFile(path.join(f.cwd, "sample.ts"), "export const value: number = 42;");
+		await fs.writeFile(path.join(f.cwd, "tsconfig.json"), JSON.stringify({ compilerOptions: { incremental: true, tsBuildInfoFile: "unwanted-cache", skipLibCheck: true, types: [] }, files: ["sample.ts"] }));
+		await f.runtime.session.prompt("Only check TypeScript; do not write build output.");
+		expect(f.reviews).toBe(0);
+		const result = f.runtime.session.messages.find(message => message.role === "toolResult" && message.toolName === "execute");
+		expect(result, JSON.stringify(result)).toMatchObject({ isError: false });
+		await expect(fs.access(path.join(f.cwd, "unwanted-cache"))).rejects.toThrow();
+	} finally { await f.close(); }
+}, 30000);
+
+
+it("真实 SDK 根目录免审搜索过滤敏感子项，不依赖主模型避免选择它们", async () => {
+	const f = await fixture(step => step === 0 ? execution(`r=grep(query="routine-needle",path=["."])\nassert "PRIVATE_SENTINEL" not in str(r) and "DOTENV_SENTINEL" not in str(r)\nprint(r)`) : "done", "deny", true);
+	try {
+		await fs.mkdir(path.join(f.cwd, ".private"));
+		await fs.writeFile(path.join(f.cwd, ".private", "data.txt"), "routine-needle PRIVATE_SENTINEL");
+		await fs.writeFile(path.join(f.cwd, ".env.staging"), "routine-needle DOTENV_SENTINEL");
+		await fs.writeFile(path.join(f.cwd, "ordinary.txt"), "routine-needle ordinary");
+		await f.runtime.session.prompt("Search ordinary project content.");
+		expect(f.reviews).toBe(0);
+		const result = f.runtime.session.messages.find(message => message.role === "toolResult" && message.toolName === "execute");
+		expect(result, JSON.stringify(result)).toMatchObject({ isError: false });
+		expect(JSON.stringify(result)).toContain("ordinary");
+		expect(JSON.stringify(result)).not.toContain("PRIVATE_SENTINEL");
+		expect(JSON.stringify(result)).not.toContain("DOTENV_SENTINEL");
+	} finally { await f.close(); }
+}, 30000);
+
+
+it.each(["test", "build"] as const)("真实 SDK 隔离 %s 使用已安装 CLI 直接执行而不请求 AI", async workflow => {
+	let code = "";
+	const f = await fixture(step => step === 0 ? execution(code) : "done", "deny", true);
+	try {
+		await fs.symlink(path.resolve("node_modules"), path.join(f.cwd, "node_modules"), "junction");
+		if (workflow === "test") {
+			await fs.writeFile(path.join(f.cwd, "sample.test.ts"), 'import { it, expect } from "vitest"; it("fixture", () => expect(42).toBe(42));');
+			await fs.writeFile(path.join(f.cwd, "vitest.config.mjs"), 'export default { test: { include: ["sample.test.ts"] } };');
+		} else await fs.writeFile(path.join(f.cwd, "index.html"), '<!doctype html><title>isolated fixture</title><p>build fixture</p>');
+		const env = Object.fromEntries(["PIMOON_HOME", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"].map(key => [key, path.join(f.cwd, ".tmp", "tests", key)]));
+		for (const target of Object.values(env)) await fs.mkdir(target, { recursive: true });
+		const argv = workflow === "test" ? ["node", "node_modules/vitest/vitest.mjs", "run", "sample.test.ts"] : ["node", "node_modules/vite/bin/vite.js", "build"];
+		code = `subprocess.run(${JSON.stringify(argv)},env=${JSON.stringify(env)},capture_output=True,text=True,check=True)`;
+		await f.runtime.session.prompt("Run the isolated local validation workflow.");
+		expect(f.reviews).toBe(0);
+		const result = f.runtime.session.messages.find(message => message.role === "toolResult" && message.toolName === "execute");
+		expect(result, JSON.stringify(result)).toMatchObject({ isError: false });
+		if (workflow === "build") expect(await fs.readFile(path.join(f.cwd, "dist/index.html"), "utf8")).toContain("build fixture");
+	} finally { await f.close(); }
+}, 45000);

@@ -20,7 +20,7 @@ const card = (decision = "ask") => ({ decision, title: "确认操作", explanati
 beforeEach(async () => {
 	advise.mockReset(); advise.mockResolvedValue(card());
 	process.env.PIMOON_APPROVAL_AI_CONFIG = path.join(temp.path, "approval.jsonc");
-	await writeFile(process.env.PIMOON_APPROVAL_AI_CONFIG, JSON.stringify({ model: "fixture/test" }));
+	await writeFile(process.env.PIMOON_APPROVAL_AI_CONFIG, JSON.stringify({ model: "fixture/test", routine: false }));
 });
 const operation = (): ToolCallEvent => ({ type: "tool_call", toolCallId: "process", toolName: "process_run", input: { argv: ["git", "status"] } });
 function fixture() {
@@ -70,7 +70,7 @@ it.each(["branch", "config", "input", "cancel"] as const)("等待期间 %s 改�
 	const f = fixture(), event = operation(), running = f.call(event);
 	await vi.waitFor(() => expect(f.dialogs.list()).toHaveLength(1));
 	if (change === "branch") f.changeBranch();
-	if (change === "config") await writeFile(process.env.PIMOON_APPROVAL_AI_CONFIG ?? "", '{"model":"fixture/changed"}');
+	if (change === "config") await writeFile(process.env.PIMOON_APPROVAL_AI_CONFIG ?? "", '{"model":"fixture/changed","routine":false}');
 	if (change === "input" && "argv" in event.input) event.input.argv = ["git", "reset", "--hard"];
 	if (change === "cancel") f.cancel(); else await f.respond();
 	expect(await running).toMatchObject({ block: true }); expect(f.dialogs.list()).toEqual([]);
@@ -92,7 +92,7 @@ it("分类器故障与超时不执行、不伪装成人工拒绝或放行", asyn
 	advise.mockRejectedValueOnce(new Error("offline")); const f = fixture();
 	expect(await f.call()).toMatchObject({ block: true, reason: expect.stringContaining("unavailable") });
 	expect(f.dialogs.list()).toEqual([]); expect(f.audit).toMatchObject([{ actor: "host", decision: "unavailable" }]);
-	await writeFile(process.env.PIMOON_APPROVAL_AI_CONFIG ?? "", '{"timeout_ms":100}');
+	await writeFile(process.env.PIMOON_APPROVAL_AI_CONFIG ?? "", '{"timeout_ms":100,"routine":false}');
 	advise.mockReturnValue(new Promise(() => {}));
 	expect(await f.call()).toMatchObject({ block: true, reason: expect.stringContaining("超时") });
 });

@@ -69,7 +69,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 
 		it("A 等待审批时 B 可完成 Shell，切回只显示 A 的审批并消费一次", async () => {
 			const { host: first, agentDir } = context();
-			await writeFile(path.join(agentDir, "configs", "approval-ai.jsonc"), '{"model":"gui-fixture/test"}');
+			await writeFile(path.join(agentDir, "configs", "approval-ai.jsonc"), '{"model":"gui-fixture/test","routine":false}');
 			const original = readSnapshot(first).sessionId;
 			const task = first.dispatch(prompt("任务 A"));
 			await expect.poll(() => first.execution.dialogs.list().length).toBe(1);
@@ -99,7 +99,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 
 		it("停止 B 不取消后台 A，停止后旧审批不能恢复任务", async () => {
 			const { host, agentDir } = context();
-			await writeFile(path.join(agentDir, "configs", "approval-ai.jsonc"), '{"model":"gui-fixture/test"}');
+			await writeFile(path.join(agentDir, "configs", "approval-ai.jsonc"), '{"model":"gui-fixture/test","routine":false}');
 			const a = readSnapshot(host).sessionId;
 			const first = host.dispatch(prompt("等待批准的 A"));
 			await expect.poll(() => host.execution.dialogs.list().length).toBe(1);
@@ -305,7 +305,7 @@ export function multiSessionTests(context: () => { host: GuiClient; cwd: string;
 
 		it("回收空闲实例后恢复历史但不继承单次授权，等待审批的实例不回收", async () => {
 			const { cwd, agentDir } = context();
-			await writeFile(path.join(agentDir, "configs", "approval-ai.jsonc"), '{"model":"gui-fixture/test"}');
+			await writeFile(path.join(agentDir, "configs", "approval-ai.jsonc"), '{"model":"gui-fixture/test","routine":false}');
 			await writeFile(path.join(agentDir, "configs", "gui.jsonc"), '{"sessionCache":{"idleLimit":0}}');
 			const service = new GuiHost();
 			const client = service.createClient();

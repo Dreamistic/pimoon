@@ -43,6 +43,7 @@ export type ApprovalDecision =
 
 export interface ApprovalGateConfig {
 	enabled: boolean;
+	routine?: boolean;
 	model: string;
 	timeout_ms: number;
 }

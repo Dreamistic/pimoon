@@ -1,4 +1,7 @@
+import { grantRoutineInspection } from "../approval/routine-file-grant.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { routineOperation } from "../approval/routine.ts";
+import { grantRoutineProcess } from "../approval/routine-process-grant.ts";
 import { loadApprovalGateConfig } from "../approval/config.ts";
 import { approvalFingerprint } from "../approval/runtime/pending.ts";
 import { approvalBinding, type ApprovalPresenter } from "../approval/pi/proposal.ts";
@@ -15,12 +18,13 @@ import { attachPrivateNetworkGrant, createPrivateNetworkGrantFor } from "../web-
 
 export type { ApprovalPresenter } from "../approval/pi/proposal.ts";
 
-/** 唯一裁决者为独立审批 AI；宿主只保证暂停、单次消费、取消及上下文绑定。 */
+/** 常规本地开发直接执行；其余由独立 AI 裁决，宿主保证上下文绑定和取消。 */
 export default function approvalGateExtension(pi: ExtensionAPI, present?: ApprovalPresenter): void {
 	let lifetime = new AbortController(), queue: Promise<void> = Promise.resolve();
 	const feedback = new Map<string, { text: string; actor: string }>();
 	const recent: unknown[] = [];
-	const reset = () => { lifetime.abort(); lifetime = new AbortController(); feedback.clear(); };
+	const created = new Set<string>(), pendingFiles = new Map<string, string>();
+	const reset = () => { lifetime.abort(); lifetime = new AbortController(); feedback.clear(); created.clear(); pendingFiles.clear(); };
 	pi.on("before_agent_start", reset);
 	pi.on("session_start", () => { reset(); recent.length = 0; });
 	pi.on("session_tree", () => { reset(); recent.length = 0; });
@@ -43,6 +47,21 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 			&& approvalFingerprint(event.input) === inputHash && approvalFingerprint(await loadApprovalGateConfig()) === policyHash;
 		const diagnostic = (value: Parameters<typeof approvalDiagnostic>[4]) =>
 			approvalDiagnostic(ctx.sessionManager.getSessionId(), event.toolCallId, key, request.tool, value);
+		const routingStarted = performance.now();
+		try {
+			const category = config.routine !== false ? await routineOperation(request, ctx.cwd, created) : undefined;
+			if (category && request.tool === "process_run") await grantRoutineProcess(event.input, ctx.cwd, category);
+			if (category === "local_inspection") await grantRoutineInspection(event.input, ctx.cwd);
+			if (!await valid()) return { block: true, reason: "Approval context changed. Nothing executed." };
+			if (category) {
+				if (category === "project_new_file" && request.tool === "write") pendingFiles.set(event.toolCallId, request.detail.path);
+				diagnostic({ phase: "routine", category, elapsedMs: performance.now() - routingStarted });
+				return;
+			}
+		} catch {
+			// 无法识别的路径或 CLI 不直接拒绝，继续原有 AI 判断。
+			if (signal.aborted) return { block: true, reason: "Approval cancelled. Nothing executed." };
+		}
 		const previous = queue;
 		let release = () => {};
 		const turn = new Promise<void>(resolve => { release = resolve; });
@@ -115,6 +134,9 @@ export default function approvalGateExtension(pi: ExtensionAPI, present?: Approv
 		}
 	});
 	pi.on("tool_result", event => {
+		const newFile = pendingFiles.get(event.toolCallId);
+		pendingFiles.delete(event.toolCallId);
+		if (newFile && !event.isError) created.add(newFile);
 		if (event.toolName !== "execute") {
 			const input = { ...event.input };
 			if ("env" in input) input.env = "values omitted";

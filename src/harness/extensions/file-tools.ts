@@ -1,3 +1,4 @@
+import { routineInspectionFilter } from "../approval/routine-file-grant.ts";
 import { type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { lsParameters } from "../file-tools/ls/schema.ts";
 import { findParameters } from "../file-tools/find/schema.ts";
@@ -66,14 +67,17 @@ export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySin
 	const runtimeForInvocation = async (
 		ctx: ExtensionContext,
 		signal: AbortSignal | undefined,
+		input?: object,
 	): Promise<FileToolRuntime> => {
 		const [invocationHost, index] = await Promise.all([hostForInvocation(), skillPathIndex()]);
+		const pathAccess = await buildSkillFilesystemAccess(skills.read(ctx.sessionManager), index);
+		const denies = input ? routineInspectionFilter(input) : undefined;
 		return {
 			cwd: ctx.cwd,
 			sessionId: ctx.sessionManager.getSessionId(),
 			...(signal === undefined ? {} : { signal }),
 			host: invocationHost,
-			pathAccess: await buildSkillFilesystemAccess(skills.read(ctx.sessionManager), index),
+			pathAccess: { ...pathAccess, ...(denies ? { denies } : {}) },
 		};
 	};
 
@@ -85,7 +89,7 @@ export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySin
 			promptSnippet: "list one directory",
 			parameters: lsParameters,
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-				const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/ls.ts"), runtimeForInvocation(ctx, signal)]);
+				const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/ls.ts"), runtimeForInvocation(ctx, signal, params)]);
 				return module.executeLs(params, runtime);
 			},
 		},
@@ -103,7 +107,7 @@ export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySin
 			outputSchema: findOutputSchema,
 			annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-				const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/find.ts"), runtimeForInvocation(ctx, signal)]);
+				const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/find.ts"), runtimeForInvocation(ctx, signal, params)]);
 				return module.executeFind(params, runtime);
 			},
 		},
@@ -121,7 +125,7 @@ export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySin
 			outputSchema: grepOutputSchema,
 			annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-				const [adapter, runtime] = await Promise.all([loadGrep(), runtimeForInvocation(ctx, signal)]);
+				const [adapter, runtime] = await Promise.all([loadGrep(), runtimeForInvocation(ctx, signal, params)]);
 				return adapter.execute(params, {
 					...runtime,
 					lsp,
@@ -142,7 +146,7 @@ export default function fileTools(pi: ExtensionAPI, telemetry?: ToolTelemetrySin
 			parameters: readParameters,
 			outputSchema: readOutputSchema,
 			async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-				const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/read.ts"), runtimeForInvocation(ctx, signal)]);
+				const [module, runtime] = await Promise.all([import("../file-tools/pi/adapters/read.ts"), runtimeForInvocation(ctx, signal, params)]);
 				return module.executeRead(params, { ...runtime, model: ctx.model, lsp });
 			},
 		},

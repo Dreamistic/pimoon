@@ -49,7 +49,7 @@ export const moduleGroups: Record<ModuleConfigId, ConfigGroup[]> = {
 		] },
 	],
 	approvalGate: [{ title: "AI 审批", fields: [
-		field("enabled", "AI 自主审批"), field("model", "审批模型", "model"),
+		field("enabled", "AI 自主审批"), field("routine", "常规本地开发免审"), field("model", "审批模型", "model"),
 		field("timeout_ms", "模型超时（毫秒）"),
 	] }],
 	subagent: [

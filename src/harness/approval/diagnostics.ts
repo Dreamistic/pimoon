@@ -2,6 +2,7 @@ import { record } from "../../pimoon/telemetry.ts";
 import { sessionTrace } from "../../pimoon/trace.ts";
 
 export type ApprovalDiagnostic =
+	| { phase: "routine"; category: string; elapsedMs: number }
 	| { phase: "advisor_start"; model: string; contextCount: number; evidenceCount: number; discussionCount: number }
 	| { phase: "advisor_end"; decision: string; recommendation: string; elapsedMs: number }
 	| { phase: "advisor_failure"; reason: string; elapsedMs: number }

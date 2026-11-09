@@ -6,6 +6,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { zstdDecompressSync } from "node:zlib";
 const [base, app] = process.argv.slice(2);
+const routine = process.argv.includes("--routine");
 if (!base || !app) throw new Error("Usage: node scripts/smoke-approval-ai-artifact.mjs TEST_DIR APP_DIR");
 await fs.mkdir(base); // 拒绝复用旧副作用目录。
 const env = { ...process.env, ELECTRON_RUN_AS_NODE: "1", PI_SUBAGENT_CHILD: "1", PI_OFFLINE: "1", PIMOON_NO_NOTIFICATIONS: "1" };
@@ -15,7 +16,7 @@ for (const key of ["PIMOON_HOME", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDAT
 const cwd = path.join(base, "workspace"), agent = path.join(env.PIMOON_HOME, "agent");
 await fs.mkdir(cwd); await fs.mkdir(path.join(agent, "configs"), { recursive: true });
 const operation = name => `subprocess.run(${JSON.stringify(["node", "-e", `require('node:fs').appendFileSync('${name}-marker','once')`])},check=True)`;
-const code = `${operation("allow")}\nfor name in ["deny","ask"]:\n try:\n  subprocess.run(["node","-e", "require('node:fs').writeFileSync('"+name+"-marker','bad')"],check=True)\n except ToolError:\n  pass\n else:\n  raise AssertionError(name+" unexpectedly executed")\nprint("approval-artifact-complete")`;
+const code = `${routine ? 'write(path="routine.ts",content="before")\nread(path="routine.ts")\nwrite(path="routine.ts",content="after")\nsubprocess.run(["git","status","--short"],check=True,capture_output=True,text=True)\n' : ""}${operation("allow")}\nfor name in ["deny","ask"]:\n try:\n  subprocess.run(["node","-e", "require('node:fs').writeFileSync('"+name+"-marker','bad')"],check=True)\n except ToolError:\n  pass\n else:\n  raise AssertionError(name+" unexpectedly executed")\nprint("approval-artifact-complete")`;
 let mainRequests = 0; const decisions = [];
 const server = createServer(async (req, res) => {
     try {
@@ -59,14 +60,25 @@ await fs.writeFile(path.join(agent, "auth.json"), JSON.stringify({ "openai-codex
 await fs.writeFile(path.join(agent, "models.json"), JSON.stringify({ providers: { "openai-codex": { api: "openai-codex-responses", baseUrl: "https://chatgpt.com/backend-api", models: [{ id: "test", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } }));
 await fs.writeFile(path.join(agent, "settings.json"), JSON.stringify({ defaultProvider: "openai-codex", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
 env.PIMOON_APPROVAL_AI_CONFIG = path.join(agent, "configs/approval-ai.jsonc");
-await fs.writeFile(env.PIMOON_APPROVAL_AI_CONFIG, JSON.stringify({ model: "openai-codex/test" }));
+await fs.writeFile(env.PIMOON_APPROVAL_AI_CONFIG, JSON.stringify({ model: "openai-codex/test", routine }));
 for (const file of ["auto-title", "discord-presence"]) await fs.writeFile(path.join(agent, "configs", file + ".jsonc"), '{"enabled":false}');
 try {
-    const result = await promisify(execFile)(path.join(app, "pimoon.exe"), ["--require", preload, path.join(app, "resources/app/backend.mjs"), "--provider", "openai-codex", "--model", "test", "--thinking", "off", "--system-prompt", "Isolated fixture; execute once.", "--mode", "json", "-p", "--no-session", "--tools", "process_run", "Run isolated approval fixture."], { cwd, env, windowsHide: true, timeout: 60000, maxBuffer: 4 * 1024 * 1024 });
+    if (routine) await promisify(execFile)("git", ["init", cwd], { windowsHide: true });
+    const result = await promisify(execFile)(path.join(app, "pimoon.exe"), ["--require", preload, path.join(app, "resources/app/backend.mjs"), "--provider", "openai-codex", "--model", "test", "--thinking", "off", "--system-prompt", "Isolated fixture; execute once.", "--mode", "json", "-p", "--no-session", "--tools", "process_run,read,write", "Run isolated approval fixture."], { cwd, env, windowsHide: true, timeout: 60000, maxBuffer: 4 * 1024 * 1024 });
     await fs.writeFile(path.join(base, "output.txt"), result.stdout + "\n" + result.stderr);
     if (await fs.readFile(path.join(cwd, "allow-marker"), "utf8") !== "once") throw new Error("allow did not execute exactly once");
     for (const name of ["deny", "ask"]) if (await fs.stat(path.join(cwd, name + "-marker")).then(() => true, () => false)) throw new Error(name + " unexpectedly executed");
     if (mainRequests !== 2 || JSON.stringify(decisions) !== '["allow","deny","ask"]' || !result.stdout.includes("approval-artifact-complete")) throw new Error("classification flow mismatch");
-    const report = { ok: true, mainRequests, decisions, allowSideEffects: 1, denySideEffects: 0, askWithoutUiSideEffects: 0, windowStarted: false, realCredentialsUsed: false };
+    const categories = [];
+    if (routine) {
+        if (await fs.readFile(path.join(cwd, "routine.ts"), "utf8") !== "after") throw new Error("routine edit failed");
+        for (const dir of await fs.readdir(path.join(env.PIMOON_HOME, "telemetry"))) for (const file of await fs.readdir(path.join(env.PIMOON_HOME, "telemetry", dir))) {
+            if (!file.endsWith(".jsonl")) continue;
+            const text = await fs.readFile(path.join(env.PIMOON_HOME, "telemetry", dir, file), "utf8");
+            for (const line of text.trim().split("\n").filter(Boolean)) { const row = JSON.parse(line); if (row.type === "approval_diagnostic" && row.phase === "routine") categories.push(row.category); }
+        }
+        if (JSON.stringify(categories) !== '["project_new_file","local_inspection","project_edit","git_inspection"]') throw new Error("routine routing mismatch: " + JSON.stringify(categories));
+    }
+    const report = { ok: true, routine, categories, mainRequests, decisions, allowSideEffects: 1, denySideEffects: 0, askWithoutUiSideEffects: 0, windowStarted: false, realCredentialsUsed: false };
     await fs.writeFile(path.join(base, "result.json"), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report));
 } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
