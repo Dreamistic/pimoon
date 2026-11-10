@@ -29,6 +29,8 @@ import { SessionSearchTask } from "./catalog/search-task.ts";
 const validateAction = compileSchemaValidator(actionSchema);
 const validateQuery = compileSchemaValidator(querySchema);
 
+export type GuiActor = "owner" | "delegate";
+
 /** 每个连接独立导航。操作始终使用提交时的会话标识。 */
 export class GuiClient {
 	readonly id = randomUUID();
@@ -56,7 +58,12 @@ export class GuiClient {
 	private pendingSessions = new Map<string, GuiSession>();
 	private creatingSessions = new Map<string, Promise<{ cancelled: boolean }>>();
 
-	constructor(readonly host: GuiHost) {
+	readonly #actor: GuiActor;
+	get actor(): GuiActor { return this.#actor; }
+
+	constructor(readonly host: GuiHost, actor: GuiActor = "owner") {
+		this.#actor = actor;
+		this.observing = actor === "owner";
 		this.storage = new GuiStorage(host);
 		this.search = new SessionSearchTask(host.sessionSearch, (error) => this.reportError(error));
 		this.unsubscribeHost = host.subscribe((event) => {
@@ -141,6 +148,7 @@ export class GuiClient {
 	readDraft(sessionId: string): string { return this.drafts.get(sessionId) ?? ""; }
 	forSession(session: GuiSession): SessionClient {
 		return {
+			actor: this.actor,
 			readDraft: () => this.readDraft(session.id),
 			writeDraft: (text) => { if (this.host.sessions.get(session.id) === session) this.drafts.set(session.id, text); },
 			emit: (event) => { if (!this.closed && (event.type === "download" || event.type === "editor" || this.selected === session)) this.emit(event); },
@@ -232,6 +240,11 @@ export class GuiClient {
 		if (!validateAction(value)) throw new Error("无效 GUI 操作参数。");
 		if (this.closed) throw new Error("客户端已断开。");
 		const action = value as GuiAction;
+		if (this.actor === "delegate") {
+			if (!["prompt", "abort", "dialog"].includes(action.action)) throw new Error("委派客户端不允许此操作。");
+			// prompt 同时承载宿主命令和直接 shell；委派只接受普通消息。
+			if (action.action === "prompt" && /^\s*[!/]/u.test(action.text)) throw new Error("委派消息不能执行界面、扩展或 shell 命令。");
+		}
 		const source = sessionId ? this.host.sessions.get(sessionId) : undefined;
 		switch (action.action) {
 			case "clearApprovalTraces": await removeApprovalTraces(); return;
@@ -304,6 +317,7 @@ export class GuiClient {
 	private async readQuery(value: unknown, sessionId: string | null): Promise<GuiQueryResults[GuiQuery["query"]]> {
 		if (!validateQuery(value)) throw new Error("无效 GUI 查询参数。");
 		if (this.closed) throw new Error("客户端已断开。");
+		if (this.actor === "delegate") throw new Error("委派客户端不允许 GUI 查询。");
 		const query = value as GuiQuery;
 		if (query.query === "searchSessions") {
 			if (query.cwd !== (this.selected?.cwd ?? this.host.workspaceRoot)) throw new Error("工作区已切换，请重新搜索。");

@@ -6,13 +6,14 @@ import type { GuiEvent } from "../../shared/protocol/events.ts";
 import { approvalScopes, DENY, type ApprovalInteractionPort, type ApprovalReply } from "../../../harness/approval/runtime/interaction.ts";
 import { approvalSummary, approvalText, buildApprovalContent } from "../../../harness/approval/presentation.ts";
 import { plainTheme } from "./theme.ts";
+import type { GuiActor } from "../client.ts";
 import type { CodeActConfirmation, CodeActConfirmationDecision } from "../../../pimoon/codeact/confirmation.ts";
 
-interface DialogResponse { value: string | undefined; feedback?: string | undefined; answers?: ApprovalAnswers | undefined }
+interface DialogResponse { actor?: "user" | "delegate" | undefined; value: string | undefined; feedback?: string | undefined; answers?: ApprovalAnswers | undefined }
 
 /** 对话框属于会话，不随浏览器连接销毁。响应只能消费一次。 */
 export class GuiDialogs {
-	private pending = new Map<string, { dialog: GuiDialog; finish: (value: string | undefined, feedback?: string, answers?: ApprovalAnswers) => void }>();
+	private pending = new Map<string, { dialog: GuiDialog; finish: (value: string | undefined, feedback?: string, answers?: ApprovalAnswers, actor?: GuiActor) => void }>();
 	readonly notices: GuiNotice[] = [];
 	readonly status: Record<string, string> = {};
 	constructor(private readonly emit: (event: GuiEvent) => void, private readonly tail: () => number,
@@ -31,9 +32,10 @@ export class GuiDialogs {
 			approval: { tool: request.tool, cwd: approvalText(request.cwd), reason: approvalText(card?.explanation ?? decision.reason),
 				summary: approvalSummary(request), content: buildApprovalContent(request, decision), scopes, recommended,
 				...(card ? { card } : {}), ...(opts?.block ? { block: opts.block } : {}), ...(opts?.reviewId ? { reviewId: opts.reviewId } : {}), ...(opts?.discuss ? { discuss: true } : {}) } }, opts);
-		if (opts?.discuss && response.value === "Discuss") return { choice: "Discuss", feedback: response.feedback ?? "", ...(response.answers ? { answers: response.answers } : {}) };
+		if (opts?.discuss && response.value === "Discuss") return { choice: "Discuss", ...(response.actor ? { actor: response.actor } : {}), feedback: response.feedback ?? "", ...(response.answers ? { answers: response.answers } : {}) };
+		if (response.value === undefined && response.actor) return { choice: "cancelled", actor: response.actor };
 		const choice = options.find(choice => choice === response.value);
-		return choice ? { choice, ...(response.feedback ? { feedback: response.feedback } : {}), ...(response.answers ? { answers: response.answers } : {}) } : undefined;
+		return choice ? { choice, ...(response.actor ? { actor: response.actor } : {}), ...(response.feedback ? { feedback: response.feedback } : {}), ...(response.answers ? { answers: response.answers } : {}) } : undefined;
 	}
 
 	async confirmCodeAct(request: CodeActConfirmation, signal?: AbortSignal): Promise<CodeActConfirmationDecision> {
@@ -60,13 +62,13 @@ export class GuiDialogs {
 		return new Promise((resolve) => {
 			let timeout: ReturnType<typeof setTimeout> | undefined;
 			const abort = () => finish(undefined);
-			const finish = (value: string | undefined, feedback?: string, answers?: ApprovalAnswers) => {
+			const finish = (value: string | undefined, feedback?: string, answers?: ApprovalAnswers, actor?: GuiActor) => {
 				if (!this.pending.has(id)) return;
 				clearTimeout(timeout);
 				opts?.signal?.removeEventListener("abort", abort);
 				this.pending.delete(id);
 				this.emit({ type: "dialogs", value: this.list() });
-				resolve({ value, feedback, answers });
+				resolve({ value, feedback, answers, actor: actor === "owner" ? "user" : actor });
 			};
 			this.pending.set(id, {
 				dialog: { ...dialog, id, deadline: opts?.timeout ? Date.now() + opts.timeout : null },
@@ -78,9 +80,11 @@ export class GuiDialogs {
 		});
 	}
 
-	respond(id: string, value: string | null, feedback?: string, answers?: ApprovalAnswers): void {
+	respond(id: string, value: string | null, feedback?: string, answers?: ApprovalAnswers, actor: GuiActor = "owner"): void {
 		const pending = this.pending.get(id);
 		if (!pending) throw new Error("对话框已结束，请刷新当前状态。");
+		if (actor === "delegate" && !["approval", "codeact", "select", "confirm", "input"].includes(pending.dialog.kind))
+			throw new Error("委派客户端不允许应答此对话框。");
 		if (value !== null && (pending.dialog.kind === "select" || pending.dialog.kind === "approval") && !pending.dialog.options.includes(value))
 			throw new Error("无效选项。");
 		if (value !== null && pending.dialog.kind === "confirm" && value !== "yes") throw new Error("无效确认。");
@@ -89,7 +93,7 @@ export class GuiDialogs {
 		if (pending.dialog.approval) validateApprovalAnswers(pending.dialog.approval.card?.widgets ?? [], answers ?? {}, value === "Allow once");
 		else if (answers && Object.keys(answers).length) throw new Error("此对话不接受表单。");
 		if (value === "Discuss" && !feedback?.trim() && !Object.keys(answers ?? {}).length) throw new Error("请先填写要交流的内容。");
-		pending.finish(value ?? undefined, feedback?.trim(), answers);
+		pending.finish(value ?? undefined, feedback?.trim(), answers, actor);
 	}
 
 	cancel(): void {

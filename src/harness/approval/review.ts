@@ -14,7 +14,7 @@ import { APPROVAL_STATUS_CHANNEL, type ApprovalStatusEvent } from "./events.ts";
 import type { BlockPlan } from "./block-plan.ts";
 import type { ApprovalBlock } from "./block.ts";
 
-export interface ReviewResult { allowed: boolean; reason: string; actor: "advisor" | "user" | "host"; outcome: string; reviewId: string }
+export interface ReviewResult { allowed: boolean; reason: string; actor: "advisor" | "user" | "delegate" | "host"; outcome: string; reviewId: string }
 export async function reviewOperation(args: {
 	pi: ExtensionAPI; ctx: ExtensionContext; request: ApprovalRequest; config: ApprovalGateConfig;
 	callId: string; hash: string; reviewId: string; signal: AbortSignal; valid: () => Promise<boolean>;
@@ -77,8 +77,8 @@ export async function reviewOperation(args: {
 				}
 			}
 			approved = reply?.choice === "Allow once";
-			const actor = reply?.actor ?? "user", outcome = approved ? "approved" : reply ? "rejected" : "cancelled";
-			const reason = approved ? reply?.feedback ?? card.explanation : `${actor === "advisor" ? "AI denied" : "User rejected or cancelled"} this ${args.block ? "CodeAct block" : "action"}.${reply?.feedback ? `\n${reply.feedback}` : ""} Do not retry unchanged without new evidence or user direction.`;
+			const actor = reply?.actor ?? "user", outcome = approved ? "approved" : !reply || reply.choice === "cancelled" ? "cancelled" : "rejected";
+			const reason = approved ? reply?.feedback ?? card.explanation : `${actor === "advisor" ? "AI denied" : actor === "delegate" ? "Delegate rejected or cancelled" : "User rejected or cancelled"} this ${args.block ? "CodeAct block" : "action"}.${reply?.feedback ? `\n${reply.feedback}` : ""} Do not retry unchanged without new evidence or user direction.`;
 			await trace("resolved", { allowed: approved, actor, outcome, reason, answers: reply?.answers });
 			diagnostic({ phase: "resolved", outcome, actor, scope: args.block ? "codeact" : "once", elapsedMs: performance.now() - started });
 			return result(approved, reason, actor, outcome);

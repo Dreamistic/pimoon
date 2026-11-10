@@ -8,6 +8,7 @@ import type { GuiEvent } from "../../shared/protocol/events.ts";
 import type { SessionQuery, GuiQueryResults } from "../../shared/protocol/queries.ts";
 import type { GuiSnapshot } from "../../shared/protocol/state.ts";
 import { GuiDialogs } from "./dialogs.ts";
+import type { GuiActor } from "../client.ts";
 import { createGuiRuntime } from "./runtime.ts";
 import { exportSession, completeFiles, expandAttachments, readConfig, saveConfig } from "./files.ts";
 import { runLogin } from "./login.ts";
@@ -28,6 +29,7 @@ import { setCodexSpeed } from "../../../harness/codex-speed/state.ts";
 import { applyToolPreset } from "../../../harness/tool-defaults/presets.ts";
 
 export interface SessionClient extends Pick<ExtensionCommandContext, "newSession" | "fork" | "switchSession"> {
+	readonly actor: GuiActor;
 	emit(event: GuiEvent): void;
 	readDraft(): string;
 	writeDraft(text: string): void;
@@ -277,7 +279,7 @@ export class GuiExecution {
 
 	private async perform(action: GuiAction, client: SessionClient): Promise<GuiActionResult> {
 		switch (action.action) {
-			case "dialog": this.dialogs.respond(action.id, action.value, action.feedback, action.answers); return;
+			case "dialog": this.dialogs.respond(action.id, action.value, action.feedback, action.answers, client.actor); return;
 			case "clearNotices": this.dialogs.clearNotices(action.ids); return;
 			case "draft": client.writeDraft(action.text); return;
 			case "cancelLogin": this.loginController?.abort(); if (this.mcpLoggingIn) this.dialogs.cancel(); return;

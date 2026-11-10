@@ -4,6 +4,8 @@ import { beforeEach, expect, it, vi } from "vitest";
 import type { ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import approvalGate from "../../../src/harness/extensions/approval-gate.ts";
 import { GuiDialogs } from "../../../src/gui/host/session/dialogs.ts";
+import * as review from "../../../src/harness/approval/review.ts";
+import { readApprovalTrace } from "../../../src/harness/approval/trace-store.ts";
 import { registerExtension } from "../../helpers/extension.ts";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.ts";
 
@@ -125,4 +127,35 @@ it("进入调用后立即修改参数也失效，检查阶段不能绑定到后�
 	const f = fixture(), event = operation(), running = f.call(event);
 	if ("argv" in event.input) event.input.argv = ["git", "reset", "--hard"];
 	expect(await running).toMatchObject({ block: true }); expect(advise).not.toHaveBeenCalled();
+});
+
+it.each(["Allow once", "Deny", null])("delegate 的 %s 应答写入 ReviewResult、审计和真实 trace", async choice => {
+	await writeFile(process.env.PIMOON_APPROVAL_AI_CONFIG ?? "", JSON.stringify({ model: "fixture/test", routine: false, diagnostics: { enabled: true, retention_days: 7, max_mb: 32 } }));
+	const observed = vi.spyOn(review, "reviewOperation");
+	try {
+		const f = fixture(), running = f.call();
+		await vi.waitFor(() => expect(f.dialogs.list()).toHaveLength(1));
+		f.dialogs.respond(f.dialogs.list()[0]?.id ?? "", choice, undefined, undefined, "delegate");
+		await running;
+		const outcome = choice === "Allow once" ? "approved" : choice === "Deny" ? "rejected" : "cancelled";
+		const result = observed.mock.results[0]; if (result?.type !== "return") throw new Error("missing review result");
+		const value = await result.value;
+		expect(value).toMatchObject({ actor: "delegate", outcome, allowed: choice === "Allow once" });
+		expect(f.audit).toMatchObject([{ actor: "delegate", decision: outcome }]);
+		const trace = await readApprovalTrace(value.reviewId);
+		expect(trace.events).toEqual(expect.arrayContaining([
+			expect.objectContaining({ phase: "interaction", data: expect.objectContaining({ actor: "delegate", choice: choice ?? "cancelled" }) }),
+			expect.objectContaining({ phase: "resolved", data: expect.objectContaining({ actor: "delegate", outcome }) }),
+		]));
+	} finally { observed.mockRestore(); }
+});
+
+it("delegate 的 Discuss 只澄清，最终以 owner 的应答身份记账", async () => {
+	const f = fixture(), running = f.call();
+	await vi.waitFor(() => expect(f.dialogs.list()).toHaveLength(1));
+	f.dialogs.respond(f.dialogs.list()[0]?.id ?? "", "Discuss", "核实范围", undefined, "delegate");
+	await vi.waitFor(() => expect(advise).toHaveBeenCalledTimes(2));
+	expect(f.audit).toEqual([]);
+	await f.respond(); await running;
+	expect(f.audit).toMatchObject([{ actor: "user", decision: "approved" }]);
 });

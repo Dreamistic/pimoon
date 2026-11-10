@@ -12,7 +12,7 @@ import { readLspServers } from "./workspace/lsp-servers.ts";
 import { GuiSession } from "./session/session.ts";
 import { GuiSessionCatalog } from "./catalog/sessions.ts";
 import { SessionSearch } from "./catalog/session-search.ts";
-import { GuiClient } from "./client.ts";
+import { GuiClient, type GuiActor } from "./client.ts";
 import { prepareSessionDeletion } from "./catalog/delete-session.ts";
 import { listWorkspaceFiles, previewWorkspaceFile } from "./workspace/workspace-files.ts";
 import { readWorkspaceGit } from "./workspace/workspace-git.ts";
@@ -61,12 +61,12 @@ export class GuiHost {
 	checkVersion(): Promise<string | null> {
 		return this.versionCheck ??= checkForNewPiVersion(VERSION).then((release) => release?.version ?? null);
 	}
-	createClient(sessionId?: string): GuiClient {
+	createClient(sessionId?: string, actor: GuiActor = "owner"): GuiClient {
 		if (this.closed) throw new Error("宿主已关闭。");
-		const client = new GuiClient(this);
+		const client = new GuiClient(this, actor);
 		this.clients.add(client);
 		const session = sessionId ? this.sessions.get(sessionId) : this.initial;
-		if (session) void client.select(session).catch((error: unknown) => client.reportError(error));
+		if (session && actor === "owner") void client.select(session).catch((error: unknown) => client.reportError(error));
 		return client;
 	}
 	async start(cwd: string): Promise<void> {
@@ -76,7 +76,7 @@ export class GuiHost {
 		this.applyGuiConfig(await readGuiConfig());
 		const session = await this.newSession(this.workspaceRoot, { type: "session_start", reason: "startup" });
 		this.initial = session;
-		for (const client of this.clients) if (!client.selected) void client.select(session).catch((error: unknown) => client.reportError(error));
+		for (const client of this.clients) if (client.actor === "owner" && !client.selected) void client.select(session).catch((error: unknown) => client.reportError(error));
 		await session.ensure();
 		this.refresh();
 		this.refreshModelCatalog(session);

@@ -26,7 +26,7 @@ describe("统一审批条", () => {
 		expect(dialog.approval?.scopes.map(scope => scope.scope)).toEqual(["once"]);
 		expect(() => dialogs.respond(dialog.id, "yes")).toThrow();
 		dialogs.respond(dialog.id, "Allow once", "  本次可以检查状态  ");
-		expect(await pending).toEqual({ choice: "Allow once", feedback: "本次可以检查状态" });
+		expect(await pending).toEqual({ choice: "Allow once", actor: "user", feedback: "本次可以检查状态" });
 		expect(() => dialogs.respond(dialog.id, "Allow once")).toThrow();
 	});
 	it("所有工具使用相同结构，不出现旧选择弹窗；Unicode 保留，控制序列清理", async () => {
@@ -48,7 +48,7 @@ describe("统一审批条", () => {
 		expect(buttons.find(button => button.textContent?.includes("AI推荐"))?.textContent).toContain("拒绝");
 		expect(() => dialogs.respond(dialog.id, "Always allow similar")).toThrow();
 		dialogs.respond(dialog.id, "Deny", "使用只读工具");
-		expect(await pending).toEqual({ choice: "Deny", feedback: "使用只读工具" });
+		expect(await pending).toEqual({ choice: "Deny", actor: "user", feedback: "使用只读工具" });
 	});
 	it("关闭、超时及取消不会批准，迟到响应不能重放", async () => {
 		vi.useFakeTimers();
@@ -70,7 +70,7 @@ describe("统一审批条", () => {
 		expect(() => dialogs.respond(id, "Deny", "x".repeat(2001))).toThrow();
 		expect(() => dialogs.respond(id, null, "note")).toThrow();
 		dialogs.respond(id, "Deny", "不要修改配置");
-		expect(await pending).toEqual({ choice: "Deny", feedback: "不要修改配置" });
+		expect(await pending).toEqual({ choice: "Deny", actor: "user", feedback: "不要修改配置" });
 		expect(dialogs.list()).toEqual([]);
 	});
 });
@@ -81,7 +81,7 @@ it("卡内交流必须有文字，不消费原授权，不能在普通审批伪�
 	const id = dialogs.list()[0]?.id; if (!id) throw new Error("missing dialog");
 	expect(() => dialogs.respond(id, "Discuss", "  ")).toThrow();
 	dialogs.respond(id, "Discuss", "会改文件吗");
-	expect(await pending).toEqual({ choice: "Discuss", feedback: "会改文件吗" });
+	expect(await pending).toEqual({ choice: "Discuss", actor: "user", feedback: "会改文件吗" });
 	const normal = dialogs.approve(request, decision, options);
 	const normalId = dialogs.list()[0]?.id; if (!normalId) throw new Error("missing dialog");
 	expect(() => dialogs.respond(normalId, "Discuss", "伪造")).toThrow();

@@ -16,7 +16,7 @@ export interface ApprovalCard {
 	feedbackPlaceholder: string;
 	widgets?: ApprovalWidget[];
 }
-export interface ApprovalReply { choice: ApprovalChoice; feedback?: string; answers?: ApprovalAnswers; actor?: "advisor" }
+export interface ApprovalReply { choice: ApprovalChoice | "cancelled"; feedback?: string; answers?: ApprovalAnswers; actor?: "advisor" | "user" | "delegate" }
 export interface ApprovalScopeOption { scope: ApprovalScope; choice: ApprovalChoice; label: string; detail: string }
 export interface ApprovalDialogOptions {
 	timeout?: number;

@@ -176,3 +176,23 @@ describe("载荷引用", () => {
 		expect(full.content).toEqual([{ type: "text", text }, { type: "image", mimeType: "image/png", imageId: expect.any(String) }]);
 	});
 });
+
+it("审批身份只进入界面时间线，不更改模型上下文，重开仍能显示", async () => {
+	const manager = SessionManager.create(temp.path, temp.path);
+	manager.appendMessage(user("检查项目"));
+	const before = manager.buildSessionContext().messages;
+	for (const actor of ["advisor", "user", "delegate", "host"])
+		manager.appendCustomEntry("approval_decision", { actor, decision: "approved", review_id: actor });
+	manager.appendCustomEntry("approval_decision", { actor: "unknown", decision: "approved" });
+	expect(manager.buildSessionContext().messages).toEqual(before);
+	const check = (source: SessionManager) => {
+		const history = new GuiHistory(new GuiPayloads()).project(source);
+		const messages = contextMessages(history).filter(message => message.role === "custom");
+		expect(messages.map(message => message.content)).toEqual([
+			"审批: 审批顾问 / 已批准", "审批: 用户 / 已批准", "审批: 委派代理 / 已批准", "审批: 宿主 / 已批准",
+		]);
+	};
+	check(manager);
+	const file = manager.getSessionFile(); if (!file) throw new Error("missing session file");
+	check(SessionManager.open(file));
+});
