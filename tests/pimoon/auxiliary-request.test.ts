@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-const telemetry = vi.hoisted(() => ({ record: vi.fn(), requestBindings: new Map<string, unknown>() }));
+const telemetry = vi.hoisted(() => ({ record: vi.fn() }));
 vi.mock("../../src/pimoon/telemetry.ts", () => ({ ...telemetry, fingerprint: () => ({ sha256: "fixture", chars: 10, bytes: 10 }) }));
 import { bindAuxiliaryRequest } from "../../src/pimoon/auxiliary-request.ts";
 import { bindSessionTrace, sessionTrace } from "../../src/pimoon/trace.ts";

@@ -46,7 +46,6 @@ export function record(type: string, fields: Record<string, unknown> = {}): void
 }
 interface Span { agent: string; request?: string; requestEnded: boolean; start: number; requestStart: number; calls: number; first: boolean; }
 const spans = new Map<string, Span>();
-export const requestBindings = new Map<string, { allowed: boolean; model: string | undefined; labels: ExecutionTrace }>();
 export function labels(ctx: ExtensionContext): ExecutionTrace {
 	return sessionTrace(ctx.sessionManager.getSessionId());
 }
@@ -76,8 +75,6 @@ export function pimoonTelemetry(pi: ExtensionAPI): void {
 			bindSessionTrace(ctx.sessionManager.getSessionId(), { agent_run_id: span.agent, model_request_id: span.request });
 		}
 		const payload = fingerprint(event.payload);
-		requestBindings.set(payload.sha256, { labels: labels(ctx), model: ctx.model?.id, allowed: Boolean(span && ctx.model?.provider === "openai-codex") });
-		if (requestBindings.size > 200) { const first = requestBindings.keys().next().value; if (first) requestBindings.delete(first); }
 		record("model_request", { ...labels(ctx), provider: ctx.model?.provider, model: ctx.model?.id, thinking: pi.getThinkingLevel(),
 			payload, token_estimate: estimateRequestTokens(event.payload) });
 	});

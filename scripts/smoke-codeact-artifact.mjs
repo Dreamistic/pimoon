@@ -21,6 +21,7 @@ await fs.writeFile(env.PIMOON_APPROVAL_AI_CONFIG,'{"enabled":false}');
 let requests=0, declarations=[];
 const server=createServer(async(req,res)=>{
     if(req.method==="GET" && req.url==="/download.bin"){res.writeHead(200,{"content-type":"application/octet-stream","content-length":24*1024*1024});res.end(Buffer.alloc(24*1024*1024,7));return;}
+    if(req.method!=="POST"){res.writeHead(404).end();return;}
     const chunks=[]; for await(const c of req) chunks.push(c);
     const raw=Buffer.concat(chunks); const body=JSON.parse((req.headers["content-encoding"]==="zstd"?zstdDecompressSync(raw):raw).toString());
     if(!Array.isArray(body.input)){res.writeHead(400).end();return;}
@@ -50,15 +51,13 @@ await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
 const address=server.address(); const url=`http://127.0.0.1:${address.port}/v1`;
 code += `\nlarge=http(url=${JSON.stringify(url.replace(/\/v1$/u,"/download.bin"))},mode="download",path="large-download.bin")\nassert large["bytes"]==24*1024*1024 and "body" not in large\nassert Path("large-download.bin").stat().st_size==large["bytes"]\n{"download_complete":True}\n`;
 await fs.writeFile(path.join(agent,"settings.json"),JSON.stringify({defaultProvider:"openai-codex",defaultModel:"test",defaultTools:["read","write","process_run","http"],retry:{enabled:false},compaction:{enabled:false}}));
-await fs.writeFile(path.join(agent,"models.json"),JSON.stringify({providers:{"openai-codex":{api:"openai-codex-responses",baseUrl:"https://chatgpt.com/backend-api",models:[{id:"test",name:"Fixture",reasoning:false,input:["text"],contextWindow:128000,maxTokens:4096,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}}]}}}));
+await fs.writeFile(path.join(agent,"models.json"),JSON.stringify({providers:{"openai-codex":{api:"openai-codex-responses",baseUrl:url,models:[{id:"test",name:"Fixture",reasoning:false,input:["text"],contextWindow:128000,maxTokens:4096,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}}]}}}));
 const token = "synthetic."+Buffer.from(JSON.stringify({"https://api.openai.com/auth":{chatgpt_account_id:"synthetic-account"}})).toString("base64")+".synthetic";
 await fs.writeFile(path.join(agent,"auth.json"),JSON.stringify({"openai-codex":{type:"oauth",access:token,refresh:"DISABLED_SYNTHETIC",expires:Date.now()+3600000,accountId:"synthetic-account"}}));
-const preload=path.join(base,"smoke-preload.cjs");
-await fs.writeFile(preload,`const original=globalThis.fetch;globalThis.fetch=(input,options)=>{const url=typeof input==="string"?input:input.url??String(input);if(url!=="https://chatgpt.com/backend-api/codex/responses")throw Error("Unexpected network: "+url);return original(${JSON.stringify(url)},options);};`);
 await fs.mkdir(path.join(agent,"configs"),{recursive:true});
 for(const file of ["auto-title","discord-presence"])await fs.writeFile(path.join(agent,"configs",file+".jsonc"),'{"enabled":false}');
 try{
- const result=await promisify(execFile)(path.join(app,"pimoon.exe"),["--require",preload,path.join(app,"resources/app/backend.mjs"),"--provider","openai-codex","--model","test","--thinking","off","--system-prompt","Isolated packaged smoke test. Execute the requested Python once.","--mode","json","-p","--no-session","--tools","read,write,process_run,http","Run packaged fixture."],{cwd,env,windowsHide:true,timeout:60000,maxBuffer:4*1024*1024});
+ const result=await promisify(execFile)(path.join(app,"pimoon.exe"),[path.join(app,"resources/app/backend.mjs"),"--provider","openai-codex","--model","test","--thinking","off","--system-prompt","Isolated packaged smoke test. Execute the requested Python once.","--mode","json","-p","--no-session","--tools","read,write,process_run,http","Run packaged fixture."],{cwd,env,windowsHide:true,timeout:60000,maxBuffer:4*1024*1024});
  await fs.writeFile(path.join(base,"smoke-output.txt"),result.stdout+"\n"+result.stderr);
  const events=result.stdout.split("\n").filter(line=>line.startsWith("{")).map(line=>JSON.parse(line));
  const rootResult=events.find(event=>event.type==="tool_execution_end"&&event.toolName==="execute");
