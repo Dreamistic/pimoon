@@ -1,9 +1,32 @@
 .transcript:has(.welcome) { container-type: size; }
-.welcome-surface { display: flex; flex-direction: column; align-items: center; inline-size: 100%; max-inline-size: 64ch; }
+.welcome-surface { --welcome-serif: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", Georgia, serif; container-type: inline-size; display: flex; flex-direction: column; align-items: center; inline-size: 100%; max-inline-size: 52rem; }
 .welcome-content { display: flex; flex-direction: column; align-items: center; inline-size: 100%; }
-.welcome-mark { inline-size: min(100%, 20rem, 32dvh, 50cqh); margin-block-end: var(--space-4); color: var(--foreground); }
-.welcome-illustration { display: block; inline-size: 100%; block-size: auto; overflow: visible; }
-
-@media (max-width: 767px) {
-	.welcome-mark { inline-size: min(100%, 15rem, 25dvh, 50cqh); margin-block-end: var(--space-3); }
+.welcome-content .pimoon-eyebrow { font-family: Georgia, "Times New Roman", serif; font-size: clamp(.625rem, 1.7cqi, .75rem); font-weight: 400; letter-spacing: .24em; text-transform: uppercase; color: var(--muted-foreground); margin-block: 0 var(--space-5); text-wrap: balance; }
+.welcome .welcome-content h1 { font-family: var(--welcome-serif); font-size: clamp(1.625rem, 5.2cqi, 2.75rem); font-weight: 400; letter-spacing: .055em; line-height: 1.5; text-wrap: balance; }
+.welcome-content .pimoon-subtitle { font-family: var(--welcome-serif); color: var(--muted-foreground); font-size: clamp(.8125rem, 2.1cqi, 1rem); line-height: 1.9; letter-spacing: .04em; text-align: center; margin-block: var(--space-3) 0; text-wrap: balance; }
+.welcome-content .starter-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); inline-size: 100%; margin: clamp(1.75rem, 5cqi, 2.75rem) 0 0; }
+.welcome-content .starter { font-family: var(--welcome-serif); font-size: var(--text-ui); padding: 1em 1.15em; border-radius: var(--radius-md); gap: .75em; }
+.welcome-content .starter[data-variant="outline"] { background: transparent; border-color: color-mix(in srgb, var(--muted-foreground) 25%, transparent); }
+.welcome-content .starter[data-variant="outline"]:hover { background: var(--accent); border-color: color-mix(in srgb, var(--muted-foreground) 40%, transparent); }
+.welcome-content .starter[data-variant="outline"]:active { background: var(--secondary-active); }
+.welcome-content .starter[data-variant="default"] { background: var(--welcome-action); color: var(--welcome-action-foreground); border-color: var(--surface-edge); box-shadow: var(--soft-highlight); }
+.welcome-content .starter[data-variant="default"]:hover { background: var(--welcome-action-hover); }
+.welcome-content .starter[data-variant="default"]:active { background: var(--welcome-action-active); }
+.welcome-content .starter[data-variant="default"] > svg { color: currentColor; }
+.welcome-content .pimoon-credit { display: flex; align-items: center; min-inline-size: 0; max-inline-size: 100%; gap: clamp(.5rem, 3cqi, 1.25rem); font-family: Georgia, "Times New Roman", serif; color: var(--muted-foreground); font-size: .625rem; letter-spacing: .3em; margin-top: clamp(1.75rem, 5cqi, 2.75rem); }
+.pimoon-credit::before, .pimoon-credit::after { content: ""; inline-size: clamp(.75rem, 6cqi, 3rem); min-inline-size: 0; block-size: 1px; background: var(--divider); }
+.pimoon-mark { position: relative; display: flex; justify-content: center; inline-size: 100%; block-size: clamp(10.5rem, 31cqh, 14.5rem); margin-block-end: var(--space-5); isolation: isolate; pointer-events: none; }
+.pimoon-mark img { position: relative; inline-size: auto; block-size: clamp(7rem, 23cqh, 10.5rem); align-self: start; }
+.pimoon-horizon { position: absolute; inset-inline: 0; inset-block-end: 0; block-size: clamp(2.25rem, 7cqi, 4rem); overflow: clip; }
+.pimoon-horizon::before { content: ""; position: absolute; inset-inline: 0; inset-block-start: 0; block-size: clamp(9rem, 30cqi, 17rem); border: 1px solid color-mix(in srgb, var(--primary) 32%, transparent); border-radius: 50%; mask-image: linear-gradient(90deg, transparent 5%, #000 45%, #000 55%, transparent 95%); }
+.pimoon-horizon::after { content: ""; position: absolute; inset-inline-start: 50%; inset-block-start: 0; inline-size: 22%; block-size: 1.25rem; transform: translate(-50%, -50%); background: radial-gradient(ellipse, color-mix(in srgb, var(--primary) 20%, transparent), transparent 70%); }
+@container (max-width: 28rem) {
+	.welcome-content .starter-grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+	.welcome-content .starter { padding: .8em 1em; }
+	.welcome-content .pimoon-eyebrow { letter-spacing: .16em; }
+}
+@media (max-height: 36em) {
+	.pimoon-mark { block-size: 8.5rem; }
+	.pimoon-mark img { block-size: 6rem; }
+	.pimoon-horizon { block-size: 1.5rem; }
 }

@@ -7,6 +7,12 @@ import { flushTelemetry, record, requestBindings, telemetryDirectory } from "../
 
 const origin = "https://auth.openai.com";
 const tokenURL = `${origin}/oauth/token`;
+const userCodeURL = `${origin}/api/accounts/deviceauth/usercode`;
+const deviceTokenURL = `${origin}/api/accounts/deviceauth/token`;
+const secret = "SYNTHETIC_OAUTH_PRIVATE_SENTINEL";
+const json = (value: unknown) => new Response(JSON.stringify(value));
+const oauth = openaiCodexProvider().auth.oauth;
+if (!oauth) throw new Error("Codex OAuth provider is required");
 const authPaths = ["/oauth/token", "/api/accounts/deviceauth/usercode", "/api/accounts/deviceauth/token"];
 const access = `synthetic.${Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "synthetic-account" } })).toString("base64url")}.signature`;
 const original = globalThis.fetch;
@@ -21,6 +27,44 @@ beforeEach(() => {
 afterEach(() => { globalThis.fetch = original; });
 
 describe("桌面 Codex 认证网络边界", () => {
+	it("SDK 设备码登录、令牌交换与刷新通过边界，且不记录凭据", async () => {
+		transport.mockImplementation(async (input) => {
+			if (String(input) === userCodeURL) return json({ device_auth_id: "synthetic-device", user_code: secret, interval: 1 });
+			if (String(input) === deviceTokenURL) return json({ authorization_code: secret, code_verifier: secret });
+			if (String(input) === tokenURL) return json({ access_token: access, refresh_token: secret, expires_in: 3600 });
+			throw new Error("Unexpected test endpoint");
+		});
+		const signal = new AbortController().signal;
+		const notify = vi.fn();
+		const credential = await oauth.login({ signal, prompt: async () => "device_code", notify });
+		expect(credential).toMatchObject({ type: "oauth", access, refresh: secret, accountId: "synthetic-account" });
+		expect(notify).toHaveBeenCalledWith(expect.objectContaining({ type: "device_code", userCode: secret }));
+		expect(await oauth.refresh(credential, signal)).toMatchObject({ access, refresh: secret });
+		expect(transport.mock.calls.map(([url]) => url)).toEqual([userCodeURL, deviceTokenURL, tokenURL, tokenURL]);
+		for (const [, options] of transport.mock.calls) expect(options).toMatchObject({ method: "POST", redirect: "error", signal });
+		expect(String(transport.mock.calls[2]?.[1]?.body)).toContain("grant_type=authorization_code");
+		expect(String(transport.mock.calls[3]?.[1]?.body)).toContain("grant_type=refresh_token");
+		expect(requestBindings.size).toBe(0);
+		record("auth_device_boundary_test");
+		await flushTelemetry();
+		const files = (await fs.readdir(telemetryDirectory)).filter(file => file.endsWith(".jsonl"));
+		const text = (await Promise.all(files.map(file => fs.readFile(path.join(telemetryDirectory, file), "utf8")))).join("");
+		expect(text).not.toContain(secret);
+		expect(text).not.toContain(access);
+	});
+
+	it("浏览器授权的表单正文、请求头和取消信号保持原样，并禁止重定向", async () => {
+		const body = new URLSearchParams({ grant_type: "authorization_code", code: secret, code_verifier: secret });
+		const headers = { "Content-Type": "application/x-www-form-urlencoded" };
+		const signal = new AbortController().signal;
+		const response = new Response("invalid_grant", { status: 400 });
+		transport.mockResolvedValue(response);
+		expect(await fetch(tokenURL, { method: "POST", body, headers, signal, redirect: "follow" })).toBe(response);
+		expect(transport.mock.calls[0]?.[1]).toEqual({ method: "POST", body, headers, signal, redirect: "error" });
+		expect(transport.mock.calls[0]?.[1]?.body).toBe(body);
+	});
+
+
 	it("真实 SDK 可自动刷新令牌，无需模型会话绑定且不记录凭据", async () => {
 		const oauth = openaiCodexProvider().auth.oauth;
 		if (!oauth) throw new Error("Codex OAuth unavailable");
@@ -60,6 +104,11 @@ describe("桌面 Codex 认证网络边界", () => {
 		expect(transport).toHaveBeenCalledTimes(3);
 	});
 
+	it("设备码令牌接口拒绝 DELETE", async () => {
+		await expect(fetch(deviceTokenURL, { method: "DELETE" })).rejects.toThrow("订阅端点");
+		expect(transport).not.toHaveBeenCalled();
+	});
+
 	it.each(authPaths.map(pathname => `${origin}${pathname}`))("认证路径不放行 GET：%s", async url => {
 		await expect(fetch(url)).rejects.toThrow("订阅端点");
 		expect(transport).not.toHaveBeenCalled();
@@ -69,7 +118,7 @@ describe("桌面 Codex 认证网络边界", () => {
 		"http://auth.openai.com/oauth/token", "https://auth.openai.com:444/oauth/token",
 		"https://auth.openai.com.example.com/oauth/token", "https://example.com/oauth/token",
 		"https://user:password@auth.openai.com/oauth/token", `${tokenURL}/extra`, `${tokenURL}?target=other`, `${tokenURL}#other`,
-		`${origin}/oauth/authorize`, `${origin}/api/accounts/other`, "https://api.openai.com/v1/responses",
+		`${origin}/api/accounts/oauth/token`, `${origin}/oauth/authorize`, `${origin}/api/accounts/other`, "https://api.openai.com/v1/responses",
 	])("不扩大其他端点的权限：%s", async url => {
 		await expect(fetch(url, { method: "POST" })).rejects.toThrow("订阅端点");
 		expect(transport).not.toHaveBeenCalled();

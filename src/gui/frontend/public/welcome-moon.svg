@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <defs>
+    <radialGradient id="moonlight" gradientUnits="userSpaceOnUse" cx="48" cy="38" r="108">
+      <stop stop-color="#F4F0FA"/>
+      <stop offset=".42" stop-color="#DDD6EC"/>
+      <stop offset=".76" stop-color="#B9AECF"/>
+      <stop offset="1" stop-color="#8C809F"/>
+    </radialGradient>
+    <linearGradient id="rim" gradientUnits="userSpaceOnUse" x1="30" y1="30" x2="116" y2="136">
+      <stop stop-color="#FFFFFF" stop-opacity=".65"/>
+      <stop offset=".5" stop-color="#EAE5F0" stop-opacity=".14"/>
+      <stop offset="1" stop-color="#A59BAB" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="mare">
+      <stop stop-color="#81758F" stop-opacity=".25"/>
+      <stop offset="1" stop-color="#81758F" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="crater" cx=".65" cy=".7">
+      <stop stop-color="#8C809F" stop-opacity=".26"/>
+      <stop offset=".65" stop-color="#9B8DAD" stop-opacity=".12"/>
+      <stop offset=".82" stop-color="#F4F0FA" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#F4F0FA" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="crescent" maskUnits="userSpaceOnUse" x="0" y="0" width="160" height="160">
+      <circle cx="80" cy="80" r="58" fill="white"/>
+      <circle cx="110" cy="48" r="54" fill="black"/>
+    </mask>
+    <filter id="regolith" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency=".065" numOctaves="4" seed="12" result="terrain"/>
+      <feDiffuseLighting in="terrain" surfaceScale="1.8" diffuseConstant="1" lighting-color="#EAE5F0" result="relief">
+        <feDistantLight azimuth="225" elevation="55"/>
+      </feDiffuseLighting>
+      <feComposite in="relief" in2="SourceGraphic" operator="arithmetic" k1=".25" k2="0" k3=".8" k4="0"/>
+    </filter>
+  </defs>
+  <g mask="url(#crescent)">
+    <circle cx="80" cy="80" r="58" fill="url(#moonlight)" filter="url(#regolith)"/>
+    <ellipse cx="41" cy="71" rx="20" ry="28" fill="url(#mare)"/>
+    <ellipse cx="68" cy="113" rx="24" ry="15" fill="url(#mare)"/>
+    <g fill="url(#crater)">
+      <circle cx="37" cy="67" r="6"/>
+      <circle cx="44" cy="94" r="4"/>
+      <circle cx="60" cy="116" r="8"/>
+      <circle cx="84" cy="125" r="3"/>
+      <circle cx="32" cy="84" r="2.5"/>
+      <circle cx="50" cy="108" r="2"/>
+    </g>
+    <circle cx="80" cy="80" r="57.5" fill="none" stroke="url(#rim)" stroke-width=".65"/>
+  </g>
+</svg>
