@@ -1,7 +1,7 @@
 import { beginApprovalBlock, endApprovalBlock } from "../../harness/approval/block.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { AgentSession, ExtensionAPI, ExtensionContext, ExtensionToolContext, InlineExtension } from "@earendil-works/pi-coding-agent";
 import { Runtime } from "../runtime.mjs";

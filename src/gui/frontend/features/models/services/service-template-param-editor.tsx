@@ -1,7 +1,7 @@
 import { useId, useRef, useState } from "react";
 import { useIsPresent } from "motion/react";
 import { Pencil, Plus } from "lucide-react";
-import { ChatTemplateKwargValueSchema, type ChatTemplateKwargValue } from "@earendil-works/pi-ai/providers/compat-schema";
+import { type ChatTemplateKwargValue } from "@earendil-works/pi-ai/providers/compat-schema";
 import { equalConfigValues } from "../../../../../harness/config-values.ts";
 import { Button } from "@/ui/button.tsx";
 import { Checkbox } from "@/ui/checkbox.tsx";
@@ -11,9 +11,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover.tsx";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/ui/select.tsx";
 import { Switch } from "@/ui/switch.tsx";
 
-const variables = ChatTemplateKwargValueSchema.anyOf.filter((schema) => schema.type === "object")
-	.flatMap((schema) => schema.properties.$var.anyOf.map((option) => option.const));
-const valueTypes = [...variables, ...ChatTemplateKwargValueSchema.anyOf.filter((schema) => schema.type !== "object").map((schema) => schema.type)];
+const variables = ["thinking.enabled", "thinking.effort", "thinking.budget"] as const satisfies readonly Extract<ChatTemplateKwargValue, { $var: string }>["$var"][];
+const valueTypes = [...variables, "string", "number", "boolean", "null"] as const;
 type ValueType = typeof valueTypes[number];
 export type TemplateValue = ChatTemplateKwargValue;
 type Apply = (name: string, value: TemplateValue) => void;

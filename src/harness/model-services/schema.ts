@@ -1,9 +1,10 @@
 import { ModelsConfigSchema, ModelsJsonSchemas } from "../../../node_modules/@earendil-works/pi-coding-agent/dist/core/model-config.js";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { ModelThinkingLevelSchema } from "@earendil-works/pi-ai/providers/model-schema";
 import { Type, type Static } from "typebox";
 
 const modelExtensions = {
-	defaultThinkingLevel: Type.Optional(ModelThinkingLevelSchema),
+	defaultThinkingLevel: Type.Optional(Type.Unsafe<ThinkingLevel>(ModelThinkingLevelSchema)),
 	dropParams: Type.Optional(Type.Array(Type.String())),
 };
 
