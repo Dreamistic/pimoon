@@ -13,13 +13,22 @@ function allowedUsageRequest(value: string, method: string): boolean {
 	if (method === "GET") return url.pathname === "/backend-api/wham/usage" || url.pathname === "/backend-api/wham/rate-limit-reset-credits";
 	return method === "POST" && url.pathname === "/backend-api/wham/rate-limit-reset-credits/consume";
 }
+/** 登录换取令牌、自动刷新和设备码登录不属于模型调用。 */
+function allowedAuthRequest(value: string, method: string): boolean {
+	const url = new URL(value);
+	return method === "POST" && url.origin === "https://auth.openai.com"
+		&& !url.username && !url.password && !url.search && !url.hash
+		&& ["/oauth/token", "/api/accounts/deviceauth/usercode", "/api/accounts/deviceauth/token"].includes(url.pathname);
+}
 /** 桌面 transport 初始化后安装，保留 Electron Request 的跨 realm 兼容。 */
 export function installModelBoundary(): void {
 	const original = globalThis.fetch;
 	globalThis.fetch = async (input, options) => {
 		const url = typeof input === "string" || input instanceof URL ? String(input) : input.url;
 		const method = options?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
-		if (allowedUsageRequest(url, method.toUpperCase())) return original(input, { ...options, redirect: "error" });
+		if (allowedUsageRequest(url, method.toUpperCase()) || allowedAuthRequest(url, method.toUpperCase())) {
+			return original(input, { ...options, redirect: "error" });
+		}
 		if (!allowedModelURL(url)) { record("network_denied", { target: fingerprint(url) }); throw new Error("pimoon 此构建仅连接 Codex 订阅端点。"); }
 		let bytes: Uint8Array | undefined;
 		if (typeof options?.body === "string") bytes = new TextEncoder().encode(options.body);
