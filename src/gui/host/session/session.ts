@@ -109,6 +109,7 @@ export class GuiSession {
 		if (this.resources.state === "ready") return this.resources.execution;
 		const execution = new GuiExecution(this.id, (event) => {
 			if (event.type === "notification") { this.attention(event.value); return; }
+			if (event.type === "dialogs") this.notify(false);
 			for (const listener of this.listeners) listener(event);
 		}, () => this.changed(), this.refreshHistory, () => this.submitted());
 		execution.observe(this.observed);

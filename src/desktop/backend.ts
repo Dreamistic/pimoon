@@ -100,6 +100,7 @@ if (!(await runChildProcess())) {
 	}
 	void gui
 		.start(process.argv[2] ?? process.cwd())
+		.then(() => gui.startBridge())
 		.catch((error: unknown) => gui.reportError(error))
 		.then(() => process.parentPort.postMessage({ kind: "ready" } satisfies BackendMessage));
 } else {

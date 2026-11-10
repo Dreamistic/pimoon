@@ -19,6 +19,7 @@ import { readWorkspaceGit } from "./workspace/workspace-git.ts";
 import type { WorkspaceEntry, WorkspaceGit, WorkspacePreview } from "../shared/workspace.ts";
 import { readGuiConfig, readGuiDefaults } from "./config/preferences.ts";
 import { StartupChangelog } from "./changelog.ts";
+import { startBridgeServer, type BridgeServer, type BridgeServerOptions } from "./bridge/server.ts";
 
 /** 共享服务与会话目录。执行资源的准入和收尾由逻辑会话管理。 */
 export class GuiHost {
@@ -26,6 +27,13 @@ export class GuiHost {
 	readonly clients = new Set<GuiClient>();
 	readonly changelog = new StartupChangelog();
 	private versionCheck: Promise<string | null> | undefined;
+	private bridgeServer: BridgeServer | undefined;
+	private bridgeStarting: Promise<void> | undefined;
+	get bridge() { return this.bridgeServer?.bridge; }
+	startBridge(options?: BridgeServerOptions): Promise<void> {
+		if (this.closed) return Promise.reject(new Error("宿主已关闭。"));
+		return this.bridgeStarting ??= startBridgeServer(this, options).then(server => { this.bridgeServer = server; }).catch((error: unknown) => { this.bridgeStarting = undefined; throw error; });
+	}
 	private projectTrust = new Map<string, boolean>();
 	private workbenchController = new AbortController();
 	private pendingGit = new Map<string, Promise<WorkspaceGit | null>>();
@@ -48,6 +56,7 @@ export class GuiHost {
 
 	private notifyAttention(value: Attention): void {
 		if (this.closed || process.env.PIMOON_NO_NOTIFICATIONS === "1") return;
+		if (this.bridge?.suppressNotification(value.sessionId)) return;
 		if ([...this.clients].some((client) => client.attending === value.sessionId)) return;
 		const sent = new Set<string>();
 		for (const client of this.clients) {
@@ -171,7 +180,7 @@ export class GuiHost {
 			return existing;
 		}
 		const session = new GuiSession(manager, { trust: this.projectTrust }, event,
-			(changed) => { if (changed) this.activityChanged(); this.scheduleCollection(); }, () => this.refresh(), (value) => this.notifyAttention(value));
+			(changed) => { if (changed) this.activityChanged(); this.bridge?.changed(manager.getSessionId()); this.scheduleCollection(); }, () => this.refresh(), (value) => this.notifyAttention(value));
 		this.sessions.set(session.id, session);
 		this.activityChanged();
 		return session;
@@ -268,9 +277,11 @@ export class GuiHost {
 		if (this.closed) return;
 		this.closed = true;
 		this.workbenchController.abort();
+		await this.bridgeStarting?.catch(() => {});
+		const results: PromiseSettledResult<void>[] = await Promise.allSettled(this.bridgeServer ? [this.bridgeServer.close()] : []);
 		clearTimeout(this.timer);
 		for (const client of [...this.clients]) client.close();
-		const results = await Promise.allSettled([...this.sessions.values()].map((session) => session.close()));
+		results.push(...await Promise.allSettled([...this.sessions.values()].map((session) => session.close())));
 		await Promise.allSettled([...this.tasks]);
 		results.push(...await Promise.allSettled([this.catalog.dispose(), lspManager.reload()]));
 		this.sessions.clear(); this.listeners.clear();

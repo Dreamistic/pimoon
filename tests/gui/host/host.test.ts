@@ -19,6 +19,7 @@ import { compactionTests } from "./session/compaction-cases.ts";
 import { multiSessionTests } from "./session/multi-session-cases.ts";
 import { newSessionTests } from "./session/new-session-cases.ts";
 import { changelogTests } from "./changelog-cases.ts";
+import { bridgeTests } from "./bridge-cases.ts";
 import { delegateTests } from "./session/delegate-cases.ts";
 import { notificationTests } from "./session/notification-cases.ts";
 import { usageCreditTests } from "./session/usage-credit-cases.ts";
@@ -59,6 +60,7 @@ beforeEach(async () => {
 			return { text: JSON.stringify({ decision, title: "确认写入", explanation: "是否允许本次写入？", recommendation: "Allow once", recommendationReason: "仅本次", feedbackPlaceholder: "补充要求", actions: [{ choice: "Allow once", label: "本次写入" }, { choice: "Deny", label: "不写入" }] }) };
 		}
 		if (!request.tools) return titleReply();
+		if (JSON.stringify(request.messages).includes("bridge-provider-failure")) throw new Error("bridge-provider-failure");
 		const lastUser = request.messages.findLastIndex((message) => message.role === "user");
 		const tools = request.messages.slice(lastUser + 1).filter((message) => message.role === "tool").length;
 		if (JSON.stringify(request.messages.slice(0, lastUser + 1)).includes("并发审批测试-B")) {
@@ -126,6 +128,7 @@ compactionTests(() => ({ host, events, setSummaryReply: (reply) => { titleReply 
 multiSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 newSessionTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 changelogTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
+bridgeTests(() => ({ host, cwd, agentDir: path.join(temp.path, ".pi", "agent") }));
 delegateTests(() => ({ host, agentDir: path.join(temp.path, ".pi", "agent") }));
 notificationTests(() => ({ host, agentDir: path.join(temp.path, ".pi", "agent") }));
 usageCreditTests(() => ({ host, events }));

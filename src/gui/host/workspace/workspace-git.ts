@@ -6,7 +6,7 @@ import type { GitChange, GitStatus, WorkspaceGit } from "../../shared/workspace.
 export function runGit(cwd: string, args: string[], signal: AbortSignal): Promise<{ code: number; stdout: string; stderr: string }> {
 	return new Promise((resolve, reject) => {
 		execFile("git", ["--no-optional-locks", "--literal-pathspecs", ...args], {
-			cwd, signal, encoding: "utf8", maxBuffer: 4 * 1024 * 1024, timeout: 15_000,
+			cwd, signal, windowsHide: true, encoding: "utf8", maxBuffer: 4 * 1024 * 1024, timeout: 15_000,
 			env: { ...process.env, LC_ALL: "C", GIT_TERMINAL_PROMPT: "0" },
 		}, (error, stdout, stderr) => {
 			if (!error) resolve({ code: 0, stdout, stderr });
