@@ -1,9 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UsageService } from "../../src/harness/usage/service.ts";
 import type { UsageContext } from "../../src/harness/usage/client.ts";
-import { installModelBoundary } from "../../src/pimoon/network.ts";
 
-const origin = "https://chatgpt.com";
 const usagePath = "/backend-api/wham/usage";
 const creditsPath = "/backend-api/wham/rate-limit-reset-credits";
 const consumePath = `${creditsPath}/consume`;
@@ -37,12 +35,11 @@ beforeEach(() => {
 		throw new Error("Unexpected test endpoint");
 	});
 	globalThis.fetch = transport;
-	installModelBoundary();
 });
 afterEach(() => { globalThis.fetch = originalFetch; });
 
-describe("桌面订阅用量网络边界", () => {
-	it("安装桌面边界后仍可查询套餐、周额度与重置卡并提交兑换", async () => {
+describe("桌面订阅用量", () => {
+	it("查询套餐、周额度与重置卡并提交兑换", async () => {
 		const service = new UsageService();
 		const snapshot = await service.load(context, { refresh: true, signal: undefined });
 		expect(snapshot.providers).toEqual([expect.objectContaining({
@@ -76,40 +73,4 @@ describe("桌面订阅用量网络边界", () => {
 		expect(snapshot.providers[0]).toMatchObject({ status: "ok", plan: "prolite", resetCredits: { availableCount: 1, credits: undefined } });
 	});
 
-	it("支持 URL、Request 和显式覆盖的方法，始终禁止重定向", async () => {
-		await fetch(new URL(`${origin}${usagePath}`), { redirect: "follow" });
-		await fetch(new Request(`${origin}${creditsPath}`));
-		await fetch(new Request(`${origin}${consumePath}`, { method: "POST", body: "{}" }));
-		await fetch(new Request(`${origin}${usagePath}`, { method: "POST" }), { method: "GET" });
-		expect(transport).toHaveBeenCalledTimes(4);
-		expect(transport.mock.calls.every(([, options]) => options?.redirect === "error")).toBe(true);
-		await expect(fetch(new Request(`${origin}${usagePath}`), { method: "DELETE" })).rejects.toThrow("订阅端点");
-		expect(transport).toHaveBeenCalledTimes(4);
-	});
-
-	it.each([
-		[`${origin}${usagePath}`, "POST"],
-		[`${origin}${creditsPath}`, "POST"],
-		[`${origin}${consumePath}`, "GET"],
-		[`${origin}${consumePath}`, "DELETE"],
-		[`http://chatgpt.com${usagePath}`, "GET"],
-		[`https://chatgpt.com:444${usagePath}`, "GET"],
-		[`https://chatgpt.com.example.com${usagePath}`, "GET"],
-		[`https://example.com${usagePath}`, "GET"],
-		[`https://user:password@chatgpt.com${usagePath}`, "GET"],
-		[`${origin}${usagePath}/extra`, "GET"],
-		[`${origin}${usagePath}?target=other`, "GET"],
-		[`${origin}${usagePath}#other`, "GET"],
-		[`${origin}/backend-api/wham/other`, "GET"],
-	])("不放行非精确用量请求 %s %s", async (url, method) => {
-		await expect(fetch(url, { method })).rejects.toThrow("订阅端点");
-		expect(transport).not.toHaveBeenCalled();
-	});
-
-	it("用量白名单不会绕过模型请求的会话绑定", async () => {
-		await expect(fetch(`${origin}/backend-api/codex/responses`, {
-			method: "POST", body: JSON.stringify({ model: "gpt-6-astra" }),
-		})).rejects.toThrow("未绑定");
-		expect(transport).not.toHaveBeenCalled();
-	});
 });

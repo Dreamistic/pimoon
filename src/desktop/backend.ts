@@ -8,9 +8,7 @@ await import("../harness/runtime/environment.ts");
 const closeServices = process.type === "utility"
 	? await (await import("./worker-runtime.ts")).initializeDesktopWorker() : undefined;
 
-const { installModelBoundary } = await import("../pimoon/network.ts");
 const { closeTelemetry } = await import("../pimoon/telemetry.ts");
-installModelBoundary();
 const { runChildProcess } = await import("../harness/runtime/invocation.ts");
 if (!(await runChildProcess())) {
 	const [{ GuiHost }, { readGuiConfig }, { startWebServer }] = await Promise.all([
