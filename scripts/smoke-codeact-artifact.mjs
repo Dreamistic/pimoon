@@ -21,6 +21,7 @@ await fs.writeFile(env.PIMOON_APPROVAL_AI_CONFIG,'{"enabled":false}');
 let requests=0, declarations=[];
 const server=createServer(async(req,res)=>{
     if(req.method==="GET" && req.url==="/download.bin"){res.writeHead(200,{"content-type":"application/octet-stream","content-length":24*1024*1024});res.end(Buffer.alloc(24*1024*1024,7));return;}
+    if(req.method!=="POST"){res.writeHead(404).end();return;}
     const chunks=[]; for await(const c of req) chunks.push(c);
     const raw=Buffer.concat(chunks); const body=JSON.parse((req.headers["content-encoding"]==="zstd"?zstdDecompressSync(raw):raw).toString());
     if(!Array.isArray(body.input)){res.writeHead(400).end();return;}
