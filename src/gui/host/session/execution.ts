@@ -128,7 +128,7 @@ export class GuiExecution {
 		return task.finally(() => { this.tasks.delete(task); this.changed(); });
 	}
 
-	start(manager: SessionManager, permissions: { trust: Map<string, boolean> }, client: SessionClient | undefined, initial: { event: SessionStartEvent; models: string[] | undefined }): Promise<void> {
+	start(manager: SessionManager, permissions: { trust: Map<string, boolean>; delegate?: () => import("../bridge/tools.ts").DelegateTools | undefined }, client: SessionClient | undefined, initial: { event: SessionStartEvent; models: string[] | undefined }): Promise<void> {
 		const initialize = async () => {
 			this.changing = true;
 			try {
@@ -143,6 +143,7 @@ export class GuiExecution {
 					reports: this.reports,
 					usageService: this.usageService,
 					projectTrust: permissions.trust,
+					delegate: permissions.delegate?.(),
 					titleGenerationChanged: (state) => { this.titleGeneration = state; this.schedule(); },
 					signal: this.lifetime.signal,
 				}, manager, initial.event, initial.models, this.modelScope);

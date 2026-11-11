@@ -43,7 +43,7 @@ export class BridgeTasks {
 	polled(): void { this.lastPoll = Date.now(); }
 	private async refresh(): Promise<void> {
 		for (const task of await this.list()) {
-			const fingerprint = JSON.stringify([task.state, task.dialogs, task.delivery, task.verdict, task.lastError]);
+			const fingerprint = JSON.stringify([task.state, task.dialogs, task.delivery, task.verdict, task.lastError, task.lastMessageId]);
 			if (this.fingerprints.get(task.id) !== fingerprint) { this.fingerprints.set(task.id, fingerprint); this.changed(task.id); }
 		}
 	}

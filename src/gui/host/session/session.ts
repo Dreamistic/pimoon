@@ -32,7 +32,7 @@ export class GuiSession {
 	private awaitingMessage: boolean;
 
 	constructor(manager: SessionManager,
-		private permissions: { trust: Map<string, boolean> },
+		private permissions: { trust: Map<string, boolean>; delegate?: () => import("../bridge/tools.ts").DelegateTools | undefined },
 		private startEvent: SessionStartEvent,
 		private notify: (activityChanged: boolean) => void,
 		private refreshHistory: () => void,

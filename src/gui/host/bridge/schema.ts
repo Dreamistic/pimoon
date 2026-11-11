@@ -29,7 +29,7 @@ export type BridgeDelivery = Static<typeof deliverySchema>;
 export type BridgeReview = Static<typeof reviewSchema>;
 export type BridgeDialogReply = Static<typeof dialogSchema>;
 export type BridgeState = "lost" | "accepted" | "cancelled" | "running" | "waiting" | "delivered" | "stalled";
-export type BridgeTaskView = BridgeTask & { state: BridgeState; dialogs: GuiDialog[]; lastAssistant?: string };
+export type BridgeTaskView = BridgeTask & { state: BridgeState; dialogs: GuiDialog[]; lastAssistant?: string; lastMessageId?: string };
 export class BridgeError extends Error {
 	constructor(readonly status: number, message: string, readonly taskId?: string) { super(message); this.name = "BridgeError"; }
 }

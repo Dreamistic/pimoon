@@ -21,7 +21,10 @@ import modelServices from "../../../harness/extensions/model-services.ts";
 import type { ModelsConfig } from "../../../harness/model-services/schema.ts";
 import { lspManager, registerLspCommands } from "../../../harness/lsp/index.ts";
 
+import { registerDelegateTools, type DelegateTools } from "../bridge/tools.ts";
+
 export interface GuiExtensionBindings {
+	delegate?: DelegateTools | undefined;
 	dialogs: GuiDialogs;
 	signal: AbortSignal;
 	titleGenerationChanged(state: AutoTitleState): void;
@@ -35,7 +38,7 @@ export interface GuiExtensionBindings {
 	usageService: UsageService;
 }
 
-export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, bindModelServices, toolsChanged, commandSignal, reports, usageService, signal, titleGenerationChanged }: GuiExtensionBindings, codeact: CodeAct): InlineExtension[] {
+export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, bindModelServices, toolsChanged, commandSignal, reports, usageService, signal, titleGenerationChanged, delegate }: GuiExtensionBindings, codeact: CodeAct): InlineExtension[] {
 	const views: InlineExtension[] = [
 		{ name: "model-services", factory: (pi) => modelServices(pi, bindModelServices) },
 		{ name: "mcp", builtin: true, factory: createGuiMcpExtension({
@@ -99,5 +102,6 @@ export function createGuiExtensions({ dialogs, emit, bindTools, bindMcp, bindMod
 		{ name: "notifications", factory: (pi) => registerAttention(pi, (value) => emit({ type: "notification", value })) },
 		{ name: "llama.cpp", builtin: true, factory: llamaExtension },
 		...extensions.map((extension) => views.find((view) => view.name === extension.name) ?? extension),
+		...(delegate ? [{ name: "delegate", factory: (pi) => registerDelegateTools(pi, dialogs, delegate) } satisfies InlineExtension] : []),
 	];
 }

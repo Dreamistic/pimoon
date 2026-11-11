@@ -179,7 +179,10 @@ export class GuiHost {
 			if (existing.file !== (manager.getSessionFile() ?? null)) throw new Error("会话标识重复，请导入为新会话。");
 			return existing;
 		}
-		const session = new GuiSession(manager, { trust: this.projectTrust }, event,
+		const session = new GuiSession(manager, { trust: this.projectTrust, delegate: () => {
+			const bridge = this.bridge, id = manager.getSessionId();
+			return bridge?.store.tasks.some(task => task.id === id) ? { deliver: value => bridge.recordDelivery(id, value) } : undefined;
+		} }, event,
 			(changed) => { if (changed) this.activityChanged(); this.bridge?.changed(manager.getSessionId()); this.scheduleCollection(); }, () => this.refresh(), (value) => this.notifyAttention(value));
 		this.sessions.set(session.id, session);
 		this.activityChanged();

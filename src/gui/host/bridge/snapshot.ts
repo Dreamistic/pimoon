@@ -25,5 +25,6 @@ export async function taskSnapshot(task: BridgeTask, session: GuiSession | undef
 	const message = manager.getBranch().findLast(entry => entry.type === "message" && entry.message.role === "assistant");
 	const lastAssistant = message?.type === "message" && message.message.role === "assistant"
 		? (message.message.content.filter(block => block.type === "text").map(block => block.text).join("\n") || message.message.errorMessage || "").slice(0, 2000) : "";
-	return { ...task, state, dialogs, lastAssistant };
+	const lastMessageId = manager.getBranch().findLast(entry => entry.type === "message")?.id ?? "";
+	return { ...task, state, dialogs, lastAssistant, lastMessageId };
 }

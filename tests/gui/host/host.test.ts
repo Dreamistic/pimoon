@@ -67,6 +67,12 @@ beforeEach(async () => {
 			if (tools === 0) return { tool: "execute", args: { code: `subprocess.run(${JSON.stringify([process.execPath, "-e", "require('node:fs').writeFileSync('concurrency-b-started','started');setInterval(()=>{},1000)"])},check=True)`, desc: "独立 B 进程" } };
 			return { text: "B completed" };
 		}
+		if (JSON.stringify(request.messages.slice(0, lastUser + 1)).includes("bridge-tools-flow")) {
+			if (tools === 0) return { tool: "execute", args: { code: 'ask(question="是否继续？", options=["允许", "停止"])', desc: "澄清需求" } };
+			if (tools === 1) return { tool: "execute", args: { code: 'write(path="output.txt",content="delegate result")', desc: "写入结果" } };
+			if (tools === 2) return { tool: "execute", args: { code: 'deliver(summary="done",changes=["output.txt"],verification=["fixture"],unverified=[],objections=[])', desc: "提交交付" } };
+			return { text: "Delegate completed" };
+		}
 		if (tools === 0) return { tool: "execute", args: { code: 'read(path="input.txt")', desc: "读取输入" } };
 		if (tools === 1) return { tool: "execute", args: { code: 'write(path="output.txt",content="GUI SDK result\\n")', desc: "写入结果" } };
 		return { text: "GUI completed" };

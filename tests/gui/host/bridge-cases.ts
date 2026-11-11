@@ -1,3 +1,4 @@
+import { getCurrentSystemPrompt } from "@earendil-works/pi-ai";
 import { request as httpRequest } from "node:http";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -44,6 +45,38 @@ const delivery = { summary: "已完成", changes: ["output.txt"], verification: 
 
 export function bridgeTests(fixture: () => { host: GuiClient; cwd: string; agentDir: string }) {
 	describe("委派桥接 HTTP", () => {
+		it("委派 CodeAct 澄清不授予审批，交付、打回、重开后再次交付走同一会话", async () => {
+			const { host, cwd, agentDir } = fixture(); await repository(cwd);
+			await writeFile(path.join(agentDir, "configs/approval-ai.jsonc"), '{"model":"gui-fixture/test","routine":false}');
+			const ordinary = host.runtime.session.getAllTools().map(tool => tool.name);
+			expect(ordinary).not.toContain("ask"); expect(ordinary).not.toContain("deliver");
+			const api = await openBridge(host.host, agentDir);
+			const submitted = await api.bridge.submit({ cwd, goal: "bridge-tools-flow", acceptance: [], constraints: [] });
+			const id = submitted.id;
+			const answerRound = async () => {
+				await expect.poll(async () => (await api.get(id)).dialogs[0]?.kind, { timeout: 10000 }).toBe("select");
+				let dialog = (await api.get(id)).dialogs[0]; if (!dialog) throw new Error("missing ask");
+				expect(dialog.title).toBe("是否继续？");
+				expect((await api.request("POST", `/bridge/tasks/${id}/dialogs/${dialog.id}`, { value: "允许" })).status).toBe(204);
+				await expect.poll(async () => (await api.get(id)).dialogs[0]?.kind, { timeout: 10000 }).toBe("approval");
+				dialog = (await api.get(id)).dialogs[0]; if (!dialog) throw new Error("missing approval");
+				expect((await api.request("POST", `/bridge/tasks/${id}/dialogs/${dialog.id}`, { value: "Allow once" })).status).toBe(204);
+				await api.wait(id, "delivered");
+			};
+			await answerRound();
+			expect((await api.get(id)).delivery).toMatchObject({ summary: "done", head: await git(cwd, "rev-parse", "HEAD") });
+			const session = host.host.sessions.get(id); if (!session?.execution) throw new Error("missing session");
+			expect(getCurrentSystemPrompt(session.execution.runtime.session.messages)).toContain("Delegated task: clarify ambiguity with ask");
+			expect(getCurrentSystemPrompt(host.runtime.session.messages)).not.toContain("Delegated task:");
+			await expect.poll(() => session.canRelease).toBe(true); await session.release();
+			expect(session.execution).toBeUndefined();
+			expect((await api.request("POST", `/bridge/tasks/${id}/review`, { verdict: "rejected", feedback: "bridge-tools-flow: 再检查" })).status).toBe(204);
+			await answerRound();
+			expect((await api.get(id)).history).toHaveLength(1);
+			expect((await api.request("POST", `/bridge/tasks/${id}/review`, { verdict: "accepted" })).status).toBe(204);
+			expect((await api.get(id)).state).toBe("accepted");
+			expect(host.runtime.session.getAllTools().map(tool => tool.name)).toEqual(ordinary);
+		});
 		it("认证、Origin、Host、请求类型和大小均在派单前校验", async () => {
 			const { host, cwd, agentDir } = fixture(), api = await openBridge(host.host, agentDir);
 			expect(api.token.token).toMatch(/^[a-f0-9]{64}$/u);
