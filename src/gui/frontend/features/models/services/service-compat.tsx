@@ -1,8 +1,11 @@
-import { OpenAICompletionsCompatSchema } from "@earendil-works/pi-ai/providers/compat-schema";
+import type { OpenAICompletionsCompat } from "@earendil-works/pi-ai";
+
 import type { ServiceCompatSettings } from "../../../../../harness/model-services/compat-settings.ts";
 import { Disclosure } from "@/ui/disclosure.tsx";
 import type { ChangeConfig } from "./service-draft.ts";
 import { ServiceBoolean, ServiceChoice } from "./service-fields.tsx";
+
+const maxTokensFields = ["max_completion_tokens", "max_tokens"] as const satisfies readonly NonNullable<OpenAICompletionsCompat["maxTokensField"]>[];
 
 export function ServiceCompat({ settings, reasoning, disabled, change }: {
 	settings: ServiceCompatSettings;
@@ -21,7 +24,7 @@ export function ServiceCompat({ settings, reasoning, disabled, change }: {
 	return <Disclosure className="service-disclosure" summary="协议与思考" lazy>
 		<div className="settings-fields">
 			{completions && <ServiceChoice radio label="输出上限字段" value={own.maxTokensField} defaultValue={defaults.maxTokensField}
-				options={OpenAICompletionsCompatSchema.properties.maxTokensField.anyOf.map(({ const: field }) => [field, field])}
+				options={maxTokensFields.map(field => [field, field])}
 				disabled={disabled} change={(value) => change(["compat", "maxTokensField"], value)} />}
 			{flags.map(([key, label]) => <ServiceBoolean key={key} label={label}
 				value={own[key]} defaultValue={defaults[key]} placeholder="因模型而异"

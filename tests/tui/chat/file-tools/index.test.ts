@@ -243,6 +243,7 @@ type RenderContext = Parameters<NonNullable<ToolRenderers["renderCall"]>>[2];
 
 function renderContext(options: Partial<RenderContext> = {}): RenderContext {
 	return {
+		keyText: key => key, keyHint: (key, description) => `${key} ${description}`,
 		toolCallId: "render-test", args: {}, cwd: editCardTemp.path, state: {}, lastComponent: undefined,
 		invalidate() {}, argsComplete: true, executionStarted: true, expanded: false, isPartial: false,
 		showImages: false, isError: false, durationMs: undefined, outputPad: 1, ...options,

@@ -1,10 +1,10 @@
 import type { OpenAICompletionsCompat } from "@earendil-works/pi-ai";
-import { OpenAICompletionsCompatSchema } from "@earendil-works/pi-ai/providers/compat-schema";
 import type { ConfigObject } from "./document.ts";
 import { configuredModels, type ModelSettings } from "./model-settings.ts";
 import { thinkingCapabilities } from "./thinking-capabilities.ts";
 
-export const THINKING_FORMATS = OpenAICompletionsCompatSchema.properties.thinkingFormat.anyOf.map(({ const: format }) => format);
+// SDK schema 仅暴露通用 JSON 字段；选项由公开联合类型约束。
+export const THINKING_FORMATS = ["openai", "openrouter", "qwen", "qwen-chat-template", "zai", "together", "deepseek", "chat-template", "baseten", "ant-ling", "string-thinking"] as const satisfies readonly NonNullable<OpenAICompletionsCompat["thinkingFormat"]>[];
 
 // SDK 未导出兼容默认值解析器。只镜像设置所需字段，并用实际请求测试校验。
 function detectedServiceCompat(provider: string, baseUrl: string, modelId?: string):

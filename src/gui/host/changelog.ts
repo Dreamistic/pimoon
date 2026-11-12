@@ -18,6 +18,10 @@ export class StartupChangelog {
 		}
 		if (lastVersion === VERSION) return null;
 		const entries = getNewEntries(parseChangelog(getChangelogPath()), lastVersion);
+		if (entries === undefined) {
+			await markSeen(settings);
+			return null;
+		}
 		if (!entries.length) return null;
 		const value = {
 			version: VERSION,

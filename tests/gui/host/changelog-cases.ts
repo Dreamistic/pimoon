@@ -93,6 +93,12 @@ export function changelogTests(context: () => { host: GuiClient; cwd: string; ag
 			}
 		});
 
+		it("无法解析的旧版本建立新基线，不反复展示完整日志", async () => {
+			await configure({ lastChangelogVersion: "invalid-version" });
+			expect(await context().host.query({ query: "startupChangelog" }, null)).toBeNull();
+			expect((await settings()).lastChangelogVersion).toBe(VERSION);
+		});
+
 		it("非法配置不被首次启动覆盖，修复后可正常读取", async () => {
 			const { host, agentDir } = context();
 			const file = path.join(agentDir, "settings.json");

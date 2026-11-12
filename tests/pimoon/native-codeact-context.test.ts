@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import type { ExtensionAPI, InlineExtension } from "@earendil-works/pi-coding-agent";
 import { findPrunableToolCallIds, pruneToolTransactions, applyPersistedToolPruning, PRUNE_STATE } from "../../src/harness/prune/prune.ts";
 import { action, fixture } from "./native-fixture.ts";
