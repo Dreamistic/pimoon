@@ -1,4 +1,9 @@
 """CA02 持久 Python；文件检查用于纵深防御，不是强安全沙箱。"""
+import ast
+import base64
+import difflib
+import hashlib
+import zipfile
 import builtins
 import collections
 import csv
@@ -179,7 +184,8 @@ agent_print = config.get('observe', False)
 # 首次执行前加载轻量标准库；不安装依赖，不改变文件与进程审计。
 preloaded = {name: globals()[name] for name in (
     "os", "sys", "json", "re", "pathlib", "Path", "csv", "io", "math", "statistics",
-    "datetime", "time", "collections", "itertools", "functools")}
+    "datetime", "time", "collections", "itertools", "functools",
+    "base64", "ast", "zipfile", "difflib", "hashlib")}
 namespace = {'__builtins__': builtins, **preloaded,
              'observe': observer.observe, 'get_observation': observer.get}
 function_names = set()
