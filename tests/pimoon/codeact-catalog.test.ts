@@ -45,6 +45,8 @@ it("模型保留标准进程签名，不恢复旧批次与进程别名",()=>{
 });
 
 it("预载库显式列出，同名工具改用 functions 命名空间",()=>{
+ expect(nativeInstructions).toContain("Use these names directly; no repeated import needed.");
+ expect(nativeInstructions).not.toContain("subprocess remains controlled");
  expect(nativeInstructions).toContain("Preloaded: os,sys,json,re,pathlib,Path,csv,io,math,statistics,datetime,time,collections,itertools,functools,base64,ast,zipfile,difflib,hashlib,subprocess.");
  const catalog=functionCatalog([{name:"os",description:"Fixture",parameters:Type.Object({})}]);
  expect(catalog).toContain('getattr(functions,"os")()');
