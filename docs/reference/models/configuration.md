@@ -45,6 +45,12 @@ provider 的 `dropParams` 与有效模型的 `dropParams` 依次应用，模型�
 
 只设置 `defaultThinkingLevel` 时直接处理模型选择事件，恢复会话保留历史等级。推理能力需显式声明 `reasoning: true`。
 
+## Codex 订阅模型
+
+pimoon 在 Pi 1.5.2 原生 Codex provider 上补充 `gpt-6.2-astra`（272000 上下文）与 `gpt-6.2-sol`（500000 上下文）。沿用 ChatGPT OAuth 订阅认证和传输，不需要 API Key，不改已有默认模型或用户配置。登录后在模型管理中启用即可；目录可见不代表账号已获得服务端访问权限。
+
+模型参数来自 Pi 上游 `packages/ai/catalog/providers/openai-codex.ts` 与 `catalog/families/openai.ts`。`models.json` 的自定义模型和覆盖仍生效；SDK 后续内置同名模型时优先使用 SDK 定义。
+
 ## 认证
 
 运行时密钥优先于存储凭据，存储凭据优先于配置密钥。SDK 统一处理 `models.json`、`auth.json` 和登录状态。

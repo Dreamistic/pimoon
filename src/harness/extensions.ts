@@ -1,3 +1,4 @@
+import { pimoonCodexProvider } from "../pimoon/codex-models.ts";
 import type { ExtensionAPI, InlineExtension } from "@earendil-works/pi-coding-agent";
 import agentsPrompts from "./extensions/agents-prompts.ts";
 import approvalGate from "./extensions/approval-gate.ts";
@@ -39,6 +40,7 @@ interface HarnessOptions {
 /** 工具与遥测在同一个 factory 内装配，每次加载独立创建状态。 */
 export function createHarnessExtensions(options: HarnessOptions = {}): InlineExtension[] {
 	return [
+		{ name: "codex-models", factory: (pi) => pi.registerProvider(pimoonCodexProvider()) },
 		{ name: "message-performance", factory: messagePerformance },
 		{ name: "tool-search", builtin: true, factory: toolSearch },
 		(options.codeact ?? new CodeAct()).extension,
