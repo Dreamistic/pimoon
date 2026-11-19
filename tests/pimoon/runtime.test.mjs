@@ -193,6 +193,20 @@ test('取消清空内存但不回滚文件，下一次启动新 worker',()=>runT
  const result=await runtime.run('assert "keep" not in globals()\nprint("fresh")',context);assert.equal(result.isError,false);assert.notEqual(result.details.metrics.python_pid,pid);
 }));
 
+test('取消并行调用不等待宿主清理，同一会话可立即继续',{timeout:5000},()=>runTest(async runtime=>{
+ const tool={name:'read',parameters:{type:'object',properties:{path:{type:'string'}}}};
+ const controller=new AbortController(),signals=[];
+ let finish;
+ const cleanup=new Promise(resolve=>{finish=resolve;});
+ try{
+  const pending=runtime.run('parallel([(read,{"path":"a"}),(read,{"path":"b"})])',{tools:[tool],executeTool:async(_name,_args,{signal})=>{
+   signals.push(signal);if(signals.length===2)controller.abort();await cleanup;throw Error('late failure');
+  }},controller.signal);
+  await assert.rejects(pending,/cancel/i);assert.equal(signals.length,2);assert.ok(signals.every(s=>s.aborted));
+  const next=await runtime.run('print("recovered")',context);assert.match(next.content[0].text,/recovered/);
+ }finally{finish();}
+},[{name:'read',parameters:{type:'object',properties:{path:{type:'string'}}}}]));
+
 test('结构化宿主失败抛异常并阻止依赖步骤',async()=>{
  const tool={name:'read',parameters:{type:'object',properties:{path:{type:'string'}}},outputSchema:{type:'object'}};
  await runTest(async runtime=>{

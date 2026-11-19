@@ -57,7 +57,7 @@ export class DesktopDiagnostics {
 	request(id: string, value: unknown, submittedAt: unknown): boolean {
 		if (!object(value) || !object(value.value)) return false;
 		const action = value.value.action;
-		if (typeof action !== "string" || !["prompt", "new", "workspace", "openSession", "sessions"].includes(action)) return false;
+		if (typeof action !== "string" || !["abort", "prompt", "new", "workspace", "openSession", "sessions"].includes(action)) return false;
 		this.write({ phase: "main_received", requestId: id, action,
 			sessionId: typeof value.sessionId === "string" ? value.sessionId : null,
 			...(timestamp(submittedAt) ? { submittedAt } : {}),

@@ -137,7 +137,15 @@ export class Runtime {
         const remainingMs=this.timeoutMs-(performance.now()-start);
         const input=name==='process_run'?limitProcessTimeout(args,remainingMs):args;
         if(input!==args)emit('process_timeout_capped',{...tags,requested_seconds:args.timeout??DEFAULT_PROCESS_TIMEOUT_SECONDS,effective_seconds:input.timeout,remaining_ms:remainingMs});
-        const outcome=await context.executeTool(name,input,{signal:toolController.signal});toolId=outcome.toolCall?.id;
+        // 工具收到取消后可能仍在清理；不可因此阻塞 worker 的取消回执和下一轮会话。
+        const hostSignal=toolController.signal;
+        let interrupt;
+        const stopped=new Promise((_,reject)=>{interrupt=()=>reject(Error('Cancelled'));});
+        hostSignal.addEventListener('abort',interrupt,{once:true});
+        let outcome;
+        try{outcome=await Promise.race([stopped,context.executeTool(name,input,{signal:hostSignal})]);}
+        finally{hostSignal.removeEventListener('abort',interrupt);}
+        toolId=outcome.toolCall?.id;
         const content=outcome.result.content||[];
         // 图片不经 Python 字符串化，随父结果保留原始内容块。
         attachmentSink.push(...content.filter(c=>c.type==='image'));
