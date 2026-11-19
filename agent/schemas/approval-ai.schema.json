@@ -16,7 +16,7 @@
       "description": "Skip AI for bounded local development operations."
     },
     "model": {
-      "type": "string",
+      "type": ["string", "null"],
       "pattern": "^[^/]+/.+$"
     },
     "timeout_ms": {

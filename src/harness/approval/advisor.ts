@@ -21,13 +21,23 @@ export interface ApprovalAdvisorContext {
 	trace?: (phase: string, data: unknown) => Promise<void>;
 }
 
-export type AdvisorFailure = "timeout" | "model_unavailable" | "request_failed" | "invalid_card" | "unavailable";
+export type AdvisorFailure = "auth" | "rate_limit" | "network" | "timeout" | "model_unavailable" | "request_failed" | "invalid_card" | "unavailable";
 export class ApprovalAdvisorError extends Error {
 	constructor(readonly reason: AdvisorFailure) { super(reason); }
 }
 export function advisorFailureText(reason: AdvisorFailure): string {
-	return { timeout: "模型响应超时", model_unavailable: "配置的模型不可用", request_failed: "模型请求失败",
+	return { auth: "审批模型认证或授权失败，请在模型服务中检查登录和模型访问权限", rate_limit: "审批模型请求受限，请检查额度或稍后重试", network: "审批服务连接失败，请检查网络、代理和服务地址", timeout: "审批模型响应超时，请重试或调整审批超时", model_unavailable: "审批模型不可用，请检查当前会话模型或权限与安全中的审批模型", request_failed: "审批模型请求失败，请检查模型服务配置后重试",
 		invalid_card: "模型返回的卡片格式无效", unavailable: "顾问调用失败" }[reason];
+}
+
+// 仅返回固定分类，不把服务商原始错误（可能含凭据）送入会话或诊断。
+export function advisorRequestFailure(error: unknown): AdvisorFailure {
+	const message = typeof error === "string" ? error : error instanceof Error ? error.message : "";
+	const status = record(error) ? Number(error.status ?? error.statusCode) : NaN;
+	if ([401, 403].includes(status) || /^(?:HTTP\s+)?(?:401|403)\b|invalid api key|unauthorized|no api key/i.test(message)) return "auth";
+	if (status === 429 || /^(?:HTTP\s+)?429\b|rate limit/i.test(message)) return "rate_limit";
+	if (/fetch failed|ECONNREFUSED|ENOTFOUND|ECONNRESET|network error/i.test(message)) return "network";
+	return "request_failed";
 }
 
 export function cardChoices(options: ApprovalOptions): ApprovalChoice[] {
@@ -65,11 +75,11 @@ export async function adviseApproval(
 	decision: Extract<ApprovalDecision, { kind: "ask" }>,
 	options: ApprovalOptions,
 	config: ApprovalGateConfig,
-	ctx: Pick<ExtensionContext, "modelRegistry" | "sessionManager">,
+	ctx: Pick<ExtensionContext, "modelRegistry" | "sessionManager" | "model">,
 	input: ApprovalAdvisorContext & { signal: AbortSignal },
 ): Promise<ApprovalCard> {
-	const separator = config.model.indexOf("/");
-	const model = ctx.modelRegistry.find(config.model.slice(0, separator), config.model.slice(separator + 1));
+	const separator = config.model?.indexOf("/") ?? -1;
+	const model = config.model === null ? ctx.model : ctx.modelRegistry.find(config.model.slice(0, separator), config.model.slice(separator + 1));
 	if (!model) throw new ApprovalAdvisorError("model_unavailable");
 	let style = "";
 	try { style = (await readFile(path.join(agentHome, "APPEND_SYSTEM.md"), "utf8")).slice(0, 8000); }
@@ -77,7 +87,7 @@ export async function adviseApproval(
 	input.signal.throwIfAborted();
 	const choices = cardChoices(options);
 	const payload = approvalAdvisorInput(request, decision, options, style, input);
-	await input.trace?.("request", { model: config.model, promptHash: approvalFingerprint(APPROVAL_PROMPT), prompt: APPROVAL_PROMPT, payload });
+	await input.trace?.("request", { model: `${model.provider}/${model.id}`, promptHash: approvalFingerprint(APPROVAL_PROMPT), prompt: APPROVAL_PROMPT, payload });
 	const reasoning = clampThinkingLevel(model, "low");
 	let measurement: ReturnType<typeof bindAuxiliaryRequest> | undefined;
 	let response: AssistantMessage;
@@ -85,17 +95,17 @@ export async function adviseApproval(
 		response = await ctx.modelRegistry.streamSimple(model, {
 			systemPrompt: APPROVAL_PROMPT,
 			messages: [{ role: "user", content: JSON.stringify(payload), timestamp: Date.now() }],
-		}, { signal: input.signal, maxTokens: 1800, maxRetries: 0, transport: "sse", ...(reasoning === "off" ? {} : { reasoning }),
+		}, { signal: input.signal, maxTokens: 1800, maxRetries: 0, ...(reasoning === "off" ? {} : { reasoning }),
 			onPayload: (payload, actualModel) => {
 				input.signal.throwIfAborted();
 				measurement = bindAuxiliaryRequest(payload, actualModel, ctx.sessionManager.getSessionId());
 				void input.trace?.("transport", { modelRequestId: measurement.id, provider: actualModel.provider, model: actualModel.id });
 			} }).result();
-	} catch (error) { measurement?.finish(); throw error; }
+	} catch (error) { measurement?.finish(); input.signal.throwIfAborted(); throw new ApprovalAdvisorError(advisorRequestFailure(error)); }
 	measurement?.finish(response);
 	await input.trace?.("response", { stopReason: response.stopReason, usage: response.usage, text: response.content.filter(part => part.type === "text").map(part => part.text).join("") });
 	input.signal.throwIfAborted();
-	if (response.stopReason === "error" || response.stopReason === "aborted") throw new ApprovalAdvisorError("request_failed");
+	if (response.stopReason === "error" || response.stopReason === "aborted") throw new ApprovalAdvisorError(advisorRequestFailure(response.errorMessage));
 	try {
 		const card = parseApprovalCard(response.content.filter(part => part.type === "text").map(part => part.text).join(""), choices);
 		await input.trace?.("parsed", card); return card;

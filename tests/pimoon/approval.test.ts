@@ -20,7 +20,7 @@ async function fixture(reply: (step: number, request: unknown) => string | Model
 	await fs.mkdir(cwd); await fs.mkdir(agentDir);
 	vi.stubEnv("PIMOON_RESOURCE_DIR", await createRuntimeResources(root));
 	const config = path.join(root, "approval.jsonc");
-	await fs.writeFile(config, JSON.stringify({ model: "fixture/test", routine }));
+	await fs.writeFile(config, JSON.stringify({ routine }));
 	vi.stubEnv("PIMOON_APPROVAL_AI_CONFIG", config);
 	const dialogs = new GuiDialogs(() => {}, () => 0, { get: () => "", set: () => {} });
 	let step = 0;

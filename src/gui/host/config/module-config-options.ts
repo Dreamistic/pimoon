@@ -18,7 +18,8 @@ export function moduleConfigOptions(schema: unknown): Pick<ModuleConfigDocument,
 			return;
 		}
 		const stringEnum = Array.isArray(node.enum) && node.enum.every((value: unknown) => typeof value === "string");
-		const type = node.type ?? (stringEnum ? "string" : undefined);
+		const types = Array.isArray(node.type) ? node.type.filter(value => value !== "null") : undefined;
+		const type = types ? (types.length === 1 ? types[0] : undefined) : node.type ?? (stringEnum ? "string" : undefined);
 		if (type === "string" || type === "boolean" || type === "integer" || type === "number" || type === "array") {
 			const field: ModuleConfigDocument["fields"][string] = { type };
 			if (typeof node.title === "string") field.title = node.title;

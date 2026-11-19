@@ -40,7 +40,7 @@ export async function reviewOperation(args: {
 			try {
 				const evidence = await abortable(collectBlockEvidence(request, args.plan, ctx.cwd, advisorSignal), advisorSignal);
 				const conversation = approvalTaskContext(ctx);
-				diagnostic({ phase: "advisor_start", model: config.model, contextCount: conversation.entries.length, evidenceCount: evidence.length + args.evidence.length, discussionCount: discussion.length });
+				diagnostic({ phase: "advisor_start", model: config.model ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "unavailable"), contextCount: conversation.entries.length, evidenceCount: evidence.length + args.evidence.length, discussionCount: discussion.length });
 				card = await abortable(adviseApproval(request, asked, APPROVAL_OPTIONS, config, ctx, {
 					conversation, evidence: [...evidence, ...args.evidence], discussion, signal: advisorSignal, trace,
 					...(args.block ? { block: { id: args.block.id, code: args.block.code, codeHash: args.block.codeHash, plan: args.plan, dispatchedCalls: [...args.block.seen.values()].reduce((sum, count) => sum + count, 0) } } : {}),

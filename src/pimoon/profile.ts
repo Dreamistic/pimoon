@@ -22,9 +22,8 @@ process.env.PIMOON_TELEMETRY = "0";
 const settings = path.join(agentHome, "settings.json");
 const defaultTools = ["read", "write", "edit", "find", "grep", "ls", "process_run", "http", "websearch", "webfetch"];
 if (!fs.existsSync(settings)) fs.writeFileSync(settings, JSON.stringify({
-	defaultProvider: "openai-codex", defaultModel: "gpt-6-astra", defaultThinkingLevel: "low",
+	defaultThinkingLevel: "low",
 	defaultTools,
-	enabledModels: ["openai-codex/gpt-6-astra"], transport: "sse",
 	cacheWarming: "off", compaction: { enabled: false }, retry: { enabled: false },
 	defaultProjectTrust: "never", extensions: [], packages: [],
 }, null, 2), { mode: 0o600 });

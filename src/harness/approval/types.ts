@@ -44,7 +44,7 @@ export type ApprovalDecision =
 export interface ApprovalGateConfig {
 	enabled: boolean;
 	routine?: boolean;
-	model: string;
+	model: string | null;
 	timeout_ms: number;
 	diagnostics?: import("./trace-store.ts").ApprovalTraceConfig;
 }

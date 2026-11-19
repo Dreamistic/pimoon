@@ -62,7 +62,7 @@ await fs.writeFile(path.join(agent, "auth.json"), JSON.stringify({ "openai-codex
 await fs.writeFile(path.join(agent, "models.json"), JSON.stringify({ providers: { "openai-codex": { api: "openai-codex-responses", baseUrl: "https://chatgpt.com/backend-api", models: [{ id: "test", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } }));
 await fs.writeFile(path.join(agent, "settings.json"), JSON.stringify({ defaultProvider: "openai-codex", defaultModel: "test", retry: { enabled: false }, compaction: { enabled: false } }));
 env.PIMOON_APPROVAL_AI_CONFIG = path.join(agent, "configs/approval-ai.jsonc");
-await fs.writeFile(env.PIMOON_APPROVAL_AI_CONFIG, JSON.stringify({ model: "openai-codex/test", routine }));
+await fs.writeFile(env.PIMOON_APPROVAL_AI_CONFIG, JSON.stringify({ routine }));
 for (const file of ["auto-title", "discord-presence"]) await fs.writeFile(path.join(agent, "configs", file + ".jsonc"), '{"enabled":false}');
 try {
     if (routine) await promisify(execFile)("git", ["init", cwd], { windowsHide: true });
