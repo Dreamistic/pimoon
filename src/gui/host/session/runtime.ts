@@ -21,6 +21,7 @@ import {
 import { createGuiExtensions, type GuiExtensionBindings } from "./extensions.ts";
 import type { GuiModelScope } from "./models.ts";
 import type { GuiModel } from "../../shared/protocol/state.ts";
+import { projectModel } from "./project-model.ts";
 import { CodeAct } from "../../../pimoon/codeact/session.ts";
 
 EventEmitter.defaultMaxListeners = 20;
@@ -100,7 +101,11 @@ export async function createGuiRuntime(
 		const model = context.messages.length === 0 && context.model
 			? services.modelRuntime.getModel(context.model.provider, context.model.modelId)
 			: undefined;
-		const initialSelection = model ? { model, thinkingLevel: context.thinkingLevel as ThinkingLevel } : {};
+		const pref = projectModel(cwd);
+		const reason = sessionStartEvent?.reason;
+		const inherited = pref.enabled && pref.model && !context.model && sessionManager.getEntries().every(entry => entry.type === "thinking_level_change") && (reason === "startup" || reason === "new")
+			? services.modelRuntime.getAvailableSnapshot().find(m => m.provider === pref.model?.provider && m.id === pref.model.id) : undefined;
+		const initialSelection = model ? { model, thinkingLevel: context.thinkingLevel as ThinkingLevel } : inherited ? { model: inherited, thinkingLevel: context.thinkingLevel as ThinkingLevel } : {};
 		const result = await createAgentSessionFromServices({
 			services,
 			sessionManager,

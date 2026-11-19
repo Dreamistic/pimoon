@@ -121,6 +121,11 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 			<p className="model-default-summary">
 				全局默认：{defaults.provider ?? "未设置提供方"} / {defaults.id ?? "未设置模型"} · {defaults.thinking ?? "未设置思考等级"}
 			</p>
+			<label className="model-default-summary">
+				<Checkbox checked={snapshot.inheritProjectModel} disabled={disabled}
+					onCheckedChange={checked => void run({ action: "inheritProjectModel", enabled: checked === true })} />
+				新会话沿用本项目上次选择的模型
+			</label>
 			<div className="model-search">
 				<Search aria-hidden="true" />
 				<SearchInput
@@ -164,7 +169,7 @@ export function ModelManager({ snapshot, send, disabled: blocked }: { snapshot: 
 							? "已保存默认模型和思考等级。"
 							: saved === signature && !snapshot.modelScopeChanged
 								? "已保存常用模型。"
-								: "切换仅影响当前会话；设为默认后供下次启动使用。"}
+								: "设为默认会更改全局默认模型。"}
 				</p>
 				<Button disabled={disabled || !snapshot.modelScopeChanged} aria-busy={pending === "persistModels"} onClick={() => void run({ action: "persistModels" })}>
 					<MorphIcon icon={pending === "persistModels" ? LoaderCircleData : Save} spring="smooth" size="1em"

@@ -77,6 +77,7 @@ export const actionSchema = Type.Union([
 			Type.Literal("max"),
 		]),
 	}),
+	object({ action: Type.Literal("inheritProjectModel"), enabled: Type.Boolean() }),
 	object({ action: Type.Literal("scopeModels"), models: Type.Array(short, { maxItems: 1000, uniqueItems: true }) }),
 	object({
 		action: Type.Literal("settings"),

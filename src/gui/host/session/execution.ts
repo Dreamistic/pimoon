@@ -7,6 +7,7 @@ import type { GuiAction, GuiActionResult } from "../../shared/protocol/actions.t
 import type { GuiEvent } from "../../shared/protocol/events.ts";
 import type { SessionQuery, GuiQueryResults } from "../../shared/protocol/queries.ts";
 import type { GuiSnapshot } from "../../shared/protocol/state.ts";
+import { projectModel, saveProjectModel } from "./project-model.ts";
 import { GuiDialogs } from "./dialogs.ts";
 import type { GuiActor } from "../client.ts";
 import { createGuiRuntime } from "./runtime.ts";
@@ -37,7 +38,7 @@ export interface SessionClient extends Pick<ExtensionCommandContext, "newSession
 }
 type Listener = (event: GuiEvent) => void;
 const liveMutations = new Set<GuiAction["action"]>([
-	"model", "thinking", "codexSpeed", "scopeModels", "persistModels", "persistDefaultModel",
+	"model", "thinking", "codexSpeed", "inheritProjectModel", "scopeModels", "persistModels", "persistDefaultModel",
 	"tool", "toolPreset", "mcpServers", "persistTools", "label", "rename",
 ]);
 
@@ -217,6 +218,7 @@ export class GuiExecution {
 		if (!this.toolController) throw new Error("工具选择未绑定。");
 		return collectGuiSnapshot(this.runtime, {
 			titleGeneration: this.titleGeneration,
+			inheritProjectModel: projectModel(this.runtime.cwd).enabled,
 			scopedModels: this.modelScope.ids,
 			modelScopeChanged: this.modelScope.hasDefaultChanges(this.runtime),
 			modelServicesRevision: this.modelServices.revision,
@@ -405,13 +407,15 @@ export class GuiExecution {
 			case "model": {
 				const model = runtime.services.modelRuntime.getModel(action.provider, action.id);
 				if (!model) throw new Error("模型不存在。");
-				await session.setModel(model, { persist: false }); break;
+				await session.setModel(model, { persist: false });
+				saveProjectModel(runtime.cwd, { model: { provider: model.provider, id: model.id } }); break;
 			}
 			case "thinking": session.setThinkingLevel(action.level); break;
 			case "codexSpeed":
 				setCodexSpeed(session.model?.provider, action.speed, session.sessionManager.getBranch(),
 					(type, data) => session.sessionManager.appendCustomEntry(type, data));
 				break;
+			case "inheritProjectModel": saveProjectModel(runtime.cwd, { enabled: action.enabled }); break;
 			case "scopeModels": this.modelScope.set(runtime, action.models); break;
 			case "persistModels": await this.modelScope.persist(runtime); break;
 			case "persistDefaultModel": await persistDefaultModel(runtime); break;

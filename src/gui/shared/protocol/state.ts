@@ -111,6 +111,7 @@ export interface GuiSnapshot {
 	codexSpeed: CodexSpeed | null;
 	routedModel: { model: GuiModel; thinkingLevel?: string } | null;
 	models: GuiModel[];
+	inheritProjectModel: boolean;
 	scopedModels: string[];
 	modelScopeChanged: boolean;
 	modelServicesRevision: number;

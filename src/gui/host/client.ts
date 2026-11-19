@@ -175,8 +175,7 @@ export class GuiClient {
 		const manager = SessionManager.create(source.cwd);
 		if (options?.parentSession) manager.newSession({ parentSession: options.parentSession });
 		await source.use(this.forSession(source), async (execution) => {
-			const { model, thinkingLevel } = execution.runtime.session;
-			if (model) manager.appendModelChange(model.provider, model.id);
+			const { thinkingLevel } = execution.runtime.session;
 			manager.appendThinkingLevelChange(thinkingLevel);
 		});
 		if (options?.setup) await options.setup(manager);
