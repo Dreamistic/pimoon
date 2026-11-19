@@ -86,7 +86,7 @@ export async function runProcess(input: ProcessInput, workspace: string, signal?
 				const err = decodeOutput(errBytes, input.encoding, input.fallback_encoding, errorBytes > OUTPUT_BYTES);
 				const decodeError = [out.error && `stdout: ${out.error}`, err.error && `stderr: ${err.error}`].filter(Boolean).join("\n");
 				resolve({ exit_code: code, status, stdout: out.text, stderr: spawnError ?? err.text,
-					...(decodeError ? { decode_error: decodeError, stdout_base64: outBytes.toString("base64"), stderr_base64: errBytes.toString("base64") } : {}),
+					...(decodeError ? { decode_error: `status=${status} exit_code=${code} truncated=${truncated}; ${decodeError}`, stdout_base64: outBytes.toString("base64"), stderr_base64: errBytes.toString("base64") } : {}),
 					truncated, duration_ms: Math.round((performance.now() - started) * 100) / 100 });
 			});
 		});

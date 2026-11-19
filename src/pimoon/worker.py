@@ -274,6 +274,17 @@ while True:
             if (isinstance(failure, json.JSONDecodeError) and isinstance(failure.doc, str)
                     and failure.doc.startswith('<read ') and failure.doc.rstrip().endswith('</read>')):
                 failure.add_note('JSON input looks like a rendered read view, not raw JSON.')
+            if type(failure) is AssertionError and not failure.args:
+                frame = traceback.extract_tb(failure.__traceback__, limit=-1)[0]
+                if frame.filename == '<agent>' and frame.colno is not None:
+                    location = f'<agent> line {frame.lineno}, UTF-8 byte column {frame.colno + 1}'
+                    tb = failure.__traceback__
+                    while tb.tb_next:
+                        tb = tb.tb_next
+                    if tb.tb_frame.f_code is bytecode and frame.end_lineno == frame.lineno:
+                        line = code.replace('\r\n', '\n').replace('\r', '\n').split('\n')[frame.lineno - 1].encode('utf-8')
+                        location += ': ' + line[frame.colno:frame.end_colno].decode('utf-8')[:240]
+                    failure.add_note(location)
             error = traceback.format_exc(limit=6)
         finally:
             namespace.pop(RESULT_NAME, None)

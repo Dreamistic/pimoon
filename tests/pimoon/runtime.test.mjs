@@ -10,6 +10,10 @@ await fs.copyFile('assets/runtime/pimoon-runtime.exe',path.join(resources,'pimoo
 process.env.PIMOON_RESOURCE_DIR=resources;
 const {Runtime,Decoder}=await import('../../src/pimoon/runtime.mjs');
 async function runTest(fn,tools=[],observe=true,options={}){const cwd=await fs.mkdtemp(path.join(base,'case-'));const runtime=new Runtime({cwd,tools,observe,...options});try{await runtime.ready;await fn(runtime,cwd);}finally{const exit=once(runtime.child,'exit');runtime.close();await exit;}}
+test('同一行多断言只标出失败语句',()=>runTest(async runtime=>{
+ const result=await runtime.run('label="中文"; assert label; assert not label; print("unexpected")',context);
+ assert.equal(result.isError,true);assert.match(result.content[0].text,/UTF-8 byte column \d+: (?:assert )?not label/);
+}));
 const context={tools:[],executeTool:async()=>{throw Error('unexpected tool');}};
 
 for(const transport of ['rust','direct'])test(`${transport}: Python 可新建外部文件，覆盖和破坏性操作走受控入口，凭据保护保留`,async()=>{

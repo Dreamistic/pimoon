@@ -105,7 +105,7 @@ it("解码失败保留原始字节和退出事实，副作用只执行一次", a
 	const code = 'require("node:fs").appendFileSync("count","x");process.stdout.write(Buffer.from([0x81]));process.stderr.write("diagnostic");process.exitCode=3';
 	const result = await runProcess({ argv: [process.execPath, "-e", code], encoding: "utf-8" }, cwd);
 	expect(result).toMatchObject({ stdout: "", stderr: "diagnostic", exit_code: 3, status: "exited", stdout_base64: "gQ==", stderr_base64: Buffer.from("diagnostic").toString("base64") });
-	expect(result.decode_error).toContain("stdout:");
+	expect(result.decode_error).toContain("status=exited exit_code=3 truncated=false; stdout:");
 	expect(await fs.readFile(path.join(cwd, "count"), "utf8")).toBe("x");
 });
 it("未知显式编码在进程启动前拒绝", async () => {
